@@ -1,9 +1,9 @@
 {
   "id": "style-controller",
   "name": "Style Controller",
-  "version": "0.1.0",
-  "minAppVersion": "1.5.0",
-  "description": "Manage reusable Obsidian style profiles, path overrides, and visual settings through a native settings interface.",
+  "version": "0.1.1",
+  "minAppVersion": "1.13.0",
+  "description": "Manage reusable style profiles, path overrides, and visual settings through a native settings interface.",
   "author": "JQML",
   "authorUrl": "https://github.com/jqml",
   "isDesktopOnly": false

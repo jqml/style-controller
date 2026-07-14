@@ -1004,3 +1004,300 @@
     justify-content: flex-start;
   }
 }
+
+
+/* Runtime note/view styling. Values are supplied per Markdown view with CSS variables. */
+.osc-style-scope .markdown-preview-view,
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-content {
+  color: var(--osc-text-color);
+  font-family: var(--osc-font-family);
+  font-size: var(--osc-text-size);
+  font-weight: var(--osc-text-weight);
+  line-height: var(--osc-line-height);
+}
+
+.osc-style-scope .markdown-preview-view,
+.osc-style-scope .markdown-source-view.mod-cm6 {
+  background-color: var(--osc-background-color);
+}
+
+.osc-style-scope .markdown-preview-view strong,
+.osc-style-scope .markdown-preview-view b,
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-strong {
+  color: var(--osc-bold-color);
+  font-family: var(--osc-bold-font-family);
+  font-weight: var(--osc-bold-weight);
+}
+
+.osc-style-scope .markdown-preview-view em,
+.osc-style-scope .markdown-preview-view i,
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-em {
+  color: var(--osc-italic-color);
+  font-family: var(--osc-italic-font-family);
+  font-weight: var(--osc-italic-weight);
+}
+
+.osc-style-scope .markdown-preview-view h1,
+.osc-style-scope .markdown-source-view.mod-cm6 .HyperMD-header-1,
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-header-1 {
+  color: var(--osc-h1-color);
+  font-family: var(--osc-h1-font-family);
+  font-size: var(--osc-h1-size);
+  font-weight: var(--osc-h1-weight);
+}
+
+.osc-style-scope .markdown-preview-view h2,
+.osc-style-scope .markdown-source-view.mod-cm6 .HyperMD-header-2,
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-header-2 {
+  color: var(--osc-h2-color);
+  font-family: var(--osc-h2-font-family);
+  font-size: var(--osc-h2-size);
+  font-weight: var(--osc-h2-weight);
+}
+
+.osc-style-scope .markdown-preview-view h3,
+.osc-style-scope .markdown-source-view.mod-cm6 .HyperMD-header-3,
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-header-3 {
+  color: var(--osc-h3-color);
+  font-family: var(--osc-h3-font-family);
+  font-size: var(--osc-h3-size);
+  font-weight: var(--osc-h3-weight);
+}
+
+.osc-style-scope .markdown-preview-view h4,
+.osc-style-scope .markdown-source-view.mod-cm6 .HyperMD-header-4,
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-header-4 {
+  color: var(--osc-h4-color);
+  font-family: var(--osc-h4-font-family);
+  font-size: var(--osc-h4-size);
+  font-weight: var(--osc-h4-weight);
+}
+
+.osc-style-scope .markdown-preview-view h5,
+.osc-style-scope .markdown-source-view.mod-cm6 .HyperMD-header-5,
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-header-5 {
+  color: var(--osc-h5-color);
+  font-family: var(--osc-h5-font-family);
+  font-size: var(--osc-h5-size);
+  font-weight: var(--osc-h5-weight);
+}
+
+.osc-style-scope .markdown-preview-view h6,
+.osc-style-scope .markdown-source-view.mod-cm6 .HyperMD-header-6,
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-header-6 {
+  color: var(--osc-h6-color);
+  font-family: var(--osc-h6-font-family);
+  font-size: var(--osc-h6-size);
+  font-weight: var(--osc-h6-weight);
+}
+
+.osc-style-scope .markdown-preview-view a,
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-link,
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-url {
+  color: var(--osc-link-color);
+}
+
+.osc-style-scope .markdown-preview-view a:hover,
+.osc-style-scope .markdown-preview-view .internal-link:hover,
+.osc-style-scope .markdown-preview-view .external-link:hover,
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-link:hover,
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-hmd-internal-link:hover,
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-hmd-internal-link:hover .cm-underline,
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-link.cm-url:hover {
+  color: var(--osc-link-hover-color);
+}
+
+.osc-style-scope .markdown-preview-view .internal-link,
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-hmd-internal-link,
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-hmd-internal-link .cm-underline {
+  color: var(--osc-internal-link-color);
+}
+
+.osc-style-scope .markdown-preview-view .external-link,
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-link.cm-url {
+  color: var(--osc-external-link-color);
+}
+
+.osc-style-scope .markdown-preview-view table,
+.osc-style-scope .markdown-preview-view th,
+.osc-style-scope .markdown-preview-view td,
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-table-widget table,
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-table-widget th,
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-table-widget td {
+  border-color: var(--osc-table-border-color);
+}
+
+.osc-style-scope .markdown-preview-view th,
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-table-widget th {
+  background: var(--osc-table-header-background);
+  color: var(--osc-table-header-color);
+}
+
+.osc-style-scope .markdown-preview-view tbody tr:nth-child(even) {
+  background: var(--osc-table-row-alt-background);
+}
+
+.osc-style-scope .markdown-preview-view :not(pre) > code,
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-line:not(.HyperMD-codeblock) .cm-inline-code {
+  background: var(--osc-code-background);
+  color: var(--osc-code-color);
+  font-family: var(--osc-code-font-family);
+}
+
+.osc-style-scope .markdown-rendered pre,
+.osc-style-scope .markdown-rendered pre code,
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-code,
+.osc-style-scope .markdown-source-view.mod-cm6 .HyperMD-codeblock,
+.osc-style-scope .markdown-source-view.mod-cm6 .HyperMD-codeblock-bg {
+  background: var(--osc-code-block-background);
+  color: var(--osc-code-block-color);
+  font-family: var(--osc-code-block-font-family);
+}
+
+.osc-style-scope .markdown-preview-view blockquote,
+.osc-style-scope .markdown-source-view.mod-cm6 .HyperMD-quote {
+  background: var(--osc-blockquote-background);
+  border-color: var(--osc-blockquote-border-color);
+}
+
+.osc-style-scope.style-controller-image-align-left .markdown-preview-view .image-embed,
+.osc-style-scope.style-controller-image-align-left .markdown-source-view.mod-cm6 .image-embed {
+  display: block;
+  text-align: left;
+}
+
+.osc-style-scope.style-controller-image-align-center .markdown-preview-view .image-embed,
+.osc-style-scope.style-controller-image-align-center .markdown-source-view.mod-cm6 .image-embed {
+  display: block;
+  text-align: center;
+}
+
+.osc-style-scope.style-controller-image-align-right .markdown-preview-view .image-embed,
+.osc-style-scope.style-controller-image-align-right .markdown-source-view.mod-cm6 .image-embed {
+  display: block;
+  text-align: right;
+}
+
+.osc-style-scope.style-controller-image-align-left .markdown-preview-view .image-embed > img,
+.osc-style-scope.style-controller-image-align-left .markdown-source-view.mod-cm6 .image-embed > img,
+.osc-style-scope.style-controller-image-align-center .markdown-preview-view .image-embed > img,
+.osc-style-scope.style-controller-image-align-center .markdown-source-view.mod-cm6 .image-embed > img,
+.osc-style-scope.style-controller-image-align-right .markdown-preview-view .image-embed > img,
+.osc-style-scope.style-controller-image-align-right .markdown-source-view.mod-cm6 .image-embed > img {
+  display: block;
+}
+
+.osc-style-scope.style-controller-image-align-left .markdown-preview-view .image-embed > img,
+.osc-style-scope.style-controller-image-align-left .markdown-source-view.mod-cm6 .image-embed > img {
+  margin-left: 0;
+  margin-right: auto;
+}
+
+.osc-style-scope.style-controller-image-align-center .markdown-preview-view .image-embed > img,
+.osc-style-scope.style-controller-image-align-center .markdown-source-view.mod-cm6 .image-embed > img {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.osc-style-scope.style-controller-image-align-right .markdown-preview-view .image-embed > img,
+.osc-style-scope.style-controller-image-align-right .markdown-source-view.mod-cm6 .image-embed > img {
+  margin-left: auto;
+  margin-right: 0;
+}
+
+.osc-style-scope.style-controller-image-width.style-controller-respect-explicit-image-size .markdown-preview-view .image-embed > img:not([width]):not([height]):not([style*="width"]):not([style*="height"]),
+.osc-style-scope.style-controller-image-width.style-controller-respect-explicit-image-size .markdown-source-view.mod-cm6 .image-embed > img:not([width]):not([height]):not([style*="width"]):not([style*="height"]),
+.osc-style-scope.style-controller-image-width.style-controller-ignore-explicit-size .markdown-preview-view .image-embed > img,
+.osc-style-scope.style-controller-image-width.style-controller-ignore-explicit-size .markdown-source-view.mod-cm6 .image-embed > img {
+  width: var(--osc-image-width);
+}
+
+.osc-style-scope .callout {
+  --callout-border-width: var(--style-controller-callout-border-width);
+  --callout-radius: var(--style-controller-callout-radius);
+  --callout-title-size: var(--style-controller-callout-title-size);
+}
+
+.osc-style-scope .callout-title-inner {
+  font-family: var(--style-controller-callout-title-font-family);
+}
+
+.osc-style-scope div[data-callout="multi-column"].callout > .callout-content > *:is(div, ul, blockquote, p) {
+  border: var(--style-controller-callout-multi-column-border);
+}
+
+.style-controller-file-explorer-target {
+  font-family: var(--style-controller-file-explorer-font-family);
+  font-weight: var(--style-controller-file-explorer-font-weight);
+  --nav-item-color-hover: var(--style-controller-file-explorer-hover-color);
+  --nav-item-background-hover: var(--style-controller-file-explorer-hover-background);
+  --nav-item-background-active: var(--style-controller-file-explorer-active-background);
+  --background-modifier-border-focus: var(--style-controller-file-explorer-focus-border-color);
+}
+
+.style-controller-file-explorer-folder {
+  color: var(--style-controller-file-explorer-folder-color);
+  --nav-collapse-icon-color: var(--style-controller-file-explorer-collapse-icon-color);
+  --nav-indentation-guide-color: var(--style-controller-file-explorer-indent-line-color);
+}
+
+.style-controller-file-explorer-file {
+  color: var(--style-controller-file-explorer-file-color);
+}
+
+.style-controller-file-explorer-file::before {
+  content: attr(data-style-controller-prefix);
+  margin-right: 0.25em;
+}
+
+.osc-base-preview {
+  background: var(--osc-preview-background);
+  color: var(--osc-preview-color);
+  font-family: var(--osc-preview-font-family);
+  font-size: var(--osc-preview-font-size);
+  font-weight: var(--osc-preview-font-weight);
+  line-height: var(--osc-preview-line-height);
+}
+
+.osc-base-preview strong {
+  color: var(--osc-preview-bold-color);
+  font-family: var(--osc-preview-bold-font-family);
+  font-weight: var(--osc-preview-bold-font-weight);
+}
+
+.osc-base-preview em {
+  color: var(--osc-preview-italic-color);
+  font-family: var(--osc-preview-italic-font-family);
+  font-weight: var(--osc-preview-italic-font-weight);
+}
+
+.osc-heading-preview [class*="osc-heading-preview-h"] {
+  color: var(--osc-preview-heading-color);
+  font-family: var(--osc-preview-heading-font-family);
+  font-size: var(--osc-preview-heading-font-size);
+  font-weight: var(--osc-preview-heading-font-weight);
+}
+
+.osc-rich-preview .osc-preview-table th {
+  background: var(--osc-preview-table-header-background);
+  color: var(--osc-preview-table-header-color);
+  border-color: var(--osc-preview-table-border-color);
+}
+
+.osc-rich-preview .osc-preview-table td {
+  border-color: var(--osc-preview-table-border-color);
+}
+
+.osc-rich-preview .osc-preview-table tbody tr:nth-child(even),
+.osc-rich-preview .osc-preview-table-row {
+  background: var(--osc-preview-table-row-alt-background);
+}
+
+.osc-rich-preview blockquote {
+  background: var(--osc-preview-blockquote-background);
+  border-color: var(--osc-preview-blockquote-border-color);
+}
+
+.style-controller-confirm-message {
+  margin-bottom: 12px;
+}

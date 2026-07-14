@@ -7,7 +7,8 @@ import {
   Setting,
   TFolder,
   prepareFuzzySearch,
-  normalizePath
+  normalizePath,
+  Modal
 } from "obsidian";
 
 const DEFAULT_PROFILE = {
@@ -355,8 +356,55 @@ const PROFILE_FIELDS = Object.entries(STYLE_FIELD_REGISTRY)
   .filter(([, meta]) => meta.variable)
   .map(([key, meta]) => [key, meta.variable]);
 
-const STYLE_TAG_ID = "obsidian-style-controller-rules";
-const CUSTOM_STYLE_TAG_ID = "obsidian-style-controller-custom-rules";
+const STYLE_SCOPE_CLASS = "osc-style-scope";
+const STYLE_IMAGE_ALIGNMENT_CLASSES = [
+  "style-controller-image-align-left",
+  "style-controller-image-align-center",
+  "style-controller-image-align-right"
+];
+const STYLE_IMAGE_WIDTH_CLASS = "style-controller-image-width";
+const STYLE_IMAGE_RESPECT_EXPLICIT_CLASS = "style-controller-respect-explicit-image-size";
+const STYLE_IMAGE_IGNORE_EXPLICIT_CLASS = "style-controller-ignore-explicit-image-size";
+const FILE_EXPLORER_TARGET_CLASS = "style-controller-file-explorer-target";
+const FILE_EXPLORER_FOLDER_CLASS = "style-controller-file-explorer-folder";
+const FILE_EXPLORER_FILE_CLASS = "style-controller-file-explorer-file";
+const FILE_EXPLORER_CLASSES = [FILE_EXPLORER_TARGET_CLASS, FILE_EXPLORER_FOLDER_CLASS, FILE_EXPLORER_FILE_CLASS];
+const FILE_EXPLORER_VARIABLES = [
+  "--style-controller-file-explorer-font-family",
+  "--style-controller-file-explorer-font-weight",
+  "--style-controller-file-explorer-folder-color",
+  "--style-controller-file-explorer-file-color",
+  "--style-controller-file-explorer-hover-color",
+  "--style-controller-file-explorer-hover-background",
+  "--style-controller-file-explorer-active-background",
+  "--style-controller-file-explorer-indent-line-color",
+  "--style-controller-file-explorer-collapse-icon-color",
+  "--style-controller-file-explorer-focus-border-color"
+];
+const PREVIEW_STYLE_VARIABLES = [
+  "--osc-preview-font-family",
+  "--osc-preview-font-size",
+  "--osc-preview-font-weight",
+  "--osc-preview-line-height",
+  "--osc-preview-color",
+  "--osc-preview-background",
+  "--osc-preview-bold-font-family",
+  "--osc-preview-bold-font-weight",
+  "--osc-preview-bold-color",
+  "--osc-preview-italic-font-family",
+  "--osc-preview-italic-font-weight",
+  "--osc-preview-italic-color",
+  "--osc-preview-heading-font-family",
+  "--osc-preview-heading-font-size",
+  "--osc-preview-heading-font-weight",
+  "--osc-preview-heading-color",
+  "--osc-preview-table-header-background",
+  "--osc-preview-table-header-color",
+  "--osc-preview-table-border-color",
+  "--osc-preview-table-row-alt-background",
+  "--osc-preview-blockquote-background",
+  "--osc-preview-blockquote-border-color"
+];
 const SIZE_UNITS = ["px", "rem", "em", "%", "pt"];
 const SIZE_FIELDS = new Set([
   ...Object.entries(STYLE_FIELD_REGISTRY)
@@ -406,12 +454,47 @@ const FONT_SUGGESTIONS = [
   "Times New Roman, Georgia, serif"
 ];
 
+class ConfirmationModal extends Modal {
+  constructor(app, title, message, confirmText) {
+    super(app);
+    this.titleText = title;
+    this.message = message;
+    this.confirmText = confirmText;
+    this.result = false;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    new Setting(contentEl).setName(this.titleText).setHeading();
+    contentEl.createDiv({ text: this.message, cls: "style-controller-confirm-message" });
+    new Setting(contentEl)
+      .addButton((button) => button
+        .setButtonText("Cancel")
+        .onClick(() => this.close()))
+      .addButton((button) => button
+        .setButtonText(this.confirmText)
+        .setCta()
+        .onClick(() => {
+          this.result = true;
+          this.close();
+        }));
+  }
+}
+
+function confirmWithModal(app, title, message, confirmText = "Confirm") {
+  return new Promise((resolve) => {
+    const modal = new ConfirmationModal(app, title, message, confirmText);
+    modal.onClose = () => resolve(modal.result);
+    modal.open();
+  });
+}
+
 export default class StyleControllerPlugin extends Plugin {
   async onload() {
     await this.loadSettings();
     warnUnsafeStylePatterns(this.settings);
     this.addSettingTab(new StyleControllerSettingTab(this.app, this));
-    this.installBaseStyles();
     this.registerEvent(this.app.workspace.on("layout-change", () => this.applyStyles()));
     this.registerEvent(this.app.workspace.on("file-open", () => this.applyStyles()));
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.applyStyles()));
@@ -434,35 +517,26 @@ export default class StyleControllerPlugin extends Plugin {
   }
 
   installBaseStyles() {
-    this.removeStyles();
-    const style = document.createElement("style");
-    style.id = STYLE_TAG_ID;
-    style.textContent = BASE_CSS;
-    document.head.appendChild(style);
-    const customStyle = document.createElement("style");
-    customStyle.id = CUSTOM_STYLE_TAG_ID;
-    document.head.appendChild(customStyle);
+    this.applyStyles();
   }
 
   removeStyles() {
-    document.getElementById(STYLE_TAG_ID)?.remove();
-    document.getElementById(CUSTOM_STYLE_TAG_ID)?.remove();
     this.getMarkdownContainers().forEach((container) => {
-      container.classList.remove("osc-style-scope");
-      PROFILE_FIELDS.forEach(([, variable]) => container.style.removeProperty(variable));
+      cleanScopeClasses(container);
+      container.classList.remove(
+        STYLE_SCOPE_CLASS,
+        ...STYLE_IMAGE_ALIGNMENT_CLASSES,
+        STYLE_IMAGE_WIDTH_CLASS,
+        STYLE_IMAGE_RESPECT_EXPLICIT_CLASS,
+        STYLE_IMAGE_IGNORE_EXPLICIT_CLASS
+      );
+      clearProfileCssVariables(container);
       container.removeAttribute("data-osc-profile");
     });
+    this.clearFileExplorerStyles();
   }
 
   applyStyles() {
-    if (!document.getElementById(STYLE_TAG_ID)) {
-      this.installBaseStyles();
-    }
-
-    const customCssParts = [
-      buildCalloutCss(this.settings.callouts),
-      buildFileExplorerCss(this.settings.overrides)
-    ].filter(Boolean);
     this.getMarkdownViews().forEach((view, index) => {
       const file = view.file;
       if (!file) return;
@@ -471,19 +545,46 @@ export default class StyleControllerPlugin extends Plugin {
       const container = view.containerEl;
       const scopeClass = `osc-scope-${index}`;
       cleanScopeClasses(container);
-      container.classList.add("osc-style-scope", scopeClass);
+      container.classList.add(STYLE_SCOPE_CLASS, scopeClass);
       container.setAttribute("data-osc-profile", match.name);
       applyProfileCssVariables(container, match.profile);
-      const profileCss = buildProfileRuntimeCss(`.${scopeClass}`, match.profile);
-      if (profileCss) customCssParts.push(profileCss);
+      applyProfileStateClasses(container, match.profile);
+      applyCalloutCssVariables(container, this.settings.callouts);
+    });
+    this.applyFileExplorerStyles();
+  }
 
-      if (match.profile.customCss?.trim()) {
-        customCssParts.push(scopeCustomCss(`.${scopeClass}`, match.profile.customCss));
+  clearFileExplorerStyles() {
+    const root = this.app.workspace.containerEl?.ownerDocument || document;
+    root.querySelectorAll(`.${FILE_EXPLORER_TARGET_CLASS}`).forEach((element) => {
+      FILE_EXPLORER_CLASSES.forEach((className) => element.removeClass(className));
+      FILE_EXPLORER_VARIABLES.forEach((variable) => setCssVariable(element, variable, ""));
+      element.removeAttribute("data-style-controller-prefix");
+    });
+  }
+
+  applyFileExplorerStyles() {
+    this.clearFileExplorerStyles();
+    const root = this.app.workspace.containerEl?.ownerDocument || document;
+    const titleElements = root.querySelectorAll(".nav-folder-title[data-path], .nav-file-title[data-path]");
+    titleElements.forEach((element) => {
+      const path = element.getAttribute("data-path") || "";
+      const override = this.settings.overrides.find((candidate) => (
+        candidate.enabled
+        && candidate.modules?.fileExplorer
+        && candidate.pattern
+        && matchesOverride(path, candidate)
+      ));
+      if (!override) return;
+      const style = normalizeFileExplorerStyle(override.fileExplorer);
+      element.addClass(FILE_EXPLORER_TARGET_CLASS);
+      element.toggleClass(FILE_EXPLORER_FOLDER_CLASS, element.hasClass("nav-folder-title"));
+      element.toggleClass(FILE_EXPLORER_FILE_CLASS, element.hasClass("nav-file-title"));
+      applyFileExplorerCssVariables(element, style);
+      if (style.prefix) {
+        element.setAttribute("data-style-controller-prefix", style.prefix);
       }
     });
-
-    const customStyle = document.getElementById(CUSTOM_STYLE_TAG_ID);
-    if (customStyle) customStyle.textContent = customCssParts.join("\n");
   }
 
   getMarkdownViews() {
@@ -760,25 +861,78 @@ function compactProfile(profile, modules) {
 }
 
 function setCssVariable(element, variable, value) {
-  if (value === undefined || value === null || String(value).trim() === "") {
-    element.style.removeProperty(variable);
-    return;
-  }
-  if (FONT_VARIABLES.has(variable) && !validateFont(value).valid) {
-    element.style.removeProperty(variable);
-    return;
-  }
-  if (variable.includes("weight") && !validateFontWeight(value).valid) {
-    element.style.removeProperty(variable);
-    return;
-  }
-  element.style.setProperty(variable, String(value).trim());
+  const text = value === undefined || value === null ? "" : String(value).trim();
+  element.setCssProps({ [variable]: text });
+}
+
+function normalizedCssVariableValue(field, variable, rawValue) {
+  if (rawValue === undefined || rawValue === null || String(rawValue).trim() === "") return "";
+  if (FONT_VARIABLES.has(variable)) return validateFont(rawValue).valid ? cssFontValue(rawValue) : "";
+  if (variable.includes("weight")) return validateFontWeight(rawValue).valid ? cssValue(rawValue) : "";
+  if (COLOR_FIELDS.has(field)) return cssColorValue(rawValue);
+  return cssValue(rawValue);
+}
+
+function clearProfileCssVariables(element) {
+  const props = Object.fromEntries([
+    ...PROFILE_FIELDS.map(([, variable]) => [variable, ""]),
+    ["--osc-image-width", ""],
+    ["--style-controller-callout-border-width", ""],
+    ["--style-controller-callout-radius", ""],
+    ["--style-controller-callout-title-size", ""],
+    ["--style-controller-callout-title-font-family", ""],
+    ["--style-controller-callout-multi-column-border", ""]
+  ]);
+  element.setCssProps(props);
 }
 
 function applyProfileCssVariables(element, profile) {
+  const props = {};
   PROFILE_FIELDS.forEach(([field, variable]) => {
-    const value = COLOR_FIELDS.has(field) ? cssColorValue(profile[field]) : profile[field];
-    setCssVariable(element, variable, value);
+    props[variable] = normalizedCssVariableValue(field, variable, profile[field]);
+  });
+  props["--osc-image-width"] = normalizeCssSizeText(profile.imageWidth);
+  element.setCssProps(props);
+}
+
+function applyProfileStateClasses(element, profile) {
+  STYLE_IMAGE_ALIGNMENT_CLASSES.forEach((className) => element.removeClass(className));
+  const alignment = normalizeImageAlignment(profile.imageAlignment);
+  if (alignment) element.addClass(`style-controller-image-align-${alignment}`);
+
+  const hasWidth = hasActiveValue(normalizeCssSizeText(profile.imageWidth));
+  element.toggleClass(STYLE_IMAGE_WIDTH_CLASS, hasWidth);
+  const respectExplicitSize = normalizeImageRespectExplicitSize(profile.imageRespectExplicitSize) !== "false";
+  element.toggleClass(STYLE_IMAGE_RESPECT_EXPLICIT_CLASS, hasWidth && respectExplicitSize);
+  element.toggleClass(STYLE_IMAGE_IGNORE_EXPLICIT_CLASS, hasWidth && !respectExplicitSize);
+}
+
+function applyCalloutCssVariables(element, callouts) {
+  const settings = normalizeCallouts(callouts);
+  const multiColumnBorder = settings.multiColumnBorderWidth && settings.multiColumnBorderStyle && settings.multiColumnBorderColor
+    ? `${settings.multiColumnBorderWidth} ${settings.multiColumnBorderStyle} ${settings.multiColumnBorderColor}`
+    : "";
+  element.setCssProps({
+    "--style-controller-callout-border-width": cssValue(settings.borderWidth),
+    "--style-controller-callout-radius": cssValue(settings.radius),
+    "--style-controller-callout-title-size": cssValue(settings.titleSize),
+    "--style-controller-callout-title-font-family": cssFontValue(settings.titleFontFamily),
+    "--style-controller-callout-multi-column-border": multiColumnBorder
+  });
+}
+
+function applyFileExplorerCssVariables(element, style) {
+  element.setCssProps({
+    "--style-controller-file-explorer-font-family": cssFontValue(style.fontFamily),
+    "--style-controller-file-explorer-font-weight": validateFontWeight(style.fontWeight).valid ? style.fontWeight : "",
+    "--style-controller-file-explorer-folder-color": cssColorValue(style.folderColor),
+    "--style-controller-file-explorer-file-color": cssColorValue(style.fileColor),
+    "--style-controller-file-explorer-hover-color": cssColorValue(style.hoverColor),
+    "--style-controller-file-explorer-hover-background": cssColorValue(style.hoverBackground),
+    "--style-controller-file-explorer-active-background": cssColorValue(style.activeBackground),
+    "--style-controller-file-explorer-indent-line-color": cssColorValue(style.indentLineColor),
+    "--style-controller-file-explorer-collapse-icon-color": cssColorValue(style.collapseIconColor),
+    "--style-controller-file-explorer-focus-border-color": cssColorValue(style.focusBorderColor)
   });
 }
 
@@ -786,25 +940,6 @@ function cleanScopeClasses(element) {
   Array.from(element.classList)
     .filter((className) => className.startsWith("osc-scope-"))
     .forEach((className) => element.classList.remove(className));
-}
-
-function scopeCustomCss(scopeSelector, css) {
-  const trimmed = css.trim();
-  if (!trimmed.includes("{")) {
-    return `${scopeSelector} { ${trimmed} }`;
-  }
-
-  if (trimmed.includes("$scope")) {
-    return trimmed.replaceAll("$scope", scopeSelector);
-  }
-
-  return trimmed.replace(/(^|})(\s*)([^@{}\n][^{]+)\{/g, (match, close, space, selector) => {
-    const scopedSelector = selector
-      .split(",")
-      .map((part) => `${scopeSelector} ${part.trim()}`)
-      .join(", ");
-    return `${close}${space}${scopedSelector} {`;
-  });
 }
 
 function matchesOverride(path, override) {
@@ -1127,11 +1262,7 @@ function cssValue(value) {
 
 function setOptionalCssVariable(element, variable, value) {
   const text = cssValue(value);
-  if (text) {
-    element.style.setProperty(variable, text);
-  } else {
-    element.style.removeProperty(variable);
-  }
+  element.setCssProps({ [variable]: text });
 }
 
 function cssColorValue(value) {
@@ -1146,7 +1277,7 @@ function withPreviewProbe(callback) {
   if (typeof document === "undefined") return "";
   const probe = document.createElement("div");
   probe.className = "markdown-preview-view markdown-rendered";
-  probe.style.cssText = "position:absolute;left:-99999px;top:-99999px;visibility:hidden;pointer-events:none;";
+  probe.setCssStyles({ position: "absolute", left: "-99999px", top: "-99999px", visibility: "hidden", pointerEvents: "none" });
   document.body.appendChild(probe);
   try {
     return callback(probe) || "";
@@ -1209,7 +1340,7 @@ function cssDefaultColorForField(field) {
     if (field === "italicColor") el = probe.createEl("em", { text: "Italic" });
     if (field === "linkColor" || field === "linkHoverColor") el = probe.createEl("a", { text: "Link", attr: { href: "#" } });
     if (field === "internalLinkColor") el = probe.createEl("a", { text: "Internal", cls: "internal-link", attr: { href: "Welcome", "data-href": "Welcome" } });
-    if (field === "externalLinkColor") el = probe.createEl("a", { text: "External", cls: "external-link", attr: { href: "https://obsidian.md" } });
+    if (field === "externalLinkColor") el = probe.createEl("a", { text: "External", cls: "external-link", attr: { href: "#external-link-preview" } });
     if (/^h[1-6]Color$/.test(field)) el = probe.createEl(field.slice(0, 2), { text: "Heading" });
     if (field === "tableHeaderBackground" || field === "tableHeaderColor" || field === "tableBorderColor") {
       const table = probe.createEl("table");
@@ -1255,16 +1386,16 @@ function cssDefaultColorForField(field) {
       property = field === "hoverBackground" || field === "activeBackground" ? "backgroundColor"
         : field === "indentLineColor" || field === "focusBorderColor" ? "borderColor"
           : "color";
-      if (field === "hoverColor") el.style.color = "var(--nav-item-color-hover)";
-      if (field === "hoverBackground") el.style.backgroundColor = "var(--nav-item-background-hover)";
-      if (field === "activeBackground") el.style.backgroundColor = "var(--nav-item-background-active)";
-      if (field === "indentLineColor") el.style.borderColor = "var(--nav-indentation-guide-color)";
-      if (field === "focusBorderColor") el.style.borderColor = "var(--background-modifier-border-focus)";
+      if (field === "hoverColor") el.setCssStyles({ color: "var(--nav-item-color-hover)" });
+      if (field === "hoverBackground") el.setCssStyles({ backgroundColor: "var(--nav-item-background-hover)" });
+      if (field === "activeBackground") el.setCssStyles({ backgroundColor: "var(--nav-item-background-active)" });
+      if (field === "indentLineColor") el.setCssStyles({ borderColor: "var(--nav-indentation-guide-color)" });
+      if (field === "focusBorderColor") el.setCssStyles({ borderColor: "var(--background-modifier-border-focus)" });
     }
     if (field === "accentColor") {
       const raw = window.getComputedStyle(document.body).getPropertyValue("--interactive-accent").trim();
       el = probe.createSpan();
-      el.style.color = raw || "var(--interactive-accent)";
+      el.setCssStyles({ color: raw || "var(--interactive-accent)" });
     }
     return normalizeCssColor(window.getComputedStyle(el)[property])
       || cssVariableColor(fallbackVariableByField[field])
@@ -1311,7 +1442,7 @@ function normalizeCssColor(value) {
 function cssVariableColor(variable) {
   if (!variable || typeof document === "undefined") return "";
   const probe = document.createElement("span");
-  probe.style.color = `var(${variable})`;
+  probe.setCssStyles({ color: `var(${variable})` });
   document.body.appendChild(probe);
   const color = normalizeCssColor(window.getComputedStyle(probe).color);
   probe.remove();
@@ -1639,10 +1770,12 @@ class OverridePathSuggest {
     const viewportWidth = document.documentElement.clientWidth;
     const rightPadding = 16;
     const availableWidth = Math.max(180, viewportWidth - inputRect.left - rightPadding);
-    this.dropdownEl.style.left = "0";
-    this.dropdownEl.style.width = `${Math.min(Math.max(inputRect.width, 260), availableWidth)}px`;
-    this.dropdownEl.style.maxWidth = `${availableWidth}px`;
-    this.dropdownEl.style.maxHeight = "260px";
+    this.dropdownEl.setCssStyles({
+      left: "0",
+      width: `${Math.min(Math.max(inputRect.width, 260), availableWidth)}px`,
+      maxWidth: `${availableWidth}px`,
+      maxHeight: "260px"
+    });
   }
 
   getVaultPaths() {
@@ -1677,7 +1810,6 @@ class StyleControllerSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.addClass("osc-settings");
-    containerEl.createEl("h2", { text: "Obsidian Style Controller" });
     this.renderTopNav(containerEl);
 
     const activeTab = this.plugin.settings.activeSettingsTab || "global";
@@ -1787,7 +1919,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
     const card = parent.createDiv({ cls: "osc-config-card" });
     const header = card.createDiv({ cls: "osc-config-card-header" });
     const title = header.createDiv({ cls: "osc-config-title" });
-    title.createEl("h3", { text: config.name });
+    new Setting(title).setName(config.name).setHeading();
     title.createDiv({
       text: config.description || "No description.",
       cls: `setting-item-description osc-config-description${config.description ? "" : " is-empty"}`
@@ -1857,8 +1989,11 @@ class StyleControllerSettingTab extends PluginSettingTab {
 
   async applyStoredConfiguration(config) {
     if (config.id === NATIVE_DEFAULT_CONFIGURATION.id) {
-      const confirmed = window.confirm(
-        "Apply Default configuration?\n\nThis clears active Style Controller styling so Obsidian and the active theme regain control. Saved configurations will remain."
+      const confirmed = await confirmWithModal(
+        this.app,
+        "Apply Default configuration?",
+        "This clears active Style Controller styling so the active theme regains control. Saved configurations will remain.",
+        "Apply Default"
       );
       if (!confirmed) return;
     }
@@ -1902,7 +2037,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
   renderOverride(parent, override, index, fileExplorerOnly = false) {
     const card = parent.createDiv({ cls: `osc-override-card${override.enabled ? "" : " is-disabled"}` });
     const header = card.createDiv({ cls: "osc-override-card-header" });
-    header.createEl("h3", { text: override.name || `Override ${index + 1}` });
+    new Setting(header).setName(override.name || `Override ${index + 1}`).setHeading();
     this.renderOverrideActions(header, index);
 
     new Setting(card)
@@ -2017,18 +2152,8 @@ class StyleControllerSettingTab extends PluginSettingTab {
       if (override.modules.advancedCss) {
         const advanced = this.renderCollapsibleGroup(card, "Advanced CSS");
         new Setting(advanced)
-          .setName("Custom CSS")
-          .setDesc("Scoped to the matching Markdown pane. Use declarations, selectors, or $scope.")
-          .addTextArea((text) => {
-            text
-              .setPlaceholder("$scope .markdown-preview-view strong { color: #ffcc66; }")
-              .setValue(override.profile.customCss || "")
-              .onChange(async (value) => {
-                override.profile.customCss = value;
-                await this.plugin.saveSettings();
-              });
-            text.inputEl.rows = 6;
-          });
+          .setName("Advanced custom CSS")
+          .setDesc("Arbitrary CSS injection is unavailable in the Community version. Existing stored custom CSS is preserved but not applied.");
       }
     }
 
@@ -2057,7 +2182,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
         }))
       .addButton((button) => button
         .setButtonText("Delete")
-        .setWarning()
+        .setDestructive()
         .onClick(async () => {
           this.plugin.settings.overrides.splice(index, 1);
           await this.plugin.saveSettings();
@@ -2138,25 +2263,33 @@ class StyleControllerSettingTab extends PluginSettingTab {
     const focusBorderColor = cssColorValue(style.focusBorderColor) || resolvedColorDefaultForField("focusBorderColor", "#bdbdbd");
     if (folderTitle) {
       folderTitle.setAttribute("data-path", normalized);
-      folderTitle.style.fontFamily = cssFontValue(style.fontFamily);
-      folderTitle.style.fontWeight = validateFontWeight(style.fontWeight).valid ? style.fontWeight : "";
-      folderTitle.style.color = cssColorValue(style.folderColor);
-      folderTitle.style.setProperty("--nav-collapse-icon-color", cssColorValue(style.collapseIconColor) || "var(--nav-collapse-icon-color)");
+      folderTitle.setCssStyles({
+        fontFamily: cssFontValue(style.fontFamily),
+        fontWeight: validateFontWeight(style.fontWeight).valid ? style.fontWeight : "",
+        color: cssColorValue(style.folderColor)
+      });
+      folderTitle.setCssProps({ "--nav-collapse-icon-color": cssColorValue(style.collapseIconColor) || "var(--nav-collapse-icon-color)" });
     }
     preview.querySelector(".nav-folder-title-content")?.setText(normalized.split("/").filter(Boolean).pop() || "Projects");
-    preview.style.setProperty("--nav-indentation-guide-color", cssColorValue(style.indentLineColor) || "var(--nav-indentation-guide-color)");
-    preview.style.setProperty("--osc-file-preview-prefix", JSON.stringify(style.prefix || ""));
+    preview.setCssProps({
+      "--nav-indentation-guide-color": cssColorValue(style.indentLineColor) || "var(--nav-indentation-guide-color)",
+      "--osc-file-preview-prefix": JSON.stringify(style.prefix || "")
+    });
     fileTitles.forEach((el, index) => {
       el.setAttribute("data-path", index === 0 ? `${normalized}/Brief.md` : `${normalized}/Current note.md`);
-      el.style.fontFamily = cssFontValue(style.fontFamily);
-      el.style.fontWeight = validateFontWeight(style.fontWeight).valid ? style.fontWeight : "";
-      el.style.color = cssColorValue(style.fileColor);
-      el.style.setProperty("--nav-item-color-hover", hoverColor);
-      el.style.setProperty("--nav-item-background-hover", hoverBackground);
-      el.style.setProperty("--nav-item-background-active", activeBackground);
-      el.style.setProperty("--background-modifier-border-focus", focusBorderColor);
+      el.setCssStyles({
+        fontFamily: cssFontValue(style.fontFamily),
+        fontWeight: validateFontWeight(style.fontWeight).valid ? style.fontWeight : "",
+        color: cssColorValue(style.fileColor)
+      });
+      el.setCssProps({
+        "--nav-item-color-hover": hoverColor,
+        "--nav-item-background-hover": hoverBackground,
+        "--nav-item-background-active": activeBackground,
+        "--background-modifier-border-focus": focusBorderColor
+      });
     });
-    if (activeFile) activeFile.style.backgroundColor = activeBackground;
+    if (activeFile) activeFile.setCssStyles({ backgroundColor: activeBackground });
   }
 
   renderProfileSection(parent, title, profile) {
@@ -2207,18 +2340,8 @@ class StyleControllerSettingTab extends PluginSettingTab {
 
     const advanced = this.renderCollapsibleGroup(profileRoot, "Advanced CSS");
     new Setting(advanced)
-      .setName("Custom CSS")
-      .setDesc("Advanced CSS scoped to the matching Markdown pane. Use declarations only, full selectors, or $scope for the pane selector.")
-      .addTextArea((text) => {
-        text
-          .setPlaceholder("$scope .markdown-preview-view strong { color: #ffcc66; }")
-          .setValue(profile.customCss || "")
-          .onChange(async (value) => {
-            profile.customCss = value;
-            await this.plugin.saveSettings();
-          });
-        text.inputEl.rows = 6;
-      });
+      .setName("Advanced custom CSS")
+      .setDesc("Arbitrary CSS injection is unavailable in the Community version. Existing stored custom CSS is preserved but not applied.");
   }
 
   renderSettingGroup(parent, title, profile, fields) {
@@ -2418,7 +2541,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
     const global = this.renderCollapsibleGroup(root, "Global callout style");
     new Setting(global)
       .setName("Reset imported callouts")
-      .setDesc("Restore the values imported from Obsidian Pro/.obsidian/snippets/Callout_data.css.")
+      .setDesc("Restore the bundled imported callout values.")
       .addButton((button) => button
         .setButtonText("Reset")
         .onClick(async () => {
@@ -2548,7 +2671,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
       const preview = parent.createDiv({ cls: "osc-mini-preview osc-links-preview" });
       void MarkdownRenderer.render(
         this.app,
-        "[[Welcome|Internal link]] [External link](https://obsidian.md) [Normal link](#normal-link-preview)",
+        "[[Welcome|Internal link]] [External link](#external-link-preview) [Normal link](#normal-link-preview)",
         preview,
         "Style Controller Preview.md",
         this.plugin
@@ -2576,21 +2699,19 @@ class StyleControllerSettingTab extends PluginSettingTab {
 
   updateBasePreview(profile) {
     this.containerEl.querySelectorAll(".osc-base-preview").forEach((preview) => {
-      preview.style.fontFamily = cssFontValue(profile.fontFamily);
-      preview.style.fontSize = cssValue(profile.textSize);
-      preview.style.fontWeight = cssValue(profile.textWeight);
-      preview.style.lineHeight = cssValue(profile.lineHeight);
-      preview.style.color = cssValue(profile.textColor);
-      preview.style.backgroundColor = cssValue(profile.backgroundColor);
-      preview.querySelectorAll("strong").forEach((el) => {
-        el.style.fontFamily = cssFontValue(profile.boldFontFamily || profile.fontFamily);
-        el.style.fontWeight = cssValue(profile.boldWeight);
-        el.style.color = cssValue(profile.boldColor);
-      });
-      preview.querySelectorAll("em").forEach((el) => {
-        el.style.fontFamily = cssFontValue(profile.italicFontFamily || profile.fontFamily);
-        el.style.fontWeight = cssValue(profile.italicWeight);
-        el.style.color = cssValue(profile.italicColor);
+      preview.setCssProps({
+        "--osc-preview-font-family": cssFontValue(profile.fontFamily),
+        "--osc-preview-font-size": cssValue(profile.textSize),
+        "--osc-preview-font-weight": cssValue(profile.textWeight),
+        "--osc-preview-line-height": cssValue(profile.lineHeight),
+        "--osc-preview-color": cssValue(profile.textColor),
+        "--osc-preview-background": cssValue(profile.backgroundColor),
+        "--osc-preview-bold-font-family": cssFontValue(profile.boldFontFamily || profile.fontFamily),
+        "--osc-preview-bold-font-weight": cssValue(profile.boldWeight),
+        "--osc-preview-bold-color": cssValue(profile.boldColor),
+        "--osc-preview-italic-font-family": cssFontValue(profile.italicFontFamily || profile.fontFamily),
+        "--osc-preview-italic-font-weight": cssValue(profile.italicWeight),
+        "--osc-preview-italic-color": cssValue(profile.italicColor)
       });
     });
   }
@@ -2607,10 +2728,12 @@ class StyleControllerSettingTab extends PluginSettingTab {
   updateHeadingPreview(profile) {
     for (let level = 1; level <= 6; level += 1) {
       this.containerEl.querySelectorAll(`.osc-heading-preview-h${level}`).forEach((el) => {
-        el.style.fontFamily = cssFontValue(profile[`h${level}FontFamily`] || profile.fontFamily);
-        el.style.fontSize = cssValue(profile[`h${level}Size`]);
-        el.style.fontWeight = cssValue(profile[`h${level}Weight`]);
-        el.style.color = cssValue(profile[`h${level}Color`]);
+        el.setCssProps({
+          "--osc-preview-heading-font-family": cssFontValue(profile[`h${level}FontFamily`] || profile.fontFamily),
+          "--osc-preview-heading-font-size": cssValue(profile[`h${level}Size`]),
+          "--osc-preview-heading-font-weight": cssValue(profile[`h${level}Weight`]),
+          "--osc-preview-heading-color": cssValue(profile[`h${level}Color`])
+        });
       });
     }
   }
@@ -2618,36 +2741,14 @@ class StyleControllerSettingTab extends PluginSettingTab {
   updateRichPreview(profile) {
     this.containerEl.querySelectorAll(".osc-rich-preview").forEach((preview) => {
       applyProfileCssVariables(preview, profile);
-    });
-    this.containerEl.querySelectorAll(".osc-rich-preview .osc-preview-table th").forEach((el) => {
-      el.style.backgroundColor = cssValue(profile.tableHeaderBackground);
-      el.style.color = cssValue(profile.tableHeaderColor);
-      el.style.borderColor = cssValue(profile.tableBorderColor);
-    });
-    this.containerEl.querySelectorAll(".osc-rich-preview .osc-preview-table td").forEach((el) => {
-      el.style.borderColor = cssValue(profile.tableBorderColor);
-    });
-    this.containerEl.querySelectorAll(".osc-rich-preview .osc-preview-table tbody tr:nth-child(even), .osc-rich-preview .osc-preview-table-row").forEach((el) => {
-      el.style.backgroundColor = cssValue(profile.tableRowAltBackground);
-    });
-    this.containerEl.querySelectorAll(".osc-rich-preview .osc-inline-code-preview").forEach((el) => {
-      el.style.removeProperty("background-color");
-      el.style.removeProperty("color");
-      el.style.removeProperty("font-family");
-    });
-    this.containerEl.querySelectorAll(".osc-rich-preview .osc-code-block-rendered-preview pre").forEach((el) => {
-      el.style.removeProperty("background-color");
-      el.style.removeProperty("color");
-      el.style.removeProperty("font-family");
-    });
-    this.containerEl.querySelectorAll(".osc-rich-preview .osc-code-block-rendered-preview pre code").forEach((el) => {
-      el.style.removeProperty("background-color");
-      el.style.removeProperty("color");
-      el.style.removeProperty("font-family");
-    });
-    this.containerEl.querySelectorAll(".osc-rich-preview blockquote").forEach((el) => {
-      el.style.backgroundColor = cssValue(profile.blockquoteBackground);
-      el.style.borderColor = cssValue(profile.blockquoteBorderColor);
+      preview.setCssProps({
+        "--osc-preview-table-header-background": cssValue(profile.tableHeaderBackground),
+        "--osc-preview-table-header-color": cssValue(profile.tableHeaderColor),
+        "--osc-preview-table-border-color": cssValue(profile.tableBorderColor),
+        "--osc-preview-table-row-alt-background": cssValue(profile.tableRowAltBackground),
+        "--osc-preview-blockquote-background": cssValue(profile.blockquoteBackground),
+        "--osc-preview-blockquote-border-color": cssValue(profile.blockquoteBorderColor)
+      });
     });
   }
 
