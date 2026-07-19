@@ -767,8 +767,7 @@ function codeBackgroundUiState(profile, field, optional = false) {
     customValue,
     displayedValue: enabled ? customValue : DEFAULT_CODE_BACKGROUND,
     effectiveValue: inherited ? "" : enabled && valid ? customValue : DEFAULT_CODE_BACKGROUND,
-    status: inherited ? "Inherit" : enabled ? valid ? "On" : "Error" : "Off",
-    helperText: `Built-in default: ${DEFAULT_CODE_BACKGROUND}`
+    status: inherited ? "Inherit" : enabled ? valid ? "On" : "Error" : "Off"
   };
 }
 
@@ -790,6 +789,22 @@ function setCodeBackgroundCustomValue(profile, field, value, optional = false) {
   profile[field] = optional && profile[stateFields.enabled] === ""
     ? ""
     : effectiveCodeBackground(profile, field);
+  return codeBackgroundUiState(profile, field, optional);
+}
+
+function setCodeBackgroundCustomInput(profile, field, value, optional = false) {
+  const stateFields = CODE_BACKGROUND_CUSTOM_FIELDS[field];
+  if (!stateFields) return null;
+  const customValue = String(value ?? "").trim();
+  if (!customValue) {
+    profile[stateFields.enabled] = optional ? "" : false;
+    profile[stateFields.value] = optional ? "" : DEFAULT_CODE_BACKGROUND;
+    profile[field] = optional ? "" : DEFAULT_CODE_BACKGROUND;
+  } else {
+    profile[stateFields.enabled] = true;
+    profile[stateFields.value] = customValue;
+    profile[field] = effectiveCodeBackground(profile, field);
+  }
   return codeBackgroundUiState(profile, field, optional);
 }
 
@@ -1410,10 +1425,10 @@ function updateColorStatus(status, value) {
 function updateCodeBackgroundStatus(status, state) {
   status.setText(state.status);
   status.toggleClass("is-active", state.status === "On");
-  status.toggleClass("is-placeholder", state.status === "Inherit");
+  status.toggleClass("is-placeholder", state.status === "Off" || state.status === "Inherit");
   status.toggleClass("is-error", state.status === "Error");
   status.setAttribute("title", state.status === "Off"
-    ? `Using built-in default ${DEFAULT_CODE_BACKGROUND}.`
+    ? `Using the built-in ${DEFAULT_CODE_BACKGROUND} code background.`
     : state.status === "Inherit"
       ? "Inherits the resolved full profile background."
       : state.status === "Error"
@@ -2673,8 +2688,6 @@ class StyleControllerSettingTab extends PluginSettingTab {
     setting.settingEl.toggleClass("osc-font-setting", FONT_FIELDS.has(key));
     if (SIZE_FIELDS.has(key)) {
       this.addSizeControl(setting, profile, key, resolvedPlaceholder);
-    } else if (CODE_BACKGROUND_CUSTOM_FIELDS[key]) {
-      this.addCodeBackgroundControl(setting, profile, key);
     } else if (COLOR_FIELDS.has(key)) {
       this.addColorControl(setting, profile, key, resolvedPlaceholder);
     } else if (FONT_FIELDS.has(key)) {
@@ -2694,57 +2707,6 @@ class StyleControllerSettingTab extends PluginSettingTab {
       const input = setting.controlEl.querySelector("input");
       input?.addEventListener("input", () => updateValueStatus(status, hasActiveValue(input.value)));
     }
-  }
-
-  addCodeBackgroundControl(setting, profile, key) {
-    const stateFields = CODE_BACKGROUND_CUSTOM_FIELDS[key];
-    const optional = profile[stateFields.enabled] === "";
-    setting.setDesc(`Built-in default: ${DEFAULT_CODE_BACKGROUND}`);
-    setting.settingEl.addClass("osc-code-background-setting");
-
-    let toggleComponent;
-    setting.addToggle((toggle) => {
-      toggleComponent = toggle;
-      toggle
-        .setTooltip("Enable custom override")
-        .setValue(codeBackgroundUiState(profile, key, optional).enabled)
-        .onChange(async (enabled) => {
-          setCodeBackgroundCustomEnabled(profile, key, enabled, optional);
-          updateControl();
-          this.updatePreview(profile);
-          await this.plugin.saveSettings();
-          this.refreshPreservingScroll();
-        });
-    });
-
-    const wrapper = setting.controlEl.createDiv({ cls: "osc-color-control osc-code-background-control" });
-    const swatch = wrapper.createEl("input", { attr: { type: "color", "aria-label": "Custom code background" } });
-    const input = wrapper.createEl("input", { attr: { type: "text", "aria-label": "Custom code background value" } });
-    const status = wrapper.createSpan({ cls: "osc-value-status" });
-
-    const saveCustomValue = async (value) => {
-      setCodeBackgroundCustomValue(profile, key, value, optional);
-      updateControl();
-      this.updatePreview(profile);
-      await this.plugin.saveSettings();
-      this.refreshPreservingScroll();
-    };
-
-    swatch.addEventListener("input", () => saveCustomValue(swatch.value));
-    input.addEventListener("change", () => saveCustomValue(input.value));
-
-    function updateControl() {
-      const state = codeBackgroundUiState(profile, key, optional);
-      toggleComponent?.setValue(state.enabled);
-      input.value = state.displayedValue;
-      input.disabled = !state.enabled;
-      input.toggleClass("osc-default-color-value", false);
-      swatch.value = normalizeHexColor(state.displayedValue) || DEFAULT_CODE_BACKGROUND;
-      swatch.disabled = !state.enabled;
-      updateCodeBackgroundStatus(status, state);
-    }
-
-    updateControl();
   }
 
   addSizeControl(setting, profile, key, placeholder) {
@@ -2772,9 +2734,48 @@ class StyleControllerSettingTab extends PluginSettingTab {
 
   addColorControl(setting, profile, key, placeholder) {
     const wrapper = setting.controlEl.createDiv({ cls: "osc-color-control" });
-    const swatch = wrapper.createEl("input", { attr: { type: "color" } });
+    const swatch = wrapper.createEl("input", { attr: { type: "color", "aria-label": `${key} color picker` } });
     const resolvedDefault = resolvedColorDefaultForField(key, placeholder);
-    const input = wrapper.createEl("input", { attr: { type: "text", placeholder: resolvedDefault || placeholder } });
+    const input = wrapper.createEl("input", {
+      attr: { type: "text", placeholder: resolvedDefault || placeholder, "aria-label": `${key} color value` }
+    });
+    const codeStateFields = CODE_BACKGROUND_CUSTOM_FIELDS[key];
+    if (codeStateFields) {
+      const optional = profile[codeStateFields.enabled] === "";
+      const status = wrapper.createSpan({ cls: "osc-value-status" });
+
+      const updateControl = () => {
+        const state = codeBackgroundUiState(profile, key, optional);
+        input.value = state.displayedValue;
+        input.toggleClass("osc-default-color-value", false);
+        swatch.value = normalizeHexColor(state.displayedValue) || DEFAULT_CODE_BACKGROUND;
+        updateCodeBackgroundStatus(status, state);
+      };
+      const updateValue = (value) => {
+        setCodeBackgroundCustomInput(profile, key, value, optional);
+        updateControl();
+        this.updatePreview(profile);
+        this.plugin.applyStyles();
+      };
+      const saveValue = async () => {
+        await this.plugin.saveSettings();
+        this.refreshPreservingScroll();
+      };
+
+      input.addEventListener("focus", () => {
+        if (!codeBackgroundUiState(profile, key, optional).enabled) input.value = "";
+      });
+      input.addEventListener("input", () => updateValue(input.value));
+      input.addEventListener("change", saveValue);
+      input.addEventListener("blur", () => {
+        if (!input.value.trim()) updateControl();
+      });
+      swatch.addEventListener("input", () => updateValue(swatch.value));
+      swatch.addEventListener("change", saveValue);
+      updateControl();
+      return;
+    }
+
     setDisplayedColorValue(input, profile[key] || "", resolvedDefault);
     clearDisplayedDefaultOnFocus(input);
     setDisplayedColorSwatch(swatch, profile[key] || "", resolvedDefault);
@@ -2998,5 +2999,6 @@ export {
   normalizeSettings,
   parseConfigurationImport,
   setCodeBackgroundCustomEnabled,
+  setCodeBackgroundCustomInput,
   setCodeBackgroundCustomValue
 };

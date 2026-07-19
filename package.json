@@ -1,6 +1,6 @@
 {
   "name": "style-controller",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Manage reusable style profiles, path overrides, and visual settings through a native settings interface.",
   "main": "main.js",
   "scripts": {

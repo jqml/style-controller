@@ -71,6 +71,7 @@ const {
   normalizeSettings,
   parseConfigurationImport,
   setCodeBackgroundCustomEnabled,
+  setCodeBackgroundCustomInput,
   setCodeBackgroundCustomValue
 } = pluginModule;
 
@@ -178,7 +179,6 @@ test("real defaults render #fafafa while both custom overrides are Off", () => {
       assert.equal(state.status, "Off");
       assert.equal(state.displayedValue, "#fafafa");
       assert.equal(state.effectiveValue, "#fafafa");
-      assert.equal(state.helperText, "Built-in default: #fafafa");
     }
   }
 
@@ -316,7 +316,6 @@ test("code background UI displays the real effective value without a Native labe
     assert.equal(state.displayedValue, "#fafafa");
     assert.equal(state.effectiveValue, "#fafafa");
     assert.equal(state.status, "Off");
-    assert.equal(state.helperText, "Built-in default: #fafafa");
   }
 
   setCodeBackgroundCustomValue(profile, "codeBlockBackground", "#334455");
@@ -325,7 +324,63 @@ test("code background UI displays the real effective value without a Native labe
   assert.equal(codeBackgroundUiState(profile, "codeBlockBackground").effectiveValue, "#334455");
   assert.match(source, /input\.value = state\.displayedValue/);
   assert.match(source, /toggleClass\("osc-default-color-value", false\)/);
-  assert.doesNotMatch(source, /Built-in default[^\n]*Native/i);
+  assert.doesNotMatch(source, /Built-in default:\s*#fafafa/i);
+});
+
+test("one compact control automatically maps typed custom values and clearing to On and Off", () => {
+  const profile = normalizeProfile({
+    codeBackground: "#fafafa",
+    codeBackgroundCustomEnabled: false,
+    codeBackgroundCustomValue: "#778899",
+    codeBlockBackground: "#fafafa",
+    codeBlockBackgroundCustomEnabled: false,
+    codeBlockBackgroundCustomValue: "#fafafa"
+  });
+  assert.equal(codeBackgroundUiState(profile, "codeBackground").displayedValue, "#fafafa");
+  assert.equal(codeBackgroundUiState(profile, "codeBackground").status, "Off");
+
+  setCodeBackgroundCustomInput(profile, "codeBackground", "#e8e8e8");
+  assert.equal(profile.codeBackgroundCustomEnabled, true);
+  assert.equal(profile.codeBackgroundCustomValue, "#e8e8e8");
+  assert.equal(codeBackgroundUiState(profile, "codeBackground").status, "On");
+  assert.equal(codeBackgroundUiState(profile, "codeBackground").displayedValue, "#e8e8e8");
+  assert.equal(codeBackgroundUiState(profile, "codeBackground").effectiveValue, "#e8e8e8");
+  assert.equal(profile.codeBlockBackground, "#fafafa");
+  assert.equal(profile.codeBlockBackgroundCustomEnabled, false);
+
+  const applied = fakeElement();
+  applyProfileCssVariables(applied, profile);
+  assert.equal(applied.css.get("--osc-code-background"), "#e8e8e8");
+  assert.equal(applied.css.get("--osc-code-block-background"), "#fafafa");
+
+  setCodeBackgroundCustomInput(profile, "codeBackground", "");
+  const cleared = codeBackgroundUiState(profile, "codeBackground");
+  assert.equal(profile.codeBackgroundCustomEnabled, false);
+  assert.equal(cleared.status, "Off");
+  assert.equal(cleared.displayedValue, "#fafafa");
+  assert.equal(cleared.effectiveValue, "#fafafa");
+  applyProfileCssVariables(applied, profile);
+  assert.equal(applied.css.get("--osc-code-background"), "#fafafa");
+  assert.notEqual(applied.css.get("--osc-code-background"), "#ffffff");
+
+  setCodeBackgroundCustomInput(profile, "codeBlockBackground", "not-a-color");
+  assert.equal(codeBackgroundUiState(profile, "codeBlockBackground").status, "Error");
+  assert.equal(codeBackgroundUiState(profile, "codeBlockBackground").effectiveValue, "#fafafa");
+});
+
+test("code backgrounds use the standard single-row color-control structure without a toggle", () => {
+  const colorMethod = source.slice(source.indexOf("  addColorControl("), source.indexOf("  addFontControl("));
+  const codeBranch = colorMethod.slice(colorMethod.indexOf("    if (codeStateFields)"), colorMethod.indexOf("      return;"));
+  const textSettingMethod = source.slice(source.indexOf("  addTextSetting("), source.indexOf("  addSizeControl("));
+
+  assert.match(colorMethod, /createDiv\(\{ cls: "osc-color-control" \}\)/);
+  assert.doesNotMatch(colorMethod, /osc-code-background-(?:setting|control)/);
+  assert.doesNotMatch(codeBranch, /addToggle|ToggleComponent|setDesc/);
+  assert.equal((codeBranch.match(/createSpan\(\{ cls: "osc-value-status" \}\)/g) || []).length, 1);
+  assert.doesNotMatch(textSettingMethod, /addCodeBackgroundControl/);
+  assert.doesNotMatch(css, /osc-code-background-(?:setting|control)/);
+  assert.match(colorMethod, /aria-label[^\n]*color picker/);
+  assert.match(colorMethod, /aria-label[^\n]*color value/);
 });
 
 test("path overrides resolve and apply independently per Markdown leaf", () => {

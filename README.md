@@ -18,7 +18,7 @@ This plugin changes appearance by applying scoped CSS custom properties. Test pr
 
 ## Profiles and Default behavior
 
-The Default profile keeps native Obsidian styling except that inline-code and fenced-code backgrounds use Style Controller's built-in `#fafafa`. Each code background control stores a custom color independently from its On/Off state: Off renders `#fafafa`, while On renders the stored custom override. Turning Off retains the custom color so turning On again restores it. Stored profiles can be applied to the global settings or used as path-specific overrides. The active profile for a note is resolved from the global settings plus matching enabled overrides in their saved order.
+The Default profile keeps native Obsidian styling except that inline-code and fenced-code backgrounds use Style Controller's built-in `#fafafa`. Each code background uses one compact color control: Off displays and renders `#fafafa`, entering a custom color automatically changes it to On, and clearing the field automatically returns it to Off and `#fafafa`. Stored profiles can be applied to the global settings or used as path-specific overrides. The active profile for a note is resolved from the global settings plus matching enabled overrides in their saved order.
 
 ## Path overrides
 
@@ -38,21 +38,18 @@ The plugin uses the packaged `styles.css`; it does not create runtime stylesheet
 
 ## Code background smoke test
 
-1. Reload Style Controller 0.1.5.
-2. Confirm **Inline bg** shows `#fafafa` and Off.
-3. Confirm **Block bg** shows `#fafafa` and Off.
-4. Confirm both previews actually render `rgb(250, 250, 250)`.
-5. Confirm real inline and fenced code also render `rgb(250, 250, 250)`.
-6. Turn **Inline bg** On and change it to an obvious custom color.
-7. Confirm only inline code changes.
-8. Turn **Inline bg** Off.
-9. Confirm it returns to `#fafafa`, not `#ffffff`.
-10. Turn it On again and confirm the custom color returns.
-11. Repeat for **Block bg**.
-12. Restart Obsidian and confirm states persist.
-13. Test Reading view and Live Preview.
-14. Test light and dark themes.
-15. Test two notes using different path overrides.
+1. Reload Style Controller.
+2. Confirm **Inline bg** has only one compact color control.
+3. Confirm **Block bg** has only one compact color control.
+4. Confirm no extra toggle or built-in-default description exists.
+5. Confirm both show `#fafafa` and Off by default.
+6. Confirm both previews render `#fafafa`.
+7. Type a custom **Inline bg** color and confirm it immediately becomes On.
+8. Clear it and confirm it immediately becomes Off and returns to `#fafafa`.
+9. Repeat for **Block bg**.
+10. Test Reading view and Live Preview.
+11. Restart Obsidian and confirm persistence.
+12. Test light and dark themes.
 
 ## Privacy and network behavior
 
