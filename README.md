@@ -8,7 +8,7 @@ This plugin changes appearance by applying scoped CSS custom properties. Test pr
 
 ## Features
 
-- Reusable stored style profiles, including a built-in Default profile for native styling.
+- Reusable stored style profiles, including a built-in Default profile with native styling plus `#fafafa` code backgrounds.
 - Active global profile settings for typography, headings, links, tables, code, blockquotes, callouts, images, file explorer styling, and custom CSS.
 - Path-specific overrides for folders, files, and path-contains matching.
 - Static CSS rules with custom properties scoped to active Markdown views and matching file paths.
@@ -18,7 +18,7 @@ This plugin changes appearance by applying scoped CSS custom properties. Test pr
 
 ## Profiles and Default behavior
 
-The Default profile represents native Obsidian styling with no Style Controller CSS. Stored profiles can be applied to the global settings or used as path-specific overrides. The active profile for a note is resolved from the global settings plus matching enabled overrides in their saved order.
+The Default profile keeps native Obsidian styling except that inline-code and fenced-code backgrounds are actively set to `#fafafa`. Both fields can still be cleared independently to return that code type to native theme styling. Stored profiles can be applied to the global settings or used as path-specific overrides. The active profile for a note is resolved from the global settings plus matching enabled overrides in their saved order.
 
 ## Path overrides
 
@@ -38,18 +38,18 @@ The plugin uses the packaged `styles.css`; it does not create runtime stylesheet
 
 ## Code background smoke test
 
-1. Enable **Inline bg** and **Block bg**.
-2. Set both to `#fafafa`.
-3. Confirm inline and block previews visually match.
-4. Inspect the visible fenced-code container and confirm `background-color` is `rgb(250, 250, 250)`.
-5. Change only **Block bg** and confirm only fenced blocks change.
-6. Turn **Block bg** Off and confirm native rendering returns.
-7. Test reading view.
-8. Test Live Preview.
-9. Switch profiles and verify no stale background remains.
-10. Open two notes with different path overrides and verify isolation.
-11. Disable and re-enable the plugin and verify native styling is restored during cleanup.
-12. Repeat in light and dark themes.
+1. Reset the Default profile.
+2. Confirm **Inline bg** shows `#fafafa` and On.
+3. Confirm **Block bg** shows `#fafafa` and On.
+4. Confirm inline and fenced previews visually match.
+5. Inspect both computed backgrounds and confirm `rgb(250, 250, 250)`.
+6. Create a new profile and confirm both defaults are On with `#fafafa`.
+7. Turn **Block bg** Off and confirm fenced blocks return to native styling.
+8. Turn it On with `#fafafa` and confirm that background returns.
+9. Restart Obsidian and confirm the state persists.
+10. Test reading view and Live Preview.
+11. Test light and dark themes.
+12. Confirm custom existing profile colors were not overwritten.
 
 ## Privacy and network behavior
 

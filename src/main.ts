@@ -11,6 +11,9 @@ import {
   Modal
 } from "obsidian";
 
+const SETTINGS_SCHEMA_VERSION = 1;
+const DEFAULT_CODE_BACKGROUND = "#fafafa";
+
 const DEFAULT_PROFILE = {
   fontFamily: "",
   textSize: "",
@@ -58,10 +61,10 @@ const DEFAULT_PROFILE = {
   tableBorderColor: "",
   tableRowAltBackground: "",
   codeFontFamily: "",
-  codeBackground: "",
+  codeBackground: DEFAULT_CODE_BACKGROUND,
   codeColor: "",
   codeBlockFontFamily: "",
-  codeBlockBackground: "",
+  codeBlockBackground: DEFAULT_CODE_BACKGROUND,
   codeBlockColor: "",
   blockquoteBorderColor: "",
   blockquoteBackground: "",
@@ -69,6 +72,12 @@ const DEFAULT_PROFILE = {
   imageWidth: "",
   imageRespectExplicitSize: "",
   customCss: ""
+};
+
+const LEGACY_DEFAULT_PROFILE = {
+  ...DEFAULT_PROFILE,
+  codeBackground: "",
+  codeBlockBackground: ""
 };
 
 const DEFAULT_OVERRIDE_MODULES = {
@@ -225,6 +234,7 @@ const PROFILE_GROUP_FIELDS = Object.entries(STYLE_FIELD_REGISTRY).reduce((groups
 }, {});
 
 const DEFAULT_SETTINGS = {
+  schemaVersion: SETTINGS_SCHEMA_VERSION,
   enabled: true,
   activeSettingsTab: "global",
   global: DEFAULT_PROFILE,
@@ -338,7 +348,7 @@ const OBSIDIAN_PRO_CONFIGURATION = {
 const NATIVE_DEFAULT_CONFIGURATION = {
   id: "builtin-native-default",
   name: "Default",
-  description: "Native Obsidian styling with no Style Controller CSS.",
+  description: "Native Obsidian styling with active #fafafa inline-code and block-code backgrounds.",
   data: createNativeConfigurationData()
 };
 
@@ -498,6 +508,9 @@ export default class StyleControllerPlugin extends Plugin {
   async loadSettings() {
     const loaded = await this.loadData();
     this.settings = normalizeSettings(loaded);
+    if (Number(loaded?.schemaVersion || 0) < SETTINGS_SCHEMA_VERSION) {
+      await this.saveData(this.settings);
+    }
   }
 
   async saveSettings() {
@@ -612,10 +625,15 @@ export default class StyleControllerPlugin extends Plugin {
 };
 
 function normalizeSettings(loaded) {
-  const settings = { ...DEFAULT_SETTINGS, ...(loaded || {}) };
+  const source = loaded && typeof loaded === "object" ? loaded : {};
+  const settings = { ...DEFAULT_SETTINGS, ...source };
   settings.enabled = true;
   settings.activeSettingsTab = settings.activeSettingsTab || "global";
-  settings.global = normalizeProfile(settings.global);
+  settings.global = Object.prototype.hasOwnProperty.call(source, "global")
+    ? normalizeOptionalProfile(source.global)
+    : createDefaultProfile();
+  migrateLegacyDefaultCodeBackgrounds(source, settings);
+  settings.schemaVersion = SETTINGS_SCHEMA_VERSION;
   settings.callouts = normalizeCallouts(settings.callouts);
   settings.overrides = Array.isArray(settings.overrides)
     ? settings.overrides.map(normalizeOverride)
@@ -650,7 +668,9 @@ function normalizeStoredConfiguration(config) {
 function normalizeConfigurationData(data) {
   return {
     enabled: true,
-    global: normalizeProfile(data?.global),
+    global: data && Object.prototype.hasOwnProperty.call(data, "global")
+      ? normalizeOptionalProfile(data.global)
+      : createDefaultProfile(),
     callouts: normalizeCallouts(data?.callouts),
     overrides: Array.isArray(data?.overrides) ? data.overrides.map(normalizeOverride) : []
   };
@@ -661,8 +681,34 @@ function isBuiltinConfigurationId(id) {
 }
 
 function normalizeProfile(profile) {
-  const source = profile || {};
+  const source = profile && typeof profile === "object" ? profile : DEFAULT_PROFILE;
   return sanitizeProfile({ ...DEFAULT_PROFILE, ...source }, source);
+}
+
+function normalizeOptionalProfile(profile) {
+  const source = profile && typeof profile === "object" ? profile : {};
+  return sanitizeProfile({ ...blankProfileData(), ...source }, source);
+}
+
+function createDefaultProfile() {
+  return normalizeProfile(DEFAULT_PROFILE);
+}
+
+function migrateLegacyDefaultCodeBackgrounds(source, settings) {
+  if (Number(source.schemaVersion || 0) >= SETTINGS_SCHEMA_VERSION) return false;
+  const savedProfile = source.global;
+  if (!savedProfile || (!profileMatches(savedProfile, LEGACY_DEFAULT_PROFILE) && !profileMatches(savedProfile, blankProfileData()))) {
+    return false;
+  }
+  settings.global.codeBackground = DEFAULT_CODE_BACKGROUND;
+  settings.global.codeBlockBackground = DEFAULT_CODE_BACKGROUND;
+  return true;
+}
+
+function profileMatches(profile, expected) {
+  return Object.keys(DEFAULT_PROFILE).every((key) => (
+    String(profile?.[key] ?? "").trim() === String(expected[key] ?? "").trim()
+  ));
 }
 
 function sanitizeProfile(profile, source = {}) {
@@ -680,9 +726,6 @@ function sanitizeProfile(profile, source = {}) {
     normalized.lineHeight = "";
   }
 
-  if (!Object.prototype.hasOwnProperty.call(source, "codeBlockFontFamily")) normalized.codeBlockFontFamily = "";
-  if (!Object.prototype.hasOwnProperty.call(source, "codeBlockBackground")) normalized.codeBlockBackground = "";
-  if (!Object.prototype.hasOwnProperty.call(source, "codeBlockColor")) normalized.codeBlockColor = "";
   normalized.imageAlignment = normalizeImageAlignment(normalized.imageAlignment);
   normalized.imageWidth = normalizeCssSizeText(normalized.imageWidth);
   normalized.imageRespectExplicitSize = normalizeImageRespectExplicitSize(normalized.imageRespectExplicitSize);
@@ -702,7 +745,11 @@ function normalizeImageRespectExplicitSize(value) {
 function createNativeConfigurationData() {
   return normalizeConfigurationData({
     enabled: true,
-    global: blankProfileData(),
+    global: {
+      ...blankProfileData(),
+      codeBackground: DEFAULT_CODE_BACKGROUND,
+      codeBlockBackground: DEFAULT_CODE_BACKGROUND
+    },
     callouts: blankObjectLike(DEFAULT_SETTINGS.callouts),
     overrides: []
   });
@@ -1753,7 +1800,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
       const confirmed = await confirmWithModal(
         this.app,
         "Apply Default configuration?",
-        "This clears active Style Controller styling so the active theme regains control. Saved configurations will remain.",
+        "This restores native styling except for the active #fafafa inline-code and block-code backgrounds. Saved configurations will remain.",
         "Apply Default"
       );
       if (!confirmed) return;
@@ -1897,10 +1944,10 @@ class StyleControllerSettingTab extends PluginSettingTab {
         ["tableBorderColor", "Table border", "#3b4252"],
         ["tableRowAltBackground", "Alt row bg", "#151b22"],
         ["codeFontFamily", "Inline code font", "JetBrains Mono, Menlo, monospace"],
-        ["codeBackground", "Inline code bg", "#1f2937"],
+        ["codeBackground", "Inline code bg", DEFAULT_CODE_BACKGROUND],
         ["codeColor", "Inline code text", "#f8f8f2"],
         ["codeBlockFontFamily", "Code block font", "JetBrains Mono, Menlo, monospace"],
-        ["codeBlockBackground", "Code block bg", "#1f2937"],
+        ["codeBlockBackground", "Code block bg", DEFAULT_CODE_BACKGROUND],
         ["codeBlockColor", "Code block base text", "#f8f8f2"],
         ["blockquoteBorderColor", "Quote border", "#4f8cff"],
         ["blockquoteBackground", "Quote bg", "#111827"]
@@ -2088,10 +2135,10 @@ class StyleControllerSettingTab extends PluginSettingTab {
       ["tableBorderColor", "Table border", "#3b4252"],
       ["tableRowAltBackground", "Alt row bg", "#151b22"],
       ["codeFontFamily", "Inline code font", "JetBrains Mono, Menlo, monospace"],
-      ["codeBackground", "Inline code bg", "#1f2937"],
+      ["codeBackground", "Inline code bg", DEFAULT_CODE_BACKGROUND],
       ["codeColor", "Inline code text", "#f8f8f2"],
       ["codeBlockFontFamily", "Code block font", "JetBrains Mono, Menlo, monospace"],
-      ["codeBlockBackground", "Code block bg", "#1f2937"],
+      ["codeBlockBackground", "Code block bg", DEFAULT_CODE_BACKGROUND],
       ["codeBlockColor", "Code block base text", "#f8f8f2"],
       ["blockquoteBorderColor", "Quote border", "#4f8cff"],
       ["blockquoteBackground", "Quote bg", "#111827"]
@@ -2132,10 +2179,10 @@ class StyleControllerSettingTab extends PluginSettingTab {
 
     this.renderControlSubsection(parent, "Code", profile, [
       ["codeFontFamily", "Inline font", "JetBrains Mono, Menlo, monospace"],
-      ["codeBackground", "Inline bg", "#1f2937"],
+      ["codeBackground", "Inline bg", DEFAULT_CODE_BACKGROUND],
       ["codeColor", "Inline text", "#f8f8f2"],
       ["codeBlockFontFamily", "Block font", "JetBrains Mono, Menlo, monospace"],
-      ["codeBlockBackground", "Block bg", "#1f2937"],
+      ["codeBlockBackground", "Block bg", DEFAULT_CODE_BACKGROUND],
       ["codeBlockColor", "Block base text", "#f8f8f2"]
     ], () => this.renderCodePreview(parent, profile));
 
@@ -2772,9 +2819,13 @@ class StyleControllerSettingTab extends PluginSettingTab {
 export {
   BLOCK_CODE_BACKGROUND_SELECTORS,
   BLOCK_CODE_TEXT_SELECTORS,
+  DEFAULT_CODE_BACKGROUND,
   DEFAULT_PROFILE,
+  DEFAULT_SETTINGS,
   INLINE_CODE_SELECTORS,
+  NATIVE_DEFAULT_CONFIGURATION,
   PROFILE_FIELDS,
+  SETTINGS_SCHEMA_VERSION,
   STYLE_FIELD_REGISTRY,
   STYLE_SCOPE_CLASS,
   applyProfileCssVariables,
@@ -2782,7 +2833,12 @@ export {
   clearProfileCssVariables,
   configurationToExport,
   createConfigurationSnapshot,
+  createDefaultProfile,
+  createNativeConfigurationData,
+  hasActiveValue,
+  migrateLegacyDefaultCodeBackgrounds,
   normalizeHexColor,
+  normalizeOptionalProfile,
   normalizeProfile,
   normalizeSettings,
   parseConfigurationImport
