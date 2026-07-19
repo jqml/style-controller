@@ -11,8 +11,18 @@ import {
   Modal
 } from "obsidian";
 
-const SETTINGS_SCHEMA_VERSION = 1;
+const SETTINGS_SCHEMA_VERSION = 2;
 const DEFAULT_CODE_BACKGROUND = "#fafafa";
+const CODE_BACKGROUND_CUSTOM_FIELDS = {
+  codeBackground: {
+    enabled: "codeBackgroundCustomEnabled",
+    value: "codeBackgroundCustomValue"
+  },
+  codeBlockBackground: {
+    enabled: "codeBlockBackgroundCustomEnabled",
+    value: "codeBlockBackgroundCustomValue"
+  }
+};
 
 const DEFAULT_PROFILE = {
   fontFamily: "",
@@ -62,9 +72,13 @@ const DEFAULT_PROFILE = {
   tableRowAltBackground: "",
   codeFontFamily: "",
   codeBackground: DEFAULT_CODE_BACKGROUND,
+  codeBackgroundCustomEnabled: false,
+  codeBackgroundCustomValue: DEFAULT_CODE_BACKGROUND,
   codeColor: "",
   codeBlockFontFamily: "",
   codeBlockBackground: DEFAULT_CODE_BACKGROUND,
+  codeBlockBackgroundCustomEnabled: false,
+  codeBlockBackgroundCustomValue: DEFAULT_CODE_BACKGROUND,
   codeBlockColor: "",
   blockquoteBorderColor: "",
   blockquoteBackground: "",
@@ -72,12 +86,6 @@ const DEFAULT_PROFILE = {
   imageWidth: "",
   imageRespectExplicitSize: "",
   customCss: ""
-};
-
-const LEGACY_DEFAULT_PROFILE = {
-  ...DEFAULT_PROFILE,
-  codeBackground: "",
-  codeBlockBackground: ""
 };
 
 const DEFAULT_OVERRIDE_MODULES = {
@@ -309,9 +317,13 @@ const OBSIDIAN_PRO_CONFIGURATION = {
       h6Color: "#750000",
       codeFontFamily: "SFMono-Regular, Consolas, monospace",
       codeBackground: "#e0efff",
+      codeBackgroundCustomEnabled: true,
+      codeBackgroundCustomValue: "#e0efff",
       codeColor: "#1f2328",
       codeBlockFontFamily: "",
-      codeBlockBackground: "",
+      codeBlockBackground: DEFAULT_CODE_BACKGROUND,
+      codeBlockBackgroundCustomEnabled: false,
+      codeBlockBackgroundCustomValue: DEFAULT_CODE_BACKGROUND,
       codeBlockColor: "",
       tableHeaderBackground: "",
       tableHeaderColor: "",
@@ -348,7 +360,7 @@ const OBSIDIAN_PRO_CONFIGURATION = {
 const NATIVE_DEFAULT_CONFIGURATION = {
   id: "builtin-native-default",
   name: "Default",
-  description: "Native Obsidian styling with active #fafafa inline-code and block-code backgrounds.",
+  description: "Native Obsidian styling with built-in #fafafa inline-code and block-code backgrounds.",
   data: createNativeConfigurationData()
 };
 
@@ -630,9 +642,8 @@ function normalizeSettings(loaded) {
   settings.enabled = true;
   settings.activeSettingsTab = settings.activeSettingsTab || "global";
   settings.global = Object.prototype.hasOwnProperty.call(source, "global")
-    ? normalizeOptionalProfile(source.global)
+    ? normalizeProfile(source.global)
     : createDefaultProfile();
-  migrateLegacyDefaultCodeBackgrounds(source, settings);
   settings.schemaVersion = SETTINGS_SCHEMA_VERSION;
   settings.callouts = normalizeCallouts(settings.callouts);
   settings.overrides = Array.isArray(settings.overrides)
@@ -669,7 +680,7 @@ function normalizeConfigurationData(data) {
   return {
     enabled: true,
     global: data && Object.prototype.hasOwnProperty.call(data, "global")
-      ? normalizeOptionalProfile(data.global)
+      ? normalizeProfile(data.global)
       : createDefaultProfile(),
     callouts: normalizeCallouts(data?.callouts),
     overrides: Array.isArray(data?.overrides) ? data.overrides.map(normalizeOverride) : []
@@ -682,33 +693,104 @@ function isBuiltinConfigurationId(id) {
 
 function normalizeProfile(profile) {
   const source = profile && typeof profile === "object" ? profile : DEFAULT_PROFILE;
-  return sanitizeProfile({ ...DEFAULT_PROFILE, ...source }, source);
+  return normalizeCodeBackgroundStates(
+    sanitizeProfile({ ...DEFAULT_PROFILE, ...source }, source),
+    source,
+    false
+  );
 }
 
 function normalizeOptionalProfile(profile) {
   const source = profile && typeof profile === "object" ? profile : {};
-  return sanitizeProfile({ ...blankProfileData(), ...source }, source);
+  return normalizeCodeBackgroundStates(
+    sanitizeProfile({ ...blankProfileData(), ...source }, source),
+    source,
+    true
+  );
 }
 
 function createDefaultProfile() {
   return normalizeProfile(DEFAULT_PROFILE);
 }
 
-function migrateLegacyDefaultCodeBackgrounds(source, settings) {
-  if (Number(source.schemaVersion || 0) >= SETTINGS_SCHEMA_VERSION) return false;
-  const savedProfile = source.global;
-  if (!savedProfile || (!profileMatches(savedProfile, LEGACY_DEFAULT_PROFILE) && !profileMatches(savedProfile, blankProfileData()))) {
-    return false;
-  }
-  settings.global.codeBackground = DEFAULT_CODE_BACKGROUND;
-  settings.global.codeBlockBackground = DEFAULT_CODE_BACKGROUND;
-  return true;
+function normalizeCodeBackgroundStates(profile, source, optional) {
+  Object.entries(CODE_BACKGROUND_CUSTOM_FIELDS).forEach(([field, stateFields]) => {
+    const hasEnabledState = Object.prototype.hasOwnProperty.call(source, stateFields.enabled);
+    const hasCustomValue = Object.prototype.hasOwnProperty.call(source, stateFields.value);
+    const legacyValue = String(source[field] ?? "").trim();
+
+    if (optional && !hasEnabledState && !hasCustomValue && !legacyValue) {
+      profile[stateFields.enabled] = "";
+      profile[stateFields.value] = "";
+      profile[field] = "";
+      return;
+    }
+
+    if (!hasEnabledState && !hasCustomValue) {
+      profile[stateFields.enabled] = !!legacyValue && legacyValue.toLowerCase() !== DEFAULT_CODE_BACKGROUND;
+      profile[stateFields.value] = legacyValue || DEFAULT_CODE_BACKGROUND;
+    } else {
+      const rawEnabled = source[stateFields.enabled];
+      if (optional && rawEnabled === "") {
+        profile[stateFields.enabled] = "";
+        profile[stateFields.value] = String(source[stateFields.value] ?? "").trim() || DEFAULT_CODE_BACKGROUND;
+        profile[field] = "";
+        return;
+      }
+      profile[stateFields.enabled] = rawEnabled === true || String(rawEnabled).toLowerCase() === "true";
+      profile[stateFields.value] = String(source[stateFields.value] ?? "").trim() || DEFAULT_CODE_BACKGROUND;
+    }
+
+    profile[field] = effectiveCodeBackground(profile, field);
+  });
+  return profile;
 }
 
-function profileMatches(profile, expected) {
-  return Object.keys(DEFAULT_PROFILE).every((key) => (
-    String(profile?.[key] ?? "").trim() === String(expected[key] ?? "").trim()
-  ));
+function effectiveCodeBackground(profile, field) {
+  const stateFields = CODE_BACKGROUND_CUSTOM_FIELDS[field];
+  if (!stateFields) return "";
+  const customValue = String(profile?.[stateFields.value] ?? "").trim();
+  return profile?.[stateFields.enabled] === true && normalizeHexColor(customValue)
+    ? customValue
+    : DEFAULT_CODE_BACKGROUND;
+}
+
+function codeBackgroundUiState(profile, field, optional = false) {
+  const stateFields = CODE_BACKGROUND_CUSTOM_FIELDS[field];
+  const inherited = optional && profile?.[stateFields.enabled] === "";
+  const enabled = profile?.[stateFields.enabled] === true;
+  const customValue = String(profile?.[stateFields.value] ?? "").trim() || DEFAULT_CODE_BACKGROUND;
+  const valid = !!normalizeHexColor(customValue);
+  return {
+    enabled,
+    inherited,
+    customValue,
+    displayedValue: enabled ? customValue : DEFAULT_CODE_BACKGROUND,
+    effectiveValue: inherited ? "" : enabled && valid ? customValue : DEFAULT_CODE_BACKGROUND,
+    status: inherited ? "Inherit" : enabled ? valid ? "On" : "Error" : "Off",
+    helperText: `Built-in default: ${DEFAULT_CODE_BACKGROUND}`
+  };
+}
+
+function setCodeBackgroundCustomEnabled(profile, field, enabled, optional = false) {
+  const stateFields = CODE_BACKGROUND_CUSTOM_FIELDS[field];
+  if (!stateFields) return null;
+  if (!hasActiveValue(profile[stateFields.value])) {
+    profile[stateFields.value] = DEFAULT_CODE_BACKGROUND;
+  }
+  profile[stateFields.enabled] = optional && !enabled ? "" : enabled;
+  profile[field] = optional && !enabled ? "" : effectiveCodeBackground(profile, field);
+  return codeBackgroundUiState(profile, field, optional);
+}
+
+function setCodeBackgroundCustomValue(profile, field, value, optional = false) {
+  const stateFields = CODE_BACKGROUND_CUSTOM_FIELDS[field];
+  if (!stateFields) return null;
+  profile[stateFields.value] = String(value ?? "").trim();
+  profile[field] = optional && profile[stateFields.enabled] === ""
+    ? ""
+    : effectiveCodeBackground(profile, field);
+  return codeBackgroundUiState(profile, field, optional);
 }
 
 function sanitizeProfile(profile, source = {}) {
@@ -748,7 +830,11 @@ function createNativeConfigurationData() {
     global: {
       ...blankProfileData(),
       codeBackground: DEFAULT_CODE_BACKGROUND,
-      codeBlockBackground: DEFAULT_CODE_BACKGROUND
+      codeBackgroundCustomEnabled: false,
+      codeBackgroundCustomValue: DEFAULT_CODE_BACKGROUND,
+      codeBlockBackground: DEFAULT_CODE_BACKGROUND,
+      codeBlockBackgroundCustomEnabled: false,
+      codeBlockBackgroundCustomValue: DEFAULT_CODE_BACKGROUND
     },
     callouts: blankObjectLike(DEFAULT_SETTINGS.callouts),
     overrides: []
@@ -864,7 +950,7 @@ function normalizeOverride(override) {
     pattern: override.pattern || "",
     enabled: override.enabled !== false,
     modules,
-    profile: normalizeProfile(override.profile),
+    profile: normalizeOptionalProfile(override.profile),
     fileExplorer: normalizeFileExplorerStyle(override.fileExplorer)
   };
 }
@@ -1319,6 +1405,20 @@ function updateColorStatus(status, value) {
     : valid
       ? "Saved and applied."
       : "Use a valid hex color such as #222222.");
+}
+
+function updateCodeBackgroundStatus(status, state) {
+  status.setText(state.status);
+  status.toggleClass("is-active", state.status === "On");
+  status.toggleClass("is-placeholder", state.status === "Inherit");
+  status.toggleClass("is-error", state.status === "Error");
+  status.setAttribute("title", state.status === "Off"
+    ? `Using built-in default ${DEFAULT_CODE_BACKGROUND}.`
+    : state.status === "Inherit"
+      ? "Inherits the resolved full profile background."
+      : state.status === "Error"
+        ? `Use a valid hex color; ${DEFAULT_CODE_BACKGROUND} remains effective until corrected.`
+        : "Custom override saved and applied.");
 }
 
 function updateFontStatus(status, result) {
@@ -2573,6 +2673,8 @@ class StyleControllerSettingTab extends PluginSettingTab {
     setting.settingEl.toggleClass("osc-font-setting", FONT_FIELDS.has(key));
     if (SIZE_FIELDS.has(key)) {
       this.addSizeControl(setting, profile, key, resolvedPlaceholder);
+    } else if (CODE_BACKGROUND_CUSTOM_FIELDS[key]) {
+      this.addCodeBackgroundControl(setting, profile, key);
     } else if (COLOR_FIELDS.has(key)) {
       this.addColorControl(setting, profile, key, resolvedPlaceholder);
     } else if (FONT_FIELDS.has(key)) {
@@ -2592,6 +2694,57 @@ class StyleControllerSettingTab extends PluginSettingTab {
       const input = setting.controlEl.querySelector("input");
       input?.addEventListener("input", () => updateValueStatus(status, hasActiveValue(input.value)));
     }
+  }
+
+  addCodeBackgroundControl(setting, profile, key) {
+    const stateFields = CODE_BACKGROUND_CUSTOM_FIELDS[key];
+    const optional = profile[stateFields.enabled] === "";
+    setting.setDesc(`Built-in default: ${DEFAULT_CODE_BACKGROUND}`);
+    setting.settingEl.addClass("osc-code-background-setting");
+
+    let toggleComponent;
+    setting.addToggle((toggle) => {
+      toggleComponent = toggle;
+      toggle
+        .setTooltip("Enable custom override")
+        .setValue(codeBackgroundUiState(profile, key, optional).enabled)
+        .onChange(async (enabled) => {
+          setCodeBackgroundCustomEnabled(profile, key, enabled, optional);
+          updateControl();
+          this.updatePreview(profile);
+          await this.plugin.saveSettings();
+          this.refreshPreservingScroll();
+        });
+    });
+
+    const wrapper = setting.controlEl.createDiv({ cls: "osc-color-control osc-code-background-control" });
+    const swatch = wrapper.createEl("input", { attr: { type: "color", "aria-label": "Custom code background" } });
+    const input = wrapper.createEl("input", { attr: { type: "text", "aria-label": "Custom code background value" } });
+    const status = wrapper.createSpan({ cls: "osc-value-status" });
+
+    const saveCustomValue = async (value) => {
+      setCodeBackgroundCustomValue(profile, key, value, optional);
+      updateControl();
+      this.updatePreview(profile);
+      await this.plugin.saveSettings();
+      this.refreshPreservingScroll();
+    };
+
+    swatch.addEventListener("input", () => saveCustomValue(swatch.value));
+    input.addEventListener("change", () => saveCustomValue(input.value));
+
+    function updateControl() {
+      const state = codeBackgroundUiState(profile, key, optional);
+      toggleComponent?.setValue(state.enabled);
+      input.value = state.displayedValue;
+      input.disabled = !state.enabled;
+      input.toggleClass("osc-default-color-value", false);
+      swatch.value = normalizeHexColor(state.displayedValue) || DEFAULT_CODE_BACKGROUND;
+      swatch.disabled = !state.enabled;
+      updateCodeBackgroundStatus(status, state);
+    }
+
+    updateControl();
   }
 
   addSizeControl(setting, profile, key, placeholder) {
@@ -2819,6 +2972,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
 export {
   BLOCK_CODE_BACKGROUND_SELECTORS,
   BLOCK_CODE_TEXT_SELECTORS,
+  CODE_BACKGROUND_CUSTOM_FIELDS,
   DEFAULT_CODE_BACKGROUND,
   DEFAULT_PROFILE,
   DEFAULT_SETTINGS,
@@ -2831,15 +2985,18 @@ export {
   applyProfileCssVariables,
   applyProfileStateClasses,
   clearProfileCssVariables,
+  codeBackgroundUiState,
   configurationToExport,
   createConfigurationSnapshot,
   createDefaultProfile,
   createNativeConfigurationData,
+  effectiveCodeBackground,
   hasActiveValue,
-  migrateLegacyDefaultCodeBackgrounds,
   normalizeHexColor,
   normalizeOptionalProfile,
   normalizeProfile,
   normalizeSettings,
-  parseConfigurationImport
+  parseConfigurationImport,
+  setCodeBackgroundCustomEnabled,
+  setCodeBackgroundCustomValue
 };

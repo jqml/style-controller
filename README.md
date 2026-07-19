@@ -4,7 +4,7 @@ Style Controller is an Obsidian plugin for managing reusable style profiles, pat
 
 ## Safety warning
 
-This plugin changes appearance by applying scoped CSS custom properties. Test profiles on a small set of notes before assigning broad path overrides. Blank/default controls remove the corresponding property and allow native Obsidian or theme behavior to continue.
+This plugin changes appearance by applying scoped CSS custom properties. Test profiles on a small set of notes before assigning broad path overrides. Most blank/default controls remove the corresponding property and allow native Obsidian or theme behavior to continue. Inline and block code backgrounds instead use the Style Controller built-in `#fafafa` background whenever their custom override is Off.
 
 ## Features
 
@@ -18,7 +18,7 @@ This plugin changes appearance by applying scoped CSS custom properties. Test pr
 
 ## Profiles and Default behavior
 
-The Default profile keeps native Obsidian styling except that inline-code and fenced-code backgrounds are actively set to `#fafafa`. Both fields can still be cleared independently to return that code type to native theme styling. Stored profiles can be applied to the global settings or used as path-specific overrides. The active profile for a note is resolved from the global settings plus matching enabled overrides in their saved order.
+The Default profile keeps native Obsidian styling except that inline-code and fenced-code backgrounds use Style Controller's built-in `#fafafa`. Each code background control stores a custom color independently from its On/Off state: Off renders `#fafafa`, while On renders the stored custom override. Turning Off retains the custom color so turning On again restores it. Stored profiles can be applied to the global settings or used as path-specific overrides. The active profile for a note is resolved from the global settings plus matching enabled overrides in their saved order.
 
 ## Path overrides
 
@@ -38,18 +38,21 @@ The plugin uses the packaged `styles.css`; it does not create runtime stylesheet
 
 ## Code background smoke test
 
-1. Reset the Default profile.
-2. Confirm **Inline bg** shows `#fafafa` and On.
-3. Confirm **Block bg** shows `#fafafa` and On.
-4. Confirm inline and fenced previews visually match.
-5. Inspect both computed backgrounds and confirm `rgb(250, 250, 250)`.
-6. Create a new profile and confirm both defaults are On with `#fafafa`.
-7. Turn **Block bg** Off and confirm fenced blocks return to native styling.
-8. Turn it On with `#fafafa` and confirm that background returns.
-9. Restart Obsidian and confirm the state persists.
-10. Test reading view and Live Preview.
-11. Test light and dark themes.
-12. Confirm custom existing profile colors were not overwritten.
+1. Reload Style Controller 0.1.5.
+2. Confirm **Inline bg** shows `#fafafa` and Off.
+3. Confirm **Block bg** shows `#fafafa` and Off.
+4. Confirm both previews actually render `rgb(250, 250, 250)`.
+5. Confirm real inline and fenced code also render `rgb(250, 250, 250)`.
+6. Turn **Inline bg** On and change it to an obvious custom color.
+7. Confirm only inline code changes.
+8. Turn **Inline bg** Off.
+9. Confirm it returns to `#fafafa`, not `#ffffff`.
+10. Turn it On again and confirm the custom color returns.
+11. Repeat for **Block bg**.
+12. Restart Obsidian and confirm states persist.
+13. Test Reading view and Live Preview.
+14. Test light and dark themes.
+15. Test two notes using different path overrides.
 
 ## Privacy and network behavior
 

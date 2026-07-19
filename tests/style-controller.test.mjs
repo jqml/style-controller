@@ -49,6 +49,7 @@ const {
   default: StyleControllerPlugin,
   BLOCK_CODE_BACKGROUND_SELECTORS,
   BLOCK_CODE_TEXT_SELECTORS,
+  CODE_BACKGROUND_CUSTOM_FIELDS,
   DEFAULT_CODE_BACKGROUND,
   DEFAULT_PROFILE,
   INLINE_CODE_SELECTORS,
@@ -58,16 +59,19 @@ const {
   STYLE_SCOPE_CLASS,
   applyProfileCssVariables,
   clearProfileCssVariables,
+  codeBackgroundUiState,
   configurationToExport,
   createConfigurationSnapshot,
   createDefaultProfile,
   createNativeConfigurationData,
-  hasActiveValue,
+  effectiveCodeBackground,
   normalizeHexColor,
   normalizeOptionalProfile,
   normalizeProfile,
   normalizeSettings,
-  parseConfigurationImport
+  parseConfigurationImport,
+  setCodeBackgroundCustomEnabled,
+  setCodeBackgroundCustomValue
 } = pluginModule;
 
 class FakeClassList {
@@ -145,14 +149,20 @@ test("inline and block code fields have independent authoritative registry entri
   assert.ok(block.selectors.some((selector) => selector.includes("HyperMD-codeblock")));
   assert.ok(BLOCK_CODE_TEXT_SELECTORS.includes(".markdown-source-view.mod-cm6 .cm-code"));
   assert.ok(!inline.selectors.some((selector) => block.selectors.includes(selector)));
+  assert.equal(CODE_BACKGROUND_CUSTOM_FIELDS.codeBackground.enabled, "codeBackgroundCustomEnabled");
+  assert.equal(CODE_BACKGROUND_CUSTOM_FIELDS.codeBackground.value, "codeBackgroundCustomValue");
+  assert.equal(CODE_BACKGROUND_CUSTOM_FIELDS.codeBlockBackground.enabled, "codeBlockBackgroundCustomEnabled");
+  assert.equal(CODE_BACKGROUND_CUSTOM_FIELDS.codeBlockBackground.value, "codeBlockBackgroundCustomValue");
 });
 
-test("real default profiles actively enable #fafafa inline and block backgrounds", () => {
+test("real defaults render #fafafa while both custom overrides are Off", () => {
   assert.equal(DEFAULT_CODE_BACKGROUND, "#fafafa");
   assert.equal(DEFAULT_PROFILE.codeBackground, "#fafafa");
   assert.equal(DEFAULT_PROFILE.codeBlockBackground, "#fafafa");
-  assert.equal(hasActiveValue(DEFAULT_PROFILE.codeBackground), true);
-  assert.equal(hasActiveValue(DEFAULT_PROFILE.codeBlockBackground), true);
+  assert.equal(DEFAULT_PROFILE.codeBackgroundCustomEnabled, false);
+  assert.equal(DEFAULT_PROFILE.codeBlockBackgroundCustomEnabled, false);
+  assert.equal(DEFAULT_PROFILE.codeBackgroundCustomValue, "#fafafa");
+  assert.equal(DEFAULT_PROFILE.codeBlockBackgroundCustomValue, "#fafafa");
 
   const created = createDefaultProfile();
   const newSettings = normalizeSettings(null);
@@ -162,8 +172,14 @@ test("real default profiles actively enable #fafafa inline and block backgrounds
   for (const profile of [created, newSettings.global, reset.global, bundledDefault]) {
     assert.equal(profile.codeBackground, "#fafafa");
     assert.equal(profile.codeBlockBackground, "#fafafa");
-    assert.equal(hasActiveValue(profile.codeBackground), true);
-    assert.equal(hasActiveValue(profile.codeBlockBackground), true);
+    for (const field of ["codeBackground", "codeBlockBackground"]) {
+      const state = codeBackgroundUiState(profile, field);
+      assert.equal(state.enabled, false);
+      assert.equal(state.status, "Off");
+      assert.equal(state.displayedValue, "#fafafa");
+      assert.equal(state.effectiveValue, "#fafafa");
+      assert.equal(state.helperText, "Built-in default: #fafafa");
+    }
   }
 
   const element = fakeElement();
@@ -172,101 +188,144 @@ test("real default profiles actively enable #fafafa inline and block backgrounds
   assert.equal(element.css.get("--osc-code-block-background"), "#fafafa");
 });
 
-test("identical #fafafa inline and block values survive normalize, save, load, export, and import", () => {
-  const fixture = {
-    codeFontFamily: "Menlo, monospace",
-    codeBackground: "#fafafa",
-    codeColor: "#fafafa",
-    codeBlockFontFamily: "Menlo, monospace",
-    codeBlockBackground: "#fafafa",
-    codeBlockColor: "#fafafa"
-  };
-
+test("custom values survive Off, save/load, export/import, and restore when On", () => {
   assert.equal(normalizeHexColor("#fafafa"), "#fafafa");
-  const profile = normalizeProfile(fixture);
-  assert.equal(profile.codeBackground, "#fafafa");
-  assert.equal(profile.codeBlockBackground, "#fafafa");
-  assert.equal(profile.codeBlockFontFamily, fixture.codeBlockFontFamily);
-  assert.equal(profile.codeBlockColor, "#fafafa");
+  const profile = createDefaultProfile();
+  setCodeBackgroundCustomValue(profile, "codeBackground", "#e8e8e8");
+  setCodeBackgroundCustomValue(profile, "codeBlockBackground", "#eeeeee");
+  setCodeBackgroundCustomEnabled(profile, "codeBackground", true);
+  setCodeBackgroundCustomEnabled(profile, "codeBlockBackground", true);
 
-  const loaded = normalizeSettings(JSON.parse(JSON.stringify({ global: profile })));
+  assert.equal(profile.codeBackground, "#e8e8e8");
+  assert.equal(profile.codeBlockBackground, "#eeeeee");
+  setCodeBackgroundCustomEnabled(profile, "codeBackground", false);
+  assert.equal(profile.codeBackground, "#fafafa");
+  assert.equal(profile.codeBackgroundCustomValue, "#e8e8e8");
+  assert.equal(profile.codeBlockBackground, "#eeeeee");
+
+  const loaded = normalizeSettings(JSON.parse(JSON.stringify({ schemaVersion: 2, global: profile })));
+  assert.equal(loaded.global.codeBackgroundCustomEnabled, false);
+  assert.equal(loaded.global.codeBackgroundCustomValue, "#e8e8e8");
   const snapshot = createConfigurationSnapshot(loaded);
   const exported = configurationToExport({ name: "Code fixture", description: "", data: snapshot });
   const imported = parseConfigurationImport(exported);
   assert.equal(imported.data.global.codeBackground, "#fafafa");
-  assert.equal(imported.data.global.codeBlockBackground, "#fafafa");
+  assert.equal(imported.data.global.codeBackgroundCustomEnabled, false);
+  assert.equal(imported.data.global.codeBackgroundCustomValue, "#e8e8e8");
+  assert.equal(imported.data.global.codeBlockBackground, "#eeeeee");
+  assert.equal(imported.data.global.codeBlockBackgroundCustomEnabled, true);
+
+  setCodeBackgroundCustomEnabled(imported.data.global, "codeBackground", true);
+  assert.equal(imported.data.global.codeBackground, "#e8e8e8");
 });
 
-test("block variable is applied when enabled and removed without a fallback when disabled or switched", () => {
+test("Off emits both built-in variables and custom On remains independent", () => {
   const element = fakeElement();
-  const enabled = normalizeProfile({ codeBackground: "", codeBlockBackground: "#fafafa" });
-  applyProfileCssVariables(element, enabled);
+  const profile = createDefaultProfile();
+  applyProfileCssVariables(element, profile);
+  assert.equal(element.css.get("--osc-code-background"), "#fafafa");
   assert.equal(element.css.get("--osc-code-block-background"), "#fafafa");
-  assert.equal(element.css.has("--osc-code-background"), false);
 
-  applyProfileCssVariables(element, normalizeProfile({ codeBackground: "#123456", codeBlockBackground: "" }));
-  assert.equal(element.css.has("--osc-code-block-background"), false);
+  setCodeBackgroundCustomValue(profile, "codeBackground", "#123456");
+  setCodeBackgroundCustomEnabled(profile, "codeBackground", true);
+  applyProfileCssVariables(element, profile);
   assert.equal(element.css.get("--osc-code-background"), "#123456");
+  assert.equal(element.css.get("--osc-code-block-background"), "#fafafa");
+
+  setCodeBackgroundCustomEnabled(profile, "codeBackground", false);
+  applyProfileCssVariables(element, profile);
+  assert.equal(element.css.get("--osc-code-background"), "#fafafa");
+  assert.equal(profile.codeBackgroundCustomValue, "#123456");
 
   clearProfileCssVariables(element);
   assert.equal(element.css.has("--osc-code-block-background"), false);
   assert.equal(element.css.has("--osc-code-background"), false);
 });
 
-test("legacy default migration is narrow, idempotent, and preserves later explicit Off", () => {
-  const legacyDefault = {
-    ...DEFAULT_PROFILE,
-    codeBackground: "",
-    codeBlockBackground: ""
-  };
-  const migrated = normalizeSettings({ schemaVersion: 0, global: legacyDefault });
+test("legacy blank and #fafafa migrate Off while custom colors migrate On", () => {
+  const migrated = normalizeSettings({
+    schemaVersion: 1,
+    global: { codeBackground: "", codeBlockBackground: "#fafafa", textColor: "#123456" },
+    storedConfigurations: [
+      { id: "blank", name: "Blank", data: { global: { codeBackground: "", codeBlockBackground: "" } } },
+      { id: "custom", name: "Custom", data: { global: { codeBackground: "#112233", codeBlockBackground: "#445566" } } }
+    ]
+  });
   assert.equal(migrated.schemaVersion, SETTINGS_SCHEMA_VERSION);
   assert.equal(migrated.global.codeBackground, "#fafafa");
   assert.equal(migrated.global.codeBlockBackground, "#fafafa");
-  assert.deepEqual(normalizeSettings(migrated).global, migrated.global);
+  assert.equal(migrated.global.codeBackgroundCustomEnabled, false);
+  assert.equal(migrated.global.codeBlockBackgroundCustomEnabled, false);
+  assert.equal(migrated.global.codeBackgroundCustomValue, "#fafafa");
+  assert.equal(migrated.global.codeBlockBackgroundCustomValue, "#fafafa");
+  assert.equal(migrated.global.textColor, "#123456");
 
-  migrated.global.codeBackground = "";
-  migrated.global.codeBlockBackground = "";
-  const explicitlyOff = normalizeSettings(migrated);
-  assert.equal(explicitlyOff.global.codeBackground, "");
-  assert.equal(explicitlyOff.global.codeBlockBackground, "");
-  assert.equal(hasActiveValue(explicitlyOff.global.codeBackground), false);
-  assert.equal(hasActiveValue(explicitlyOff.global.codeBlockBackground), false);
+  const blank = migrated.storedConfigurations.find((config) => config.id === "blank").data.global;
+  const custom = migrated.storedConfigurations.find((config) => config.id === "custom").data.global;
+  assert.equal(blank.codeBackgroundCustomEnabled, false);
+  assert.equal(blank.codeBlockBackgroundCustomEnabled, false);
+  assert.equal(custom.codeBackgroundCustomEnabled, true);
+  assert.equal(custom.codeBlockBackgroundCustomEnabled, true);
+  assert.equal(custom.codeBackgroundCustomValue, "#112233");
+  assert.equal(custom.codeBlockBackgroundCustomValue, "#445566");
+  assert.equal(custom.codeBackground, "#112233");
+  assert.equal(custom.codeBlockBackground, "#445566");
+  assert.deepEqual(normalizeSettings(migrated), migrated);
 
-  const oldBundledDefault = Object.fromEntries(Object.keys(DEFAULT_PROFILE).map((key) => [key, ""]));
-  const migratedBundled = normalizeSettings({ global: oldBundledDefault });
-  assert.equal(migratedBundled.global.codeBackground, "#fafafa");
-  assert.equal(migratedBundled.global.codeBlockBackground, "#fafafa");
+  const explicitlyOff = normalizeSettings({
+    schemaVersion: SETTINGS_SCHEMA_VERSION,
+    global: {
+      codeBackground: "#fafafa",
+      codeBackgroundCustomEnabled: false,
+      codeBackgroundCustomValue: "#abcdef",
+      codeBlockBackground: "#fafafa",
+      codeBlockBackgroundCustomEnabled: false,
+      codeBlockBackgroundCustomValue: "#fedcba"
+    }
+  });
+  assert.equal(explicitlyOff.global.codeBackgroundCustomEnabled, false);
+  assert.equal(explicitlyOff.global.codeBackgroundCustomValue, "#abcdef");
+  assert.equal(explicitlyOff.global.codeBackground, "#fafafa");
+  assert.equal(explicitlyOff.global.codeBlockBackgroundCustomEnabled, false);
+  assert.equal(explicitlyOff.global.codeBlockBackgroundCustomValue, "#fedcba");
+  assert.equal(explicitlyOff.global.codeBlockBackground, "#fafafa");
 });
 
-test("migration preserves custom values, customized profiles, imports, and optional overrides", () => {
-  const customized = {
-    ...DEFAULT_PROFILE,
-    textColor: "#123456",
-    codeBackground: "",
-    codeBlockBackground: ""
-  };
-  const customProfile = normalizeSettings({ schemaVersion: 0, global: customized });
-  assert.equal(customProfile.global.codeBackground, "");
-  assert.equal(customProfile.global.codeBlockBackground, "");
-
-  const customColors = normalizeSettings({
-    schemaVersion: 0,
-    global: { ...DEFAULT_PROFILE, codeBackground: "#112233", codeBlockBackground: "#445566" }
-  });
-  assert.equal(customColors.global.codeBackground, "#112233");
-  assert.equal(customColors.global.codeBlockBackground, "#445566");
-
-  const imported = parseConfigurationImport(JSON.stringify({
-    name: "Custom code",
-    data: { global: { codeBackground: "#abcdef", codeBlockBackground: "" } }
-  }));
-  assert.equal(imported.data.global.codeBackground, "#abcdef");
-  assert.equal(imported.data.global.codeBlockBackground, "");
-
+test("partial path overrides inherit unless an effective background is explicitly configured", () => {
   const optional = normalizeOptionalProfile({});
   assert.equal(optional.codeBackground, "");
   assert.equal(optional.codeBlockBackground, "");
+  assert.equal(optional.codeBackgroundCustomEnabled, "");
+  assert.equal(optional.codeBlockBackgroundCustomEnabled, "");
+  assert.equal(codeBackgroundUiState(optional, "codeBackground", true).status, "Inherit");
+
+  const customOverride = normalizeOptionalProfile({ codeBlockBackground: "#123456" });
+  assert.equal(customOverride.codeBackground, "");
+  assert.equal(customOverride.codeBlockBackground, "#123456");
+  assert.equal(customOverride.codeBlockBackgroundCustomEnabled, true);
+});
+
+test("code background UI displays the real effective value without a Native label or placeholder", () => {
+  const profile = createDefaultProfile();
+  for (const field of ["codeBackground", "codeBlockBackground"]) {
+    assert.equal(effectiveCodeBackground(profile, field), "#fafafa");
+    const state = codeBackgroundUiState(profile, field);
+    assert.equal(state.enabled, false);
+    assert.equal(state.inherited, false);
+    assert.equal(state.customValue, "#fafafa");
+    assert.equal(state.displayedValue, "#fafafa");
+    assert.equal(state.effectiveValue, "#fafafa");
+    assert.equal(state.status, "Off");
+    assert.equal(state.helperText, "Built-in default: #fafafa");
+  }
+
+  setCodeBackgroundCustomValue(profile, "codeBlockBackground", "#334455");
+  setCodeBackgroundCustomEnabled(profile, "codeBlockBackground", true);
+  assert.equal(codeBackgroundUiState(profile, "codeBlockBackground").displayedValue, "#334455");
+  assert.equal(codeBackgroundUiState(profile, "codeBlockBackground").effectiveValue, "#334455");
+  assert.match(source, /input\.value = state\.displayedValue/);
+  assert.match(source, /toggleClass\("osc-default-color-value", false\)/);
+  assert.doesNotMatch(source, /Built-in default[^\n]*Native/i);
 });
 
 test("path overrides resolve and apply independently per Markdown leaf", () => {
@@ -351,4 +410,6 @@ test("code preview has no hardcoded white fallback and source has no runtime sty
   assert.doesNotMatch(source, /create(?:El|Element)\(\s*["']style["']/);
   assert.doesNotMatch(source, /CSSStyleSheet|adoptedStyleSheets|insertRule|replaceSync/);
   assert.doesNotMatch(source, /buildProfileRuntimeCss|buildCalloutCss|buildFileExplorerCss/);
+  assert.doesNotMatch(source, /\.obsidian(?:\/|\\\\)/);
+  assert.doesNotMatch(source, /\b(?:fetch|XMLHttpRequest|WebSocket)\s*\(/);
 });
