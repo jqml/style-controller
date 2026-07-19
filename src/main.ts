@@ -121,26 +121,16 @@ const INLINE_CODE_SELECTORS = [
   ".markdown-preview-view :not(pre) > code",
   ".markdown-source-view.mod-cm6 .cm-line:not(.HyperMD-codeblock) .cm-inline-code"
 ];
-const BLOCK_CODE_SELECTORS = [
+const BLOCK_CODE_BACKGROUND_SELECTORS = [
   ".markdown-rendered pre",
   ".markdown-rendered pre code",
-  ".markdown-source-view.mod-cm6 .cm-code",
   ".markdown-source-view.mod-cm6 .HyperMD-codeblock",
   ".markdown-source-view.mod-cm6 .HyperMD-codeblock-bg"
 ];
-const NOTE_IMAGE_EMBED_SELECTORS = [
-  ".markdown-preview-view .image-embed",
-  ".markdown-source-view.mod-cm6 .image-embed"
+const BLOCK_CODE_TEXT_SELECTORS = [
+  ...BLOCK_CODE_BACKGROUND_SELECTORS,
+  ".markdown-source-view.mod-cm6 .cm-code"
 ];
-const NOTE_IMAGE_SELECTORS = [
-  ".markdown-preview-view .image-embed > img",
-  ".markdown-source-view.mod-cm6 .image-embed > img"
-];
-const NOTE_UNSIZED_IMAGE_SELECTORS = [
-  ".markdown-preview-view .image-embed > img:not([width]):not([height]):not([style*=\"width\"]):not([style*=\"height\"])",
-  ".markdown-source-view.mod-cm6 .image-embed > img:not([width]):not([height]):not([style*=\"width\"]):not([style*=\"height\"])"
-];
-
 function headingSelectors(level) {
   return [
     `.markdown-preview-view h${level}`,
@@ -204,11 +194,11 @@ const STYLE_FIELD_REGISTRY = {
   ], "border-color"),
   tableRowAltBackground: fieldDefinition("color", "tablesCodeQuotes", "--osc-table-row-alt-background", [".markdown-preview-view tbody tr:nth-child(even)"], "background"),
   codeFontFamily: fieldDefinition("font", "inlineCode", "--osc-code-font-family", INLINE_CODE_SELECTORS, "font-family"),
-  codeBackground: fieldDefinition("color", "inlineCode", "--osc-code-background", INLINE_CODE_SELECTORS, "background"),
+  codeBackground: fieldDefinition("color", "inlineCode", "--osc-code-background", INLINE_CODE_SELECTORS, "background-color"),
   codeColor: fieldDefinition("color", "inlineCode", "--osc-code-color", INLINE_CODE_SELECTORS, "color"),
-  codeBlockFontFamily: fieldDefinition("font", "blockCode", "--osc-code-block-font-family", BLOCK_CODE_SELECTORS, "font-family"),
-  codeBlockBackground: fieldDefinition("color", "blockCode", "--osc-code-block-background", BLOCK_CODE_SELECTORS, "background"),
-  codeBlockColor: fieldDefinition("color", "blockCode", "--osc-code-block-color", BLOCK_CODE_SELECTORS, "color"),
+  codeBlockFontFamily: fieldDefinition("font", "blockCode", "--osc-code-block-font-family", BLOCK_CODE_TEXT_SELECTORS, "font-family"),
+  codeBlockBackground: fieldDefinition("color", "blockCode", "--osc-code-block-background", BLOCK_CODE_BACKGROUND_SELECTORS, "background-color"),
+  codeBlockColor: fieldDefinition("color", "blockCode", "--osc-code-block-color", BLOCK_CODE_TEXT_SELECTORS, "color"),
   blockquoteBorderColor: fieldDefinition("color", "tablesCodeQuotes", "--osc-blockquote-border-color", [".markdown-preview-view blockquote", ".markdown-source-view.mod-cm6 .HyperMD-quote"], "border-color"),
   blockquoteBackground: fieldDefinition("color", "tablesCodeQuotes", "--osc-blockquote-background", [".markdown-preview-view blockquote", ".markdown-source-view.mod-cm6 .HyperMD-quote"], "background"),
   imageAlignment: fieldDefinition("text", "images", null, [], null, { emitsCss: false }),
@@ -539,12 +529,21 @@ export default class StyleControllerPlugin extends Plugin {
   applyStyles() {
     this.getMarkdownViews().forEach((view, index) => {
       const file = view.file;
-      if (!file) return;
-
-      const match = this.getProfileForPath(file.path);
       const container = view.containerEl;
       const scopeClass = `osc-scope-${index}`;
       cleanScopeClasses(container);
+      container.classList.remove(
+        STYLE_SCOPE_CLASS,
+        ...STYLE_IMAGE_ALIGNMENT_CLASSES,
+        STYLE_IMAGE_WIDTH_CLASS,
+        STYLE_IMAGE_RESPECT_EXPLICIT_CLASS,
+        STYLE_IMAGE_IGNORE_EXPLICIT_CLASS
+      );
+      clearProfileCssVariables(container);
+      container.removeAttribute("data-osc-profile");
+      if (!file) return;
+
+      const match = this.getProfileForPath(file.path);
       container.classList.add(STYLE_SCOPE_CLASS, scopeClass);
       container.setAttribute("data-osc-profile", match.name);
       applyProfileCssVariables(container, match.profile);
@@ -679,17 +678,6 @@ function sanitizeProfile(profile, source = {}) {
     normalized.textSize = "";
     normalized.textWeight = "";
     normalized.lineHeight = "";
-  }
-
-  const blockCopiedFromInline =
-    hasActiveValue(normalized.codeFontFamily)
-    && normalized.codeBlockFontFamily === normalized.codeFontFamily
-    && (!hasActiveValue(normalized.codeBlockBackground) || normalized.codeBlockBackground === normalized.codeBackground)
-    && (!hasActiveValue(normalized.codeBlockColor) || normalized.codeBlockColor === normalized.codeColor);
-  if (blockCopiedFromInline) {
-    normalized.codeBlockFontFamily = "";
-    if (normalized.codeBlockBackground === normalized.codeBackground) normalized.codeBlockBackground = "";
-    if (normalized.codeBlockColor === normalized.codeColor) normalized.codeBlockColor = "";
   }
 
   if (!Object.prototype.hasOwnProperty.call(source, "codeBlockFontFamily")) normalized.codeBlockFontFamily = "";
@@ -977,230 +965,14 @@ function normalizeHexColor(value) {
   return "";
 }
 
-function hexToRgbTriplet(value) {
-  const hex = normalizeHexColor(value);
-  if (!hex) return "";
-  const number = Number.parseInt(hex.slice(1), 16);
-  return `${(number >> 16) & 255},${(number >> 8) & 255},${number & 255}`;
-}
-
-function cssDeclaration(property, value) {
-  const text = String(value || "").trim();
-  return text ? `  ${property}: ${text};\n` : "";
-}
-
-function cssValueForField(key, value) {
-  const meta = STYLE_FIELD_REGISTRY[key];
-  if (!meta) return cssValue(value);
-  if (meta.type === "color") return cssColorValue(value);
-  if (meta.type === "font") return cssFontValue(value);
-  if (meta.type === "weight") return validateFontWeight(value).valid ? cssValue(value) : "";
-  return cssValue(value);
-}
-
-function cssDeclarationForField(key, profile) {
-  const meta = STYLE_FIELD_REGISTRY[key];
-  if (!meta?.emitsCss || !meta.property) return "";
-  return cssDeclaration(meta.property, cssValueForField(key, profile[key]));
-}
-
-function scopedSelectorList(scopeSelector, selectors) {
-  return selectors.map((selector) => `${scopeSelector} ${selector}`).join(",\n");
-}
-
-function buildRegistryCssRule(scopeSelector, keys, profile) {
-  const activeKeys = keys.filter((key) => cssValueForField(key, profile[key]));
-  if (!activeKeys.length) return "";
-  const first = STYLE_FIELD_REGISTRY[activeKeys[0]];
-  if (!activeKeys.every((key) => sameSelectors(first.selectors, STYLE_FIELD_REGISTRY[key].selectors))) {
-    console.warn("[Style Controller] Refusing to emit mixed-selector CSS rule", activeKeys);
-    return "";
-  }
-  const declarations = activeKeys.map((key) => cssDeclarationForField(key, profile)).join("");
-  return declarations ? `${scopedSelectorList(scopeSelector, first.selectors)} {\n${declarations}}\n\n` : "";
-}
-
-function sameSelectors(left = [], right = []) {
-  return left.length === right.length && left.every((selector, index) => selector === right[index]);
-}
-
-function buildProfileRuntimeCss(scopeSelector, profile) {
-  const headingRules = [];
-  for (let level = 1; level <= 6; level += 1) {
-    headingRules.push(buildRegistryCssRule(scopeSelector, [
-      `h${level}Color`,
-      `h${level}FontFamily`,
-      `h${level}Size`,
-      `h${level}Weight`
-    ], profile));
-  }
-  return [
-    buildRegistryCssRule(scopeSelector, ["textColor", "fontFamily", "textSize", "textWeight", "lineHeight"], profile),
-    buildRegistryCssRule(scopeSelector, ["backgroundColor"], profile),
-    buildRegistryCssRule(scopeSelector, ["boldColor", "boldFontFamily", "boldWeight"], profile),
-    buildRegistryCssRule(scopeSelector, ["italicColor", "italicFontFamily", "italicWeight"], profile),
-    ...headingRules,
-    buildRegistryCssRule(scopeSelector, ["linkColor"], profile),
-    buildRegistryCssRule(scopeSelector, ["linkHoverColor"], profile),
-    buildRegistryCssRule(scopeSelector, ["internalLinkColor"], profile),
-    buildRegistryCssRule(scopeSelector, ["externalLinkColor"], profile),
-    buildRegistryCssRule(scopeSelector, ["tableBorderColor"], profile),
-    buildRegistryCssRule(scopeSelector, ["tableHeaderBackground", "tableHeaderColor"], profile),
-    buildRegistryCssRule(scopeSelector, ["tableRowAltBackground"], profile),
-    buildRegistryCssRule(scopeSelector, ["codeBackground", "codeColor", "codeFontFamily"], profile),
-    buildRegistryCssRule(scopeSelector, ["codeBlockBackground", "codeBlockColor", "codeBlockFontFamily"], profile),
-    buildRegistryCssRule(scopeSelector, ["blockquoteBackground", "blockquoteBorderColor"], profile),
-    buildImageRuntimeCss(scopeSelector, profile)
-  ].join("");
-}
-
-function buildImageRuntimeCss(scopeSelector, profile) {
-  const parts = [];
-  const alignment = normalizeImageAlignment(profile.imageAlignment);
-  const width = normalizeCssSizeText(profile.imageWidth);
-  const respectExplicitSize = normalizeImageRespectExplicitSize(profile.imageRespectExplicitSize) !== "false";
-
-  if (alignment) {
-    const marginLeft = alignment === "right" || alignment === "center" ? "auto" : "0";
-    const marginRight = alignment === "left" || alignment === "center" ? "auto" : "0";
-    parts.push(`${scopedSelectorList(scopeSelector, NOTE_IMAGE_EMBED_SELECTORS)} {\n  display: block;\n  text-align: ${alignment === "center" ? "center" : alignment};\n}\n`);
-    parts.push(`${scopedSelectorList(scopeSelector, NOTE_IMAGE_SELECTORS)} {\n  display: block;\n  margin-left: ${marginLeft};\n  margin-right: ${marginRight};\n}\n`);
-  }
-
-  if (width) {
-    const selectors = respectExplicitSize ? NOTE_UNSIZED_IMAGE_SELECTORS : NOTE_IMAGE_SELECTORS;
-    parts.push(`${scopedSelectorList(scopeSelector, selectors)} {\n  width: ${width};\n}\n`);
-  }
-
-  return parts.length ? `${parts.join("\n")}\n` : "";
-}
-
-function buildCalloutCss(callouts) {
-  const settings = normalizeCallouts(callouts);
-  let css = "";
-  css += cssRule(".osc-style-scope .callout", [
-    cssDeclaration("--callout-border-width", settings.borderWidth),
-    cssDeclaration("--callout-radius", settings.radius),
-    cssDeclaration("--callout-title-size", settings.titleSize)
-  ]);
-
-  css += cssRule(".osc-style-scope .callout-title-inner", [
-    cssDeclaration("font-family", cssFontValue(settings.titleFontFamily))
-  ]);
-
-  const multiColumnBorder = settings.multiColumnBorderWidth && settings.multiColumnBorderStyle && settings.multiColumnBorderColor
-    ? `${settings.multiColumnBorderWidth} ${settings.multiColumnBorderStyle} ${settings.multiColumnBorderColor}`
-    : "";
-  css += cssRule(".osc-style-scope div[data-callout=\"multi-column\"].callout > .callout-content > *:is(div,ul,blockquote,p)", [
-    cssDeclaration("border", multiColumnBorder)
-  ]);
-
-  settings.presets.forEach((preset) => {
-    const type = cssStringEscape(preset.type);
-    const rgb = hexToRgbTriplet(preset.color);
-    css += cssRule(`.osc-style-scope .callout[data-callout="${type}"]`, [
-      cssDeclaration("--callout-color", rgb),
-      cssDeclaration("--callout-title-color", preset.titleColor),
-      cssDeclaration("background-color", preset.backgroundColor),
-      rgb ? cssDeclaration("border-color", `rgba(${rgb}, var(--callout-border-opacity, 0.25))`) : "",
-      cssDeclaration("--callout-icon", preset.icon)
-    ]);
-
-    if (rgb) {
-      css += cssRule(`.osc-style-scope .callout[data-callout="${type}"] .callout-icon`, [
-        cssDeclaration("color", `rgb(${rgb})`)
-      ]);
-    }
-
-    if (preset.titleColor) {
-      css += cssRule(`.osc-style-scope .callout[data-callout="${type}"] .callout-title-inner`, [
-        cssDeclaration("color", preset.titleColor)
-      ]);
-    }
-
-    if (preset.hideIcon || preset.icon === "none") {
-      css += `.osc-style-scope .callout[data-callout="${type}"] .callout-icon { display: none; }\n`;
-    }
-    css += "\n";
-  });
-
-  return css;
-}
-
-function cssRule(selector, declarations) {
-  const body = declarations.filter(Boolean).join("");
-  return body ? `${selector} {\n${body}}\n\n` : "";
-}
-
-function buildFileExplorerCss(overrides) {
-  let css = "";
-  (overrides || []).forEach((override) => {
-    if (!override.enabled || !override.modules?.fileExplorer || !override.pattern) return;
-    const selector = fileExplorerPathSelector(override);
-    if (!selector) return;
-    const style = { ...DEFAULT_FILE_EXPLORER_STYLE, ...(override.fileExplorer || {}) };
-    const folderSelector = `.nav-folder-title${selector}`;
-    const fileSelector = `.nav-file-title${selector}`;
-    const parentFolderSelector = `.nav-folder:has(.nav-folder-title${selector})`;
-
-    css += `${folderSelector}, ${fileSelector} {\n`;
-    css += cssDeclaration("font-family", cssFontValue(style.fontFamily));
-    css += cssDeclaration("font-weight", validateFontWeight(style.fontWeight).valid ? style.fontWeight : "");
-    css += cssDeclaration("--nav-item-color-hover", cssColorValue(style.hoverColor));
-    css += cssDeclaration("--nav-item-background-hover", cssColorValue(style.hoverBackground));
-    css += cssDeclaration("--nav-item-background-active", cssColorValue(style.activeBackground));
-    css += cssDeclaration("--background-modifier-border-focus", cssColorValue(style.focusBorderColor));
-    css += "}\n";
-
-    css += `${folderSelector} {\n`;
-    css += cssDeclaration("color", cssColorValue(style.folderColor));
-    css += cssDeclaration("--nav-collapse-icon-color", cssColorValue(style.collapseIconColor));
-    css += "}\n";
-
-    css += `${fileSelector}, ${parentFolderSelector} .nav-file-title {\n`;
-    css += cssDeclaration("color", cssColorValue(style.fileColor));
-    css += cssDeclaration("--nav-item-background-hover", cssColorValue(style.hoverBackground));
-    css += cssDeclaration("--nav-item-background-active", cssColorValue(style.activeBackground));
-    css += cssDeclaration("--background-modifier-border-focus", cssColorValue(style.focusBorderColor));
-    css += "}\n";
-
-    css += `${parentFolderSelector} {\n`;
-    css += cssDeclaration("--nav-indentation-guide-color", cssColorValue(style.indentLineColor));
-    css += "}\n";
-
-    if (style.prefix) {
-      css += `${fileSelector}::before, ${parentFolderSelector} .nav-file-title::before {\n`;
-      css += cssDeclaration("content", JSON.stringify(style.prefix));
-      css += cssDeclaration("margin-right", "0.25em");
-      css += "}\n";
-    }
-  });
-  return css;
-}
-
 function warnUnsafeStylePatterns(settings) {
   const warnings = [];
-  Object.values(STYLE_FIELD_REGISTRY)
-    .filter((meta) => ["baseText", "inlineCode", "blockCode"].includes(meta.group) && meta.variable)
-    .forEach((meta) => {
-      if (BASE_CSS.includes(meta.variable)) warnings.push(`BASE_CSS contains user-setting token ${meta.variable}`);
-    });
-  if (/cm-inline-code[\s\S]{0,120}HyperMD-codeblock/.test(BASE_CSS)) {
-    warnings.push("BASE_CSS appears to couple inline code selectors with block-code selectors");
-  }
   collectProfilesForSafetyCheck(settings).forEach(({ name, profile }) => {
     const oldBaseDefaults =
       normalizeCssSizeText(profile.textSize) === "16px"
       && String(profile.textWeight || "").trim() === "400"
       && String(profile.lineHeight || "").trim() === "1.65";
     if (oldBaseDefaults) warnings.push(`${name} contains old accidental base text defaults`);
-    if (hasActiveValue(profile.codeFontFamily) && profile.codeBlockFontFamily === profile.codeFontFamily) {
-      warnings.push(`${name} may have codeBlockFontFamily copied from inline code font`);
-    }
-    const blockCss = buildRegistryCssRule(".osc-safety-check", ["codeBlockBackground", "codeBlockColor", "codeBlockFontFamily"], profile);
-    if (!hasActiveValue(profile.codeBlockBackground) && !hasActiveValue(profile.codeBlockColor) && !hasActiveValue(profile.codeBlockFontFamily) && blockCss) {
-      warnings.push(`${name} emits block-code CSS while all block-code fields are blank`);
-    }
   });
   warnings.push(...validateStyleFieldRegistry());
   if (warnings.length) {
@@ -1241,15 +1013,6 @@ function validateStyleFieldRegistry() {
     if (!meta?.blankAllowed || !meta?.emitsCss) warnings.push(`${key} does not follow blank/default CSS emission rules`);
   });
   return warnings;
-}
-
-function fileExplorerPathSelector(override) {
-  const pattern = normalizePathText(override.pattern);
-  if (!pattern) return "";
-  const escaped = cssStringEscape(pattern);
-  if (override.type === "file") return `[data-path="${escaped}"]`;
-  if (override.type === "path-contains") return `[data-path*="${escaped}"]`;
-  return `[data-path^="${escaped}"]`;
 }
 
 function cssStringEscape(value) {
@@ -1797,8 +1560,6 @@ class OverridePathSuggest {
     return this.app.vault.getAbstractFileByPath(path) instanceof TFolder;
   }
 }
-
-const BASE_CSS = "";
 
 class StyleControllerSettingTab extends PluginSettingTab {
   constructor(app, plugin) {
@@ -3007,3 +2768,22 @@ class StyleControllerSettingTab extends PluginSettingTab {
     updateStatus();
   }
 }
+
+export {
+  BLOCK_CODE_BACKGROUND_SELECTORS,
+  BLOCK_CODE_TEXT_SELECTORS,
+  DEFAULT_PROFILE,
+  INLINE_CODE_SELECTORS,
+  PROFILE_FIELDS,
+  STYLE_FIELD_REGISTRY,
+  STYLE_SCOPE_CLASS,
+  applyProfileCssVariables,
+  applyProfileStateClasses,
+  clearProfileCssVariables,
+  configurationToExport,
+  createConfigurationSnapshot,
+  normalizeHexColor,
+  normalizeProfile,
+  normalizeSettings,
+  parseConfigurationImport
+};

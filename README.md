@@ -1,17 +1,17 @@
 # Style Controller
 
-Style Controller is an Obsidian plugin for managing reusable style profiles, path overrides, and visual settings through a native settings interface. It generates runtime CSS inside Obsidian; it does not edit theme files, snippets, or notes.
+Style Controller is an Obsidian plugin for managing reusable style profiles, path overrides, and visual settings through a native settings interface. It applies profile values as CSS custom properties consumed by the plugin's static stylesheet; it does not edit theme files, snippets, or notes.
 
 ## Safety warning
 
-This plugin changes appearance by generating runtime CSS. Test profiles on a small set of notes before assigning broad path overrides. Blank/default controls emit no CSS declaration and allow native Obsidian or theme behavior to continue.
+This plugin changes appearance by applying scoped CSS custom properties. Test profiles on a small set of notes before assigning broad path overrides. Blank/default controls remove the corresponding property and allow native Obsidian or theme behavior to continue.
 
 ## Features
 
 - Reusable stored style profiles, including a built-in Default profile for native styling.
 - Active global profile settings for typography, headings, links, tables, code, blockquotes, callouts, images, file explorer styling, and custom CSS.
 - Path-specific overrides for folders, files, and path-contains matching.
-- Runtime CSS generation scoped to active Markdown views and matching file paths.
+- Static CSS rules with custom properties scoped to active Markdown views and matching file paths.
 - Image controls for alignment, width, and whether explicit image sizes are respected.
 - Status indicators for style fields: On, Off, and Error.
 - Import/export workflows for stored configurations.
@@ -32,9 +32,24 @@ Style Controller includes controls for base text, headings, links, tables, inlin
 
 Image settings include alignment, width, and a control for respecting explicit image sizes. Blank image settings do not emit image CSS.
 
-## Generated CSS
+## Applied styles
 
-The plugin installs runtime style elements while enabled and removes them on unload. Generated CSS is rebuilt when layout or active Markdown views change and is scoped to Style Controller containers as narrowly as the current feature allows.
+The plugin uses the packaged `styles.css`; it does not create runtime stylesheets. It applies scoped classes and CSS custom properties to each Markdown view, clears stale values before resolving a new file or profile, and removes its classes and properties on unload.
+
+## Code background smoke test
+
+1. Enable **Inline bg** and **Block bg**.
+2. Set both to `#fafafa`.
+3. Confirm inline and block previews visually match.
+4. Inspect the visible fenced-code container and confirm `background-color` is `rgb(250, 250, 250)`.
+5. Change only **Block bg** and confirm only fenced blocks change.
+6. Turn **Block bg** Off and confirm native rendering returns.
+7. Test reading view.
+8. Test Live Preview.
+9. Switch profiles and verify no stale background remains.
+10. Open two notes with different path overrides and verify isolation.
+11. Disable and re-enable the plugin and verify native styling is restored during cleanup.
+12. Repeat in light and dark themes.
 
 ## Privacy and network behavior
 
