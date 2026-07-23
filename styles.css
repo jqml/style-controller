@@ -220,6 +220,31 @@
   padding: 8px 10px 10px;
 }
 
+.osc-section-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  margin: 0 0 8px;
+}
+
+.osc-section-status {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  margin-right: auto;
+}
+
+.osc-section-status.is-dirty {
+  color: var(--text-warning);
+  font-weight: 600;
+}
+
+.osc-setting-group-content.is-dirty {
+  border-left: 3px solid var(--interactive-accent);
+  padding-left: 7px;
+}
+
 .osc-setting-grid,
 .osc-heading-grid {
   display: grid;
@@ -1192,19 +1217,18 @@
 }
 
 .osc-style-scope .markdown-rendered pre,
-.osc-style-scope .markdown-rendered pre code,
-.osc-style-scope .markdown-source-view.mod-cm6 .HyperMD-codeblock,
 .osc-style-scope .markdown-source-view.mod-cm6 .HyperMD-codeblock-bg {
   background-color: var(--osc-code-block-background);
 }
 
 .osc-style-scope .markdown-rendered pre,
-.osc-style-scope .markdown-rendered pre code,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-code,
-.osc-style-scope .markdown-source-view.mod-cm6 .HyperMD-codeblock,
-.osc-style-scope .markdown-source-view.mod-cm6 .HyperMD-codeblock-bg {
-  color: var(--osc-code-block-color);
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-line.HyperMD-codeblock {
   font-family: var(--osc-code-block-font-family);
+}
+
+.osc-style-scope.style-controller-code-block-color-active .markdown-rendered pre,
+.osc-style-scope.style-controller-code-block-color-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-codeblock {
+  color: var(--osc-code-block-color);
 }
 
 .osc-style-scope .markdown-preview-view blockquote,

@@ -140,13 +140,11 @@ const INLINE_CODE_SELECTORS = [
 ];
 const BLOCK_CODE_BACKGROUND_SELECTORS = [
   ".markdown-rendered pre",
-  ".markdown-rendered pre code",
-  ".markdown-source-view.mod-cm6 .HyperMD-codeblock",
   ".markdown-source-view.mod-cm6 .HyperMD-codeblock-bg"
 ];
 const BLOCK_CODE_TEXT_SELECTORS = [
-  ...BLOCK_CODE_BACKGROUND_SELECTORS,
-  ".markdown-source-view.mod-cm6 .cm-code"
+  ".markdown-rendered pre",
+  ".markdown-source-view.mod-cm6 .cm-line.HyperMD-codeblock"
 ];
 
 const HEADING_NATIVE_TOKEN_EXCLUSIONS = [
@@ -270,6 +268,174 @@ const PROFILE_GROUP_FIELDS = Object.entries(STYLE_FIELD_REGISTRY).reduce((groups
   groups[group].push(key);
   return groups;
 }, {});
+
+const PROFILE_SECTION_FIELDS = {
+  baseText: [
+    "fontFamily", "textSize", "textWeight", "lineHeight", "textColor", "backgroundColor", "accentColor"
+  ],
+  boldItalic: [
+    "boldFontFamily", "boldWeight", "boldColor", "italicFontFamily", "italicWeight", "italicColor"
+  ],
+  headings: Array.from({ length: 6 }, (_, index) => [
+    `h${index + 1}FontFamily`, `h${index + 1}Size`, `h${index + 1}Weight`, `h${index + 1}Color`
+  ]).flat(),
+  links: ["linkColor", "linkHoverColor", "internalLinkColor", "externalLinkColor"],
+  tables: ["tableHeaderBackground", "tableHeaderColor", "tableBorderColor", "tableRowAltBackground"],
+  code: [
+    "codeFontFamily", "codeBackground", "codeBackgroundCustomEnabled", "codeBackgroundCustomValue", "codeColor",
+    "codeBlockFontFamily", "codeBlockBackground", "codeBlockBackgroundCustomEnabled", "codeBlockBackgroundCustomValue", "codeBlockColor"
+  ],
+  quotes: ["blockquoteBorderColor", "blockquoteBackground"],
+  images: ["imageAlignment", "imageWidth", "imageRespectExplicitSize"]
+};
+
+const FILE_EXPLORER_FIELDS = [
+  "folderColor", "fileColor", "hoverColor", "hoverBackground", "activeBackground", "indentLineColor",
+  "collapseIconColor", "focusBorderColor", "fontFamily", "fontWeight", "prefix"
+];
+
+function cloneDraftValue(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function draftValuesEqual(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+class SectionDraftManager {
+  constructor() {
+    this.entries = new Map();
+    this.objectEntries = new WeakMap();
+  }
+
+  get(key, source) {
+    let entry = this.entries.get(key);
+    if (!entry) {
+      entry = {
+        key,
+        value: cloneDraftValue(source),
+        baseline: cloneDraftValue(source),
+        dirty: false,
+        updateUi: null
+      };
+      this.entries.set(key, entry);
+    } else if (!entry.dirty) {
+      entry.value = cloneDraftValue(source);
+      entry.baseline = cloneDraftValue(source);
+    }
+    this.bind(entry);
+    return entry;
+  }
+
+  bind(entry) {
+    const seen = new Set();
+    const visit = (value) => {
+      if (!value || typeof value !== "object" || seen.has(value)) return;
+      seen.add(value);
+      this.objectEntries.set(value, entry);
+      Object.values(value).forEach(visit);
+    };
+    visit(entry.value);
+  }
+
+  mark(value) {
+    const entry = this.objectEntries.get(value);
+    if (!entry) return null;
+    entry.dirty = !draftValuesEqual(entry.value, entry.baseline);
+    entry.updateUi?.();
+    return entry;
+  }
+
+  hasDirty() {
+    return [...this.entries.values()].some((entry) => entry.dirty);
+  }
+
+  dirtyEntries() {
+    return [...this.entries.values()].filter((entry) => entry.dirty);
+  }
+
+  revert(key, source) {
+    const entry = this.entries.get(key);
+    if (!entry) return null;
+    entry.value = cloneDraftValue(source);
+    entry.baseline = cloneDraftValue(source);
+    entry.dirty = false;
+    this.bind(entry);
+    entry.updateUi?.();
+    return entry;
+  }
+
+  remove(key) {
+    this.entries.delete(key);
+  }
+}
+
+function validateProfileSection(profile, fields) {
+  const errors = [];
+  fields.forEach((field) => {
+    const value = profile[field];
+    const meta = STYLE_FIELD_REGISTRY[field];
+    if (!meta || value === undefined || value === null || String(value).trim() === "") return;
+    if (meta.type === "color" && !normalizeHexColor(value)) errors.push(`${field} must be a valid hex color`);
+    if (meta.type === "font" && !validateFont(value).valid) errors.push(`${field} must be a valid font family`);
+    if (meta.type === "weight" && !validateFontWeight(value).valid) errors.push(`${field} must be a valid font weight`);
+    if (meta.type === "size" && !normalizeCssSizeText(value)) errors.push(`${field} must be a valid CSS size`);
+  });
+  Object.entries(CODE_BACKGROUND_CUSTOM_FIELDS).forEach(([field, stateFields]) => {
+    if (!fields.includes(field) || profile[stateFields.enabled] !== true) return;
+    if (!normalizeHexColor(profile[stateFields.value])) errors.push(`${field} custom value must be a valid hex color`);
+  });
+  return errors;
+}
+
+function validateCalloutSection(callouts) {
+  const errors = [];
+  ["borderWidth", "radius", "titleSize", "multiColumnBorderWidth"].forEach((field) => {
+    if (hasActiveValue(callouts[field]) && !normalizeCssSizeText(callouts[field])) errors.push(`${field} must be a valid CSS size`);
+  });
+  ["multiColumnBorderColor"].forEach((field) => {
+    if (hasActiveValue(callouts[field]) && !normalizeHexColor(callouts[field])) errors.push(`${field} must be a valid hex color`);
+  });
+  (callouts.presets || []).forEach((preset, index) => {
+    ["color", "titleColor", "backgroundColor"].forEach((field) => {
+      if (hasActiveValue(preset[field]) && !normalizeHexColor(preset[field])) errors.push(`preset ${index + 1} ${field} must be a valid hex color`);
+    });
+  });
+  return errors;
+}
+
+function validateFileExplorerSection(style) {
+  const errors = [];
+  FILE_EXPLORER_FIELDS.filter((field) => field.endsWith("Color") || field.endsWith("Background")).forEach((field) => {
+    if (hasActiveValue(style[field]) && !normalizeHexColor(style[field])) errors.push(`${field} must be a valid hex color`);
+  });
+  if (hasActiveValue(style.fontFamily) && !validateFont(style.fontFamily).valid) errors.push("fontFamily must be a valid font family");
+  if (hasActiveValue(style.fontWeight) && !validateFontWeight(style.fontWeight).valid) errors.push("fontWeight must be a valid font weight");
+  return errors;
+}
+
+function validateOverrideSection(override) {
+  const errors = [];
+  if (!hasActiveValue(override.name)) errors.push("override name is required");
+  if (!hasActiveValue(override.pattern)) errors.push("path pattern is required");
+  errors.push(...validateProfileSection(override.profile || {}, Object.keys(STYLE_FIELD_REGISTRY)));
+  errors.push(...validateFileExplorerSection(override.fileExplorer || {}));
+  return errors;
+}
+
+async function applyDraftAtomically({ draft, normalize, validate, commit, persist, rollback }) {
+  const candidate = normalize(cloneDraftValue(draft));
+  const errors = validate(candidate);
+  if (errors.length) return { applied: false, errors, candidate };
+  try {
+    commit(candidate);
+    await persist();
+    return { applied: true, candidate };
+  } catch (error) {
+    rollback?.();
+    throw error;
+  }
+}
 
 const DEFAULT_SETTINGS = {
   schemaVersion: SETTINGS_SCHEMA_VERSION,
@@ -409,6 +575,7 @@ const STYLE_IMAGE_RESPECT_EXPLICIT_CLASS = "style-controller-respect-explicit-im
 const STYLE_IMAGE_IGNORE_EXPLICIT_CLASS = "style-controller-ignore-explicit-image-size";
 const STYLE_HEADING_COLOR_ACTIVE_CLASS = "style-controller-heading-color-active";
 const STYLE_HEADING_COLOR_CLASSES = Array.from({ length: 6 }, (_, index) => `style-controller-h${index + 1}-color-active`);
+const STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS = "style-controller-code-block-color-active";
 const FILE_EXPLORER_TARGET_CLASS = "style-controller-file-explorer-target";
 const FILE_EXPLORER_FOLDER_CLASS = "style-controller-file-explorer-folder";
 const FILE_EXPLORER_FILE_CLASS = "style-controller-file-explorer-file";
@@ -577,7 +744,8 @@ export default class StyleControllerPlugin extends Plugin {
         STYLE_IMAGE_RESPECT_EXPLICIT_CLASS,
         STYLE_IMAGE_IGNORE_EXPLICIT_CLASS,
         STYLE_HEADING_COLOR_ACTIVE_CLASS,
-        ...STYLE_HEADING_COLOR_CLASSES
+        ...STYLE_HEADING_COLOR_CLASSES,
+        STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS
       );
       clearProfileCssVariables(container);
       container.removeAttribute("data-osc-profile");
@@ -598,7 +766,8 @@ export default class StyleControllerPlugin extends Plugin {
         STYLE_IMAGE_RESPECT_EXPLICIT_CLASS,
         STYLE_IMAGE_IGNORE_EXPLICIT_CLASS,
         STYLE_HEADING_COLOR_ACTIVE_CLASS,
-        ...STYLE_HEADING_COLOR_CLASSES
+        ...STYLE_HEADING_COLOR_CLASSES,
+        STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS
       );
       clearProfileCssVariables(container);
       container.removeAttribute("data-osc-profile");
@@ -1081,6 +1250,7 @@ function applyProfileStateClasses(element, profile) {
     element.toggleClass(className, !!cssColorValue(profile[`h${index + 1}Color`]));
   });
   element.toggleClass(STYLE_HEADING_COLOR_ACTIVE_CLASS, hasActiveHeadingColor(profile));
+  element.toggleClass(STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS, !!cssColorValue(profile.codeBlockColor));
 }
 
 function hasActiveHeadingColor(profile) {
@@ -1772,6 +1942,128 @@ class StyleControllerSettingTab extends PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
+    this.drafts = new SectionDraftManager();
+  }
+
+  getSectionContext(key, targetGetter, label, options = {}) {
+    const target = targetGetter();
+    if (!target) return null;
+    const context = this.drafts.get(key, target);
+    context.target = targetGetter;
+    context.label = label;
+    context.normalize = options.normalize || ((value) => value);
+    context.validate = options.validate || (() => []);
+    context.commit = options.commit;
+    return context;
+  }
+
+  getProfileSectionContext(key, label, targetGetter, fields, optional = false) {
+    return this.getSectionContext(key, targetGetter, label, {
+      normalize: (value) => optional ? normalizeOptionalProfile(value) : normalizeProfile(value),
+      validate: (value) => validateProfileSection(value, fields),
+      commit: (candidate) => {
+        const target = targetGetter();
+        if (!target) throw new Error(`${label} target is no longer available`);
+        fields.forEach((field) => {
+          target[field] = candidate[field];
+        });
+      }
+    });
+  }
+
+  getOverrideContext(override) {
+    return this.getSectionContext(`override:${override.id}`, () => this.plugin.settings.overrides.find((candidate) => candidate.id === override.id), `${override.name || "Override"} settings`, {
+      normalize: normalizeOverride,
+      validate: validateOverrideSection,
+      commit: (candidate) => {
+        const index = this.plugin.settings.overrides.findIndex((current) => current.id === override.id);
+        if (index < 0) throw new Error("Override no longer exists");
+        this.plugin.settings.overrides[index] = candidate;
+      }
+    });
+  }
+
+  noteDraftMutation(value) {
+    return this.drafts.mark(value);
+  }
+
+  updateDraftPreview(profile) {
+    const context = this.drafts.objectEntries.get(profile);
+    this.updatePreview(profile, context?.previewRoot || this.containerEl);
+  }
+
+  renderSectionActions(parent, context) {
+    if (!context) return;
+    const actions = parent.createDiv({ cls: "osc-section-actions" });
+    const status = actions.createSpan({ cls: "osc-section-status", text: "Applied" });
+    const applyButton = actions.createEl("button", { text: "Apply", cls: "mod-cta" });
+    const revertButton = actions.createEl("button", { text: "Revert" });
+    context.previewRoot = parent;
+    context.updateUi = () => {
+      const dirty = context.dirty;
+      status.setText(dirty ? "Unsaved changes" : "Applied");
+      status.toggleClass("is-dirty", dirty);
+      parent.toggleClass("is-dirty", dirty);
+      applyButton.disabled = !dirty;
+      revertButton.disabled = !dirty;
+    };
+    applyButton.addEventListener("click", () => void this.applyDraftContext(context));
+    revertButton.addEventListener("click", () => this.revertDraftContext(context));
+    context.updateUi();
+  }
+
+  async applyDraftContext(context) {
+    if (!context?.dirty) return;
+    const settingsBefore = cloneDraftValue(this.plugin.settings);
+    let result;
+    try {
+      result = await applyDraftAtomically({
+        draft: context.value,
+        normalize: context.normalize,
+        validate: context.validate,
+        commit: context.commit,
+        persist: () => this.plugin.saveSettings(),
+        rollback: () => {
+          this.plugin.settings = normalizeSettings(settingsBefore);
+          this.plugin.applyStyles();
+        }
+      });
+    } catch (error) {
+      new Notice(`Could not apply ${context.label}: ${error.message}`);
+      return;
+    }
+    if (!result.applied) {
+      new Notice(`Could not apply ${context.label}: ${result.errors[0]}`);
+      return;
+    }
+    this.plugin.applyStyles();
+    const current = context.target();
+    context.value = cloneDraftValue(current);
+    context.baseline = cloneDraftValue(current);
+    context.dirty = false;
+    this.drafts.bind(context);
+    context.updateUi?.();
+    this.refreshPreservingScroll();
+    new Notice(`${context.label} applied.`);
+  }
+
+  revertDraftContext(context) {
+    if (!context?.dirty) return;
+    const current = context.target();
+    if (!current) return;
+    this.drafts.revert(context.key, current);
+    this.refreshPreservingScroll();
+    new Notice(`${context.label} reverted.`);
+  }
+
+  hasDirtyDrafts() {
+    return this.drafts.hasDirty();
+  }
+
+  blockIfDirty(action = "leave this section") {
+    if (!this.hasDirtyDrafts()) return false;
+    new Notice(`Apply or Revert unsaved changes before you ${action}.`);
+    return true;
   }
 
   display() {
@@ -1802,6 +2094,14 @@ class StyleControllerSettingTab extends PluginSettingTab {
     }
   }
 
+  hide() {
+    if (this.hasDirtyDrafts()) {
+      new Notice("Unsaved Style Controller changes were not applied.");
+    }
+    this.drafts = new SectionDraftManager();
+    this.containerEl.empty();
+  }
+
   refreshPreservingScroll() {
     const scrollParent = findScrollParent(this.containerEl);
     const scrollTop = scrollParent ? scrollParent.scrollTop : 0;
@@ -1823,6 +2123,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
       const button = nav.createEl("button", { text: label });
       button.toggleClass("is-active", (this.plugin.settings.activeSettingsTab || "global") === id);
       button.addEventListener("click", async () => {
+        if (this.blockIfDirty("navigate away")) return;
         this.plugin.settings.activeSettingsTab = id;
         await this.plugin.saveSettings();
         this.display();
@@ -1899,6 +2200,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
       });
     }
     actions.createEl("button", { text: "Apply" }).addEventListener("click", async () => {
+      if (this.blockIfDirty("apply a stored configuration")) return;
       await this.applyStoredConfiguration(config);
     });
     actions.createEl("button", { text: "Export" }).addEventListener("click", () => {
@@ -1956,6 +2258,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
   }
 
   async applyStoredConfiguration(config) {
+    if (this.blockIfDirty("apply a stored configuration")) return;
     if (config.id === NATIVE_DEFAULT_CONFIGURATION.id) {
       const confirmed = await confirmWithModal(
         this.app,
@@ -1984,6 +2287,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
         .setButtonText("Add")
         .setCta()
         .onClick(async () => {
+          if (this.blockIfDirty("add an override")) return;
           this.plugin.settings.overrides.push(normalizeOverride({
             id: String(Date.now()),
             name: "New override",
@@ -2003,18 +2307,21 @@ class StyleControllerSettingTab extends PluginSettingTab {
   }
 
   renderOverride(parent, override, index, fileExplorerOnly = false) {
-    const card = parent.createDiv({ cls: `osc-override-card${override.enabled ? "" : " is-disabled"}` });
+    const context = this.getOverrideContext(override);
+    const draft = context.value;
+    const card = parent.createDiv({ cls: `osc-override-card${draft.enabled ? "" : " is-disabled"}` });
     const header = card.createDiv({ cls: "osc-override-card-header" });
-    new Setting(header).setName(override.name || `Override ${index + 1}`).setHeading();
+    new Setting(header).setName(draft.name || `Override ${index + 1}`).setHeading();
+    this.renderSectionActions(header, context);
     this.renderOverrideActions(header, index);
 
     new Setting(card)
       .setName("Enabled")
       .addToggle((toggle) => toggle
-        .setValue(override.enabled)
-        .onChange(async (value) => {
-          override.enabled = value;
-          await this.plugin.saveSettings();
+        .setValue(draft.enabled)
+        .onChange((value) => {
+          draft.enabled = value;
+          this.noteDraftMutation(draft);
           this.refreshPreservingScroll();
         }));
 
@@ -2022,10 +2329,10 @@ class StyleControllerSettingTab extends PluginSettingTab {
       .setName("Name")
       .addText((text) => text
         .setPlaceholder("Projects style")
-        .setValue(override.name)
-        .onChange(async (value) => {
-          override.name = value;
-          await this.plugin.saveSettings();
+        .setValue(draft.name)
+        .onChange((value) => {
+          draft.name = value;
+          this.noteDraftMutation(draft);
         }));
 
     new Setting(card)
@@ -2035,10 +2342,10 @@ class StyleControllerSettingTab extends PluginSettingTab {
           .addOption("folder", "Folder")
           .addOption("file", "File")
           .addOption("path-contains", "Path contains")
-          .setValue(override.type)
-          .onChange(async (value) => {
-            override.type = value;
-            await this.plugin.saveSettings();
+          .setValue(draft.type)
+          .onChange((value) => {
+            draft.type = value;
+            this.noteDraftMutation(draft);
           });
       });
 
@@ -2049,28 +2356,28 @@ class StyleControllerSettingTab extends PluginSettingTab {
       .addText((text) => {
         text
           .setPlaceholder("Projects/Client A")
-          .setValue(override.pattern)
-          .onChange(async (value) => {
-            override.pattern = normalizeUserPathPattern(value);
-            await this.plugin.saveSettings();
+          .setValue(draft.pattern)
+          .onChange((value) => {
+            draft.pattern = normalizeUserPathPattern(value);
+            this.noteDraftMutation(draft);
           });
         let status;
         new OverridePathSuggest(this.app, text.inputEl, async (path) => {
-          override.pattern = path;
+          draft.pattern = path;
           text.setValue(path);
           if (status) updateValueStatus(status, hasActiveValue(path));
-          await this.plugin.saveSettings();
+          this.noteDraftMutation(draft);
         });
-        status = createValueStatus(text.inputEl.parentElement, hasActiveValue(override.pattern));
+        status = createValueStatus(text.inputEl.parentElement, hasActiveValue(draft.pattern));
         text.inputEl.addEventListener("input", () => updateValueStatus(status, hasActiveValue(text.inputEl.value)));
       });
 
     if (fileExplorerOnly) {
-      this.renderOverrideModuleToggle(card, override, "fileExplorer", "Enable file explorer styling");
-      if (override.modules.fileExplorer) this.renderFileExplorerOverride(card, override.fileExplorer, override);
+      this.renderOverrideModuleToggle(card, draft, "fileExplorer", "Enable file explorer styling");
+      if (draft.modules.fileExplorer) this.renderFileExplorerOverride(card, draft.fileExplorer, draft);
     } else {
-      this.renderOverrideModuleToggle(card, override, "baseText", "Base text");
-      if (override.modules.baseText) this.renderSettingGroup(card, "Base text", override.profile, [
+      this.renderOverrideModuleToggle(card, draft, "baseText", "Base text");
+      if (draft.modules.baseText) this.renderSettingGroup(card, "Base text", draft.profile, [
         ["fontFamily", "Font family", "Inter, Arial, sans-serif"],
         ["textSize", "Text size", "16"],
         ["textWeight", "Text weight", "400"],
@@ -2086,19 +2393,19 @@ class StyleControllerSettingTab extends PluginSettingTab {
         ["accentColor", "Accent color", "#4f8cff"]
       ]);
 
-      this.renderOverrideModuleToggle(card, override, "links", "Links");
-      if (override.modules.links) this.renderSettingGroup(card, "Links", override.profile, [
+      this.renderOverrideModuleToggle(card, draft, "links", "Links");
+      if (draft.modules.links) this.renderSettingGroup(card, "Links", draft.profile, [
         ["linkColor", "Link", "#00ff33"],
         ["linkHoverColor", "Hover", "#ff6b9f"],
         ["internalLinkColor", "Internal", "#6eb47c"],
         ["externalLinkColor", "External", "#66d9ef"]
       ]);
 
-      this.renderOverrideModuleToggle(card, override, "headings", "Headings");
-      if (override.modules.headings) this.renderHeadingGroup(card, override.profile);
+      this.renderOverrideModuleToggle(card, draft, "headings", "Headings");
+      if (draft.modules.headings) this.renderHeadingGroup(card, draft.profile);
 
-      this.renderOverrideModuleToggle(card, override, "tablesCodeQuotes", "Tables, code, quotes");
-      if (override.modules.tablesCodeQuotes) this.renderSettingGroup(card, "Tables, code, quotes", override.profile, [
+      this.renderOverrideModuleToggle(card, draft, "tablesCodeQuotes", "Tables, code, quotes");
+      if (draft.modules.tablesCodeQuotes) this.renderSettingGroup(card, "Tables, code, quotes", draft.profile, [
         ["tableHeaderBackground", "Table header bg", "#1f2937"],
         ["tableHeaderColor", "Table header text", "#ffffff"],
         ["tableBorderColor", "Table border", "#3b4252"],
@@ -2113,11 +2420,11 @@ class StyleControllerSettingTab extends PluginSettingTab {
         ["blockquoteBackground", "Quote bg", "#111827"]
       ]);
 
-      this.renderOverrideModuleToggle(card, override, "images", "Images");
-      if (override.modules.images) this.renderImageGroup(card, override.profile);
+      this.renderOverrideModuleToggle(card, draft, "images", "Images");
+      if (draft.modules.images) this.renderImageGroup(card, draft.profile);
 
-      this.renderOverrideModuleToggle(card, override, "advancedCss", "Advanced CSS");
-      if (override.modules.advancedCss) {
+      this.renderOverrideModuleToggle(card, draft, "advancedCss", "Advanced CSS");
+      if (draft.modules.advancedCss) {
         const advanced = this.renderCollapsibleGroup(card, "Advanced CSS");
         new Setting(advanced)
           .setName("Advanced custom CSS")
@@ -2134,6 +2441,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
         .setButtonText("Move up")
         .setDisabled(index === 0)
         .onClick(async () => {
+          if (this.blockIfDirty("reorder or delete an override")) return;
           const overrides = this.plugin.settings.overrides;
           [overrides[index - 1], overrides[index]] = [overrides[index], overrides[index - 1]];
           await this.plugin.saveSettings();
@@ -2143,6 +2451,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
         .setButtonText("Move down")
         .setDisabled(index === this.plugin.settings.overrides.length - 1)
         .onClick(async () => {
+          if (this.blockIfDirty("reorder or delete an override")) return;
           const overrides = this.plugin.settings.overrides;
           [overrides[index + 1], overrides[index]] = [overrides[index], overrides[index + 1]];
           await this.plugin.saveSettings();
@@ -2152,7 +2461,10 @@ class StyleControllerSettingTab extends PluginSettingTab {
         .setButtonText("Delete")
         .setDestructive()
         .onClick(async () => {
+          if (this.blockIfDirty("reorder or delete an override")) return;
+          const override = this.plugin.settings.overrides[index];
           this.plugin.settings.overrides.splice(index, 1);
+          if (override) this.drafts.remove(`override:${override.id}`);
           await this.plugin.saveSettings();
           this.refreshPreservingScroll();
         }));
@@ -2164,9 +2476,9 @@ class StyleControllerSettingTab extends PluginSettingTab {
       .setDesc("Enable this module for the override.")
       .addToggle((toggle) => toggle
         .setValue(override.modules[key] === true)
-        .onChange(async (value) => {
+        .onChange((value) => {
           override.modules[key] = value;
-          await this.plugin.saveSettings();
+          this.noteDraftMutation(override);
           this.refreshPreservingScroll();
         }));
   }
@@ -2264,47 +2576,65 @@ class StyleControllerSettingTab extends PluginSettingTab {
     const profileRoot = parent.createDiv({ cls: "osc-profile" });
     profileRoot.createEl("div", { text: title, cls: "osc-section-heading" });
 
-    this.renderSettingGroup(profileRoot, "Base text", profile, [
+    const target = () => this.plugin.settings.global;
+    const baseTextContext = this.getProfileSectionContext("global:baseText", "Base text settings", target, PROFILE_SECTION_FIELDS.baseText);
+    this.renderSettingGroup(profileRoot, "Base text", baseTextContext.value, [
       ["fontFamily", "Font family", "Inter, Arial, sans-serif"],
       ["textSize", "Text size", "16"],
       ["textWeight", "Text weight", "400"],
+      ["lineHeight", "Line height", "1.65"],
+      ["textColor", "Text color", "Default"],
+      ["backgroundColor", "Note background", "Default"],
+      ["accentColor", "Accent color", "#4f8cff"]
+    ], baseTextContext);
+
+    const boldItalicContext = this.getProfileSectionContext("global:boldItalic", "Bold and italic settings", target, PROFILE_SECTION_FIELDS.boldItalic);
+    this.renderSettingGroup(profileRoot, "Bold and italic", boldItalicContext.value, [
       ["boldFontFamily", "Bold font", "Inter, Arial, sans-serif"],
       ["boldWeight", "Bold weight", "700"],
       ["boldColor", "Bold color", "Default"],
       ["italicFontFamily", "Italic font", "Inter, Arial, sans-serif"],
       ["italicWeight", "Italic weight", "inherit"],
-      ["italicColor", "Italic color", "Default"],
-      ["lineHeight", "Line height", "1.65"],
-      ["textColor", "Text color", "Default"],
-      ["backgroundColor", "Note background", "Default"],
-      ["accentColor", "Accent color", "#4f8cff"]
-    ]);
+      ["italicColor", "Italic color", "Default"]
+    ], boldItalicContext);
 
-    this.renderSettingGroup(profileRoot, "Links", profile, [
+    const linksContext = this.getProfileSectionContext("global:links", "Links settings", target, PROFILE_SECTION_FIELDS.links);
+    this.renderSettingGroup(profileRoot, "Links", linksContext.value, [
       ["linkColor", "Link", "#00ff33"],
       ["linkHoverColor", "Hover", "#ff6b9f"],
       ["internalLinkColor", "Internal", "#6eb47c"],
       ["externalLinkColor", "External", "#66d9ef"]
-    ]);
+    ], linksContext);
 
-    this.renderHeadingGroup(profileRoot, profile);
+    const headingsContext = this.getProfileSectionContext("global:headings", "Headings settings", target, PROFILE_SECTION_FIELDS.headings);
+    this.renderHeadingGroup(profileRoot, headingsContext.value, headingsContext);
 
-    this.renderSettingGroup(profileRoot, "Tables, code, quotes", profile, [
+    const tablesContext = this.getProfileSectionContext("global:tables", "Tables settings", target, PROFILE_SECTION_FIELDS.tables);
+    this.renderSettingGroup(profileRoot, "Tables", tablesContext.value, [
       ["tableHeaderBackground", "Table header bg", "#1f2937"],
       ["tableHeaderColor", "Table header text", "#ffffff"],
       ["tableBorderColor", "Table border", "#3b4252"],
-      ["tableRowAltBackground", "Alt row bg", "#151b22"],
+      ["tableRowAltBackground", "Alt row bg", "#151b22"]
+    ], tablesContext, (content) => this.renderTablePreview(content, tablesContext.value));
+
+    const codeContext = this.getProfileSectionContext("global:code", "Code settings", target, PROFILE_SECTION_FIELDS.code);
+    this.renderSettingGroup(profileRoot, "Code", codeContext.value, [
       ["codeFontFamily", "Inline code font", "JetBrains Mono, Menlo, monospace"],
       ["codeBackground", "Inline code bg", DEFAULT_CODE_BACKGROUND],
       ["codeColor", "Inline code text", "#f8f8f2"],
       ["codeBlockFontFamily", "Code block font", "JetBrains Mono, Menlo, monospace"],
       ["codeBlockBackground", "Code block bg", DEFAULT_CODE_BACKGROUND],
-      ["codeBlockColor", "Code block base text", "#f8f8f2"],
+      ["codeBlockColor", "Code block base text", "#f8f8f2"]
+    ], codeContext, (content) => this.renderCodePreview(content, codeContext.value));
+
+    const quotesContext = this.getProfileSectionContext("global:quotes", "Quotes settings", target, PROFILE_SECTION_FIELDS.quotes);
+    this.renderSettingGroup(profileRoot, "Quotes", quotesContext.value, [
       ["blockquoteBorderColor", "Quote border", "#4f8cff"],
       ["blockquoteBackground", "Quote bg", "#111827"]
-    ]);
+    ], quotesContext, (content) => this.renderQuotePreview(content, quotesContext.value));
 
-    this.renderImageGroup(profileRoot, profile);
+    const imagesContext = this.getProfileSectionContext("global:images", "Images settings", target, PROFILE_SECTION_FIELDS.images);
+    this.renderImageGroup(profileRoot, imagesContext.value, imagesContext);
 
     const advanced = this.renderCollapsibleGroup(profileRoot, "Advanced CSS");
     new Setting(advanced)
@@ -2312,12 +2642,11 @@ class StyleControllerSettingTab extends PluginSettingTab {
       .setDesc("Arbitrary CSS injection is unavailable in the Community version. Existing stored custom CSS is preserved but not applied.");
   }
 
-  renderSettingGroup(parent, title, profile, fields) {
+  renderSettingGroup(parent, title, profile, fields, context = null, renderPreview = null) {
     const content = this.renderCollapsibleGroup(parent, title);
-    if (title === "Tables, code, quotes") {
-      this.renderRichControls(content, profile);
-      return;
-    }
+    this.renderSectionActions(content, context);
+    context && (context.previewRoot = content);
+    renderPreview?.(content);
     this.renderSectionPreview(content, title, profile);
     if (title === "Base text") {
       this.renderBaseTextControls(content, profile);
@@ -2375,7 +2704,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
     const rowTwo = tbody.createEl("tr", { cls: "osc-preview-table-row" });
     rowTwo.createEl("td", { text: "Alternating row" });
     rowTwo.createEl("td", { text: "Stable" });
-    this.updateRichPreview(profile);
+    this.updateRichPreview(profile, parent);
   }
 
   renderCodePreview(parent, profile) {
@@ -2387,14 +2716,14 @@ class StyleControllerSettingTab extends PluginSettingTab {
       codeBlock,
       "Style Controller Preview.md",
       this.plugin
-    ).then(() => this.updateRichPreview(profile));
-    this.updateRichPreview(profile);
+    ).then(() => this.updateRichPreview(profile, parent));
+    this.updateRichPreview(profile, parent);
   }
 
   renderQuotePreview(parent, profile) {
     const preview = parent.createDiv({ cls: "osc-mini-preview osc-rich-preview osc-quote-preview osc-style-scope markdown-rendered" });
     preview.createEl("blockquote", { text: "Blockquote preview text" });
-    this.updateRichPreview(profile);
+    this.updateRichPreview(profile, parent);
   }
 
   renderBaseTextControls(parent, profile) {
@@ -2434,8 +2763,10 @@ class StyleControllerSettingTab extends PluginSettingTab {
     });
   }
 
-  renderHeadingGroup(parent, profile) {
+  renderHeadingGroup(parent, profile, context = null) {
     const content = this.renderCollapsibleGroup(parent, "Headings");
+    this.renderSectionActions(content, context);
+    context && (context.previewRoot = content);
     this.renderHeadingPreview(content, profile);
     const grid = content.createDiv({ cls: "osc-heading-grid" });
     for (let level = 1; level <= 6; level += 1) {
@@ -2450,8 +2781,10 @@ class StyleControllerSettingTab extends PluginSettingTab {
     }
   }
 
-  renderImageGroup(parent, profile) {
+  renderImageGroup(parent, profile, context = null) {
     const content = this.renderCollapsibleGroup(parent, "Images");
+    this.renderSectionActions(content, context);
+    context && (context.previewRoot = content);
     const grid = content.createDiv({ cls: "osc-images-grid" });
     this.addImageAlignmentControl(grid, profile);
     this.addImageRespectExplicitSizeControl(grid, profile);
@@ -2469,10 +2802,10 @@ class StyleControllerSettingTab extends PluginSettingTab {
         .addOption("center", "Center")
         .addOption("right", "Right")
         .setValue(normalizeImageAlignment(profile.imageAlignment))
-        .onChange(async (value) => {
+        .onChange((value) => {
           profile.imageAlignment = normalizeImageAlignment(value);
-          this.updatePreview(profile);
-          await this.plugin.saveSettings();
+          this.noteDraftMutation(profile);
+          this.updateDraftPreview(profile);
         });
     });
     const status = createValueStatus(setting.controlEl, hasActiveValue(normalizeImageAlignment(profile.imageAlignment)));
@@ -2489,11 +2822,11 @@ class StyleControllerSettingTab extends PluginSettingTab {
     let status;
     setting.addToggle((toggle) => toggle
       .setValue(normalizeImageRespectExplicitSize(profile.imageRespectExplicitSize) !== "false")
-      .onChange(async (value) => {
+      .onChange((value) => {
         profile.imageRespectExplicitSize = value ? "" : "false";
         if (status) updateValueStatus(status, !value, "On");
-        this.updatePreview(profile);
-        await this.plugin.saveSettings();
+        this.noteDraftMutation(profile);
+        this.updateDraftPreview(profile);
       }));
     status = createValueStatus(setting.controlEl, normalizeImageRespectExplicitSize(profile.imageRespectExplicitSize) === "false", "On");
     const input = setting.controlEl.querySelector("input");
@@ -2502,9 +2835,19 @@ class StyleControllerSettingTab extends PluginSettingTab {
     });
   }
 
-  renderCalloutSection(parent, callouts) {
+  renderCalloutSection(parent) {
+    const context = this.getSectionContext("callouts:root", () => this.plugin.settings.callouts, "Callouts settings", {
+      normalize: normalizeCallouts,
+      validate: validateCalloutSection,
+      commit: (candidate) => {
+        this.plugin.settings.callouts = candidate;
+      }
+    });
+    const callouts = context.value;
     const root = parent.createDiv({ cls: "osc-profile" });
     root.createEl("div", { text: "Callouts", cls: "osc-section-heading" });
+    this.renderSectionActions(root, context);
+    context.previewRoot = root;
 
     const global = this.renderCollapsibleGroup(root, "Global callout style");
     new Setting(global)
@@ -2512,13 +2855,13 @@ class StyleControllerSettingTab extends PluginSettingTab {
       .setDesc("Restore the bundled imported callout values.")
       .addButton((button) => button
         .setButtonText("Reset")
-        .onClick(async () => {
-          this.plugin.settings.callouts = cloneCalloutDefaults();
-          await this.plugin.saveSettings();
-          this.display();
+        .onClick(() => {
+          Object.assign(callouts, cloneCalloutDefaults());
+          this.noteDraftMutation(callouts);
+          this.refreshPreservingScroll();
         }));
-    const globalPreview = this.renderGlobalCalloutPreview(global);
-    const updateGlobalPreview = () => this.updateGlobalCalloutPreview(globalPreview);
+    const globalPreview = this.renderGlobalCalloutPreview(global, callouts);
+    const updateGlobalPreview = () => this.updateGlobalCalloutPreview(globalPreview, callouts);
     const globalGrid = global.createDiv({ cls: "osc-setting-grid" });
     this.addDirectSetting(globalGrid, callouts, "borderWidth", "Border width", "2", "size", "", updateGlobalPreview);
     this.addDirectSetting(globalGrid, callouts, "radius", "Radius", "8", "size", "", updateGlobalPreview);
@@ -2557,19 +2900,19 @@ class StyleControllerSettingTab extends PluginSettingTab {
         .setName("Hide icon")
         .addToggle((toggle) => toggle
           .setValue(preset.hideIcon)
-          .onChange(async (value) => {
+          .onChange((value) => {
             preset.hideIcon = value;
-            await this.plugin.saveSettings();
+            this.noteDraftMutation(callouts);
             updateCallout();
           }));
       new Setting(card)
         .addButton((button) => button
           .setButtonText("Delete")
           .setWarning()
-          .onClick(async () => {
+          .onClick(() => {
             callouts.presets.splice(index, 1);
-            await this.plugin.saveSettings();
-            this.display();
+            this.noteDraftMutation(callouts);
+            this.refreshPreservingScroll();
           }));
     });
 
@@ -2578,7 +2921,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
       .addButton((button) => button
         .setButtonText("Add")
         .setCta()
-        .onClick(async () => {
+        .onClick(() => {
           callouts.presets.push(normalizeCalloutPreset({
             type: "custom",
             color: "#008293",
@@ -2587,8 +2930,8 @@ class StyleControllerSettingTab extends PluginSettingTab {
             previewTitle: "Hello",
             previewBody: "ss"
           }));
-          await this.plugin.saveSettings();
-          this.display();
+          this.noteDraftMutation(callouts);
+          this.refreshPreservingScroll();
         }));
   }
 
@@ -2598,15 +2941,14 @@ class StyleControllerSettingTab extends PluginSettingTab {
     return preview;
   }
 
-  renderGlobalCalloutPreview(parent) {
+  renderGlobalCalloutPreview(parent, callouts = this.plugin.settings.callouts) {
     const preview = parent.createDiv({ cls: "osc-callout-preview osc-global-callout-preview osc-style-scope markdown-rendered" });
-    this.updateGlobalCalloutPreview(preview);
+    this.updateGlobalCalloutPreview(preview, callouts);
     return preview;
   }
 
-  async updateGlobalCalloutPreview(preview) {
+  async updateGlobalCalloutPreview(preview, callouts = this.plugin.settings.callouts) {
     preview.empty();
-    const callouts = this.plugin.settings.callouts;
     const title = String(callouts.previewTitle || "").trim() || "Global callout preview";
     const body = String(callouts.previewBody || "").trim() || "ss";
     const bodyLines = body.split(/\r?\n/).map((line) => `> ${line}`).join("\n");
@@ -2631,7 +2973,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
       emphasis.appendText(" and ");
       emphasis.createEl("em", { text: "italic text" });
       emphasis.appendText(" use the current base font and size.");
-      this.updateBasePreview(profile);
+      this.updateBasePreview(profile, parent);
       return;
     }
 
@@ -2644,7 +2986,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
         "Style Controller Preview.md",
         this.plugin
       );
-      this.updateLinksPreview(profile);
+      this.updateLinksPreview(profile, parent);
       return;
     }
 
@@ -2655,18 +2997,18 @@ class StyleControllerSettingTab extends PluginSettingTab {
     for (let level = 1; level <= 6; level += 1) {
       preview.createDiv({ text: `Heading ${level}`, cls: `osc-heading-preview-h${level}` });
     }
-    this.updateHeadingPreview(profile);
+    this.updateHeadingPreview(profile, parent);
   }
 
-  updatePreview(profile = this.plugin.settings.global) {
-    this.updateBasePreview(profile);
-    this.updateLinksPreview(profile);
-    this.updateHeadingPreview(profile);
-    this.updateRichPreview(profile);
+  updatePreview(profile = this.plugin.settings.global, root = this.containerEl) {
+    this.updateBasePreview(profile, root);
+    this.updateLinksPreview(profile, root);
+    this.updateHeadingPreview(profile, root);
+    this.updateRichPreview(profile, root);
   }
 
-  updateBasePreview(profile) {
-    this.containerEl.querySelectorAll(".osc-base-preview").forEach((preview) => {
+  updateBasePreview(profile, root = this.containerEl) {
+    root.querySelectorAll(".osc-base-preview").forEach((preview) => {
       preview.setCssProps({
         "--osc-preview-font-family": cssFontValue(profile.fontFamily),
         "--osc-preview-font-size": cssValue(profile.textSize),
@@ -2684,8 +3026,8 @@ class StyleControllerSettingTab extends PluginSettingTab {
     });
   }
 
-  updateLinksPreview(profile) {
-    this.containerEl.querySelectorAll(".osc-links-preview").forEach((preview) => {
+  updateLinksPreview(profile, root = this.containerEl) {
+    root.querySelectorAll(".osc-links-preview").forEach((preview) => {
       setOptionalCssVariable(preview, "--osc-preview-link-color", profile.linkColor);
       setOptionalCssVariable(preview, "--osc-preview-link-hover-color", profile.linkHoverColor);
       setOptionalCssVariable(preview, "--osc-preview-internal-link-color", profile.internalLinkColor);
@@ -2693,9 +3035,9 @@ class StyleControllerSettingTab extends PluginSettingTab {
     });
   }
 
-  updateHeadingPreview(profile) {
+  updateHeadingPreview(profile, root = this.containerEl) {
     for (let level = 1; level <= 6; level += 1) {
-      this.containerEl.querySelectorAll(`.osc-heading-preview-h${level}`).forEach((el) => {
+      root.querySelectorAll(`.osc-heading-preview-h${level}`).forEach((el) => {
         el.setCssProps({
           "--osc-preview-heading-font-family": cssFontValue(profile[`h${level}FontFamily`] || profile.fontFamily),
           "--osc-preview-heading-font-size": cssValue(profile[`h${level}Size`]),
@@ -2706,8 +3048,8 @@ class StyleControllerSettingTab extends PluginSettingTab {
     }
   }
 
-  updateRichPreview(profile) {
-    this.containerEl.querySelectorAll(".osc-rich-preview").forEach((preview) => {
+  updateRichPreview(profile, root = this.containerEl) {
+    root.querySelectorAll(".osc-rich-preview").forEach((preview) => {
       applyProfileCssVariables(preview, profile);
       preview.setCssProps({
         "--osc-preview-table-header-background": cssValue(profile.tableHeaderBackground),
@@ -2743,10 +3085,10 @@ class StyleControllerSettingTab extends PluginSettingTab {
       setting.addText((text) => text
         .setPlaceholder(resolvedPlaceholder)
         .setValue(profile[key] || "")
-        .onChange(async (value) => {
+        .onChange((value) => {
           profile[key] = value;
-          this.updatePreview(profile);
-          await this.plugin.saveSettings();
+          this.noteDraftMutation(profile);
+          this.updateDraftPreview(profile);
         }));
       const status = createValueStatus(setting.controlEl, hasActiveValue(profile[key]));
       const input = setting.controlEl.querySelector("input");
@@ -2767,11 +3109,11 @@ class StyleControllerSettingTab extends PluginSettingTab {
     select.value = hasValue ? parsed.unit : parseCssSize(placeholder).unit;
     const status = createValueStatus(wrapper, hasValue);
 
-    const save = async () => {
+    const save = () => {
       profile[key] = input.value ? `${input.value}${select.value}` : "";
       updateValueStatus(status, hasActiveValue(profile[key]));
-      this.updatePreview(profile);
-      await this.plugin.saveSettings();
+      this.noteDraftMutation(profile);
+      this.updateDraftPreview(profile);
     };
     input.addEventListener("input", save);
     select.addEventListener("change", save);
@@ -2798,25 +3140,19 @@ class StyleControllerSettingTab extends PluginSettingTab {
       };
       const updateValue = (value) => {
         setCodeBackgroundCustomInput(profile, key, value, optional);
+        this.noteDraftMutation(profile);
         updateControl();
-        this.updatePreview(profile);
-        this.plugin.applyStyles();
-      };
-      const saveValue = async () => {
-        await this.plugin.saveSettings();
-        this.refreshPreservingScroll();
+        this.updateDraftPreview(profile);
       };
 
       input.addEventListener("focus", () => {
         if (!codeBackgroundUiState(profile, key, optional).enabled) input.value = "";
       });
       input.addEventListener("input", () => updateValue(input.value));
-      input.addEventListener("change", saveValue);
       input.addEventListener("blur", () => {
         if (!input.value.trim()) updateControl();
       });
       swatch.addEventListener("input", () => updateValue(swatch.value));
-      swatch.addEventListener("change", saveValue);
       updateControl();
       return;
     }
@@ -2827,23 +3163,23 @@ class StyleControllerSettingTab extends PluginSettingTab {
     const status = wrapper.createSpan({ cls: "osc-value-status" });
     updateColorStatus(status, profile[key]);
 
-    const save = async (value) => {
+    const save = (value) => {
       setDisplayedColorValue(input, value, resolvedDefault);
       setDisplayedColorSwatch(swatch, value, resolvedDefault);
       profile[key] = value;
       updateColorStatus(status, profile[key]);
-      this.updatePreview(profile);
-      await this.plugin.saveSettings();
+      this.noteDraftMutation(profile);
+      this.updateDraftPreview(profile);
     };
     swatch.addEventListener("input", () => save(swatch.value));
-    input.addEventListener("input", async () => {
+    input.addEventListener("input", () => {
       const value = input.value.trim();
       input.toggleClass("osc-default-color-value", false);
       setDisplayedColorSwatch(swatch, value, resolvedDefault);
       profile[key] = value;
       updateColorStatus(status, profile[key]);
-      this.updatePreview(profile);
-      await this.plugin.saveSettings();
+      this.noteDraftMutation(profile);
+      this.updateDraftPreview(profile);
     });
   }
 
@@ -2863,11 +3199,11 @@ class StyleControllerSettingTab extends PluginSettingTab {
       updateFontStatus(status, validateFont(input.value));
     };
 
-    input.addEventListener("input", async () => {
+    input.addEventListener("input", () => {
       profile[key] = input.value;
       updateStatus();
-      this.updatePreview(profile);
-      await this.plugin.saveSettings();
+      this.noteDraftMutation(profile);
+      this.updateDraftPreview(profile);
     });
     updateStatus();
   }
@@ -2877,10 +3213,10 @@ class StyleControllerSettingTab extends PluginSettingTab {
     setting.addText((text) => text
       .setPlaceholder(resolvedDefault || placeholder)
       .setValue(profile[key] || "")
-      .onChange(async (value) => {
+      .onChange((value) => {
         profile[key] = value;
-        this.updatePreview(profile);
-        await this.plugin.saveSettings();
+        this.noteDraftMutation(profile);
+        this.updateDraftPreview(profile);
       }));
     const input = setting.controlEl.querySelector("input");
     const status = setting.controlEl.createSpan({ cls: "osc-font-status" });
@@ -2906,9 +3242,9 @@ class StyleControllerSettingTab extends PluginSettingTab {
       setting.addText((text) => text
         .setPlaceholder(placeholder)
         .setValue(object[key] || "")
-        .onChange(async (value) => {
+        .onChange((value) => {
           object[key] = value;
-          await this.plugin.saveSettings();
+          this.noteDraftMutation(object);
           onChange?.();
         }));
       const status = createValueStatus(setting.controlEl, hasActiveValue(object[key]));
@@ -2931,10 +3267,10 @@ class StyleControllerSettingTab extends PluginSettingTab {
     select.value = hasValue ? parsed.unit : parseCssSize(placeholder).unit;
     const status = createValueStatus(wrapper, hasValue);
 
-    const save = async () => {
+    const save = () => {
       object[key] = input.value ? `${input.value}${select.value}` : "";
       updateValueStatus(status, hasActiveValue(object[key]));
-      await this.plugin.saveSettings();
+      this.noteDraftMutation(object);
       onChange?.();
     };
     input.addEventListener("input", save);
@@ -2952,22 +3288,22 @@ class StyleControllerSettingTab extends PluginSettingTab {
     const status = wrapper.createSpan({ cls: "osc-value-status" });
     updateColorStatus(status, object[key]);
 
-    const save = async (value) => {
+    const save = (value) => {
       setDisplayedColorValue(input, value, resolvedDefault);
       setDisplayedColorSwatch(swatch, value, resolvedDefault);
       object[key] = value;
       updateColorStatus(status, object[key]);
-      await this.plugin.saveSettings();
+      this.noteDraftMutation(object);
       onChange?.();
     };
     swatch.addEventListener("input", () => save(swatch.value));
-    input.addEventListener("input", async () => {
+    input.addEventListener("input", () => {
       const value = input.value.trim();
       input.toggleClass("osc-default-color-value", false);
       setDisplayedColorSwatch(swatch, value, resolvedDefault);
       object[key] = value;
       updateColorStatus(status, object[key]);
-      await this.plugin.saveSettings();
+      this.noteDraftMutation(object);
       onChange?.();
     });
   }
@@ -2986,10 +3322,10 @@ class StyleControllerSettingTab extends PluginSettingTab {
       updateFontStatus(status, validateFont(input.value));
     };
 
-    input.addEventListener("input", async () => {
+    input.addEventListener("input", () => {
       object[key] = input.value;
       updateStatus();
-      await this.plugin.saveSettings();
+      this.noteDraftMutation(object);
       onChange?.();
     });
     updateStatus();
@@ -3000,9 +3336,9 @@ class StyleControllerSettingTab extends PluginSettingTab {
     setting.addText((text) => text
       .setPlaceholder(resolvedDefault || placeholder)
       .setValue(object[key] || "")
-      .onChange(async (value) => {
+      .onChange((value) => {
         object[key] = value;
-        await this.plugin.saveSettings();
+        this.noteDraftMutation(object);
         onChange?.();
       }));
     const input = setting.controlEl.querySelector("input");
@@ -3024,12 +3360,16 @@ export {
   DEFAULT_SETTINGS,
   INLINE_CODE_SELECTORS,
   NATIVE_DEFAULT_CONFIGURATION,
+  PROFILE_SECTION_FIELDS,
   PROFILE_FIELDS,
+  SectionDraftManager,
   SETTINGS_SCHEMA_VERSION,
   STYLE_FIELD_REGISTRY,
   STYLE_SCOPE_CLASS,
   STYLE_HEADING_COLOR_ACTIVE_CLASS,
   STYLE_HEADING_COLOR_CLASSES,
+  STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS,
+  applyDraftAtomically,
   applyProfileCssVariables,
   applyProfileStateClasses,
   clearProfileCssVariables,

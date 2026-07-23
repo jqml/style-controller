@@ -28,6 +28,12 @@ Overrides can match folders, files, or paths containing specific text. Matching 
 
 Style Controller includes controls for base text, headings, links, tables, inline code, code blocks, blockquotes, callouts, images, file explorer entries, and custom CSS. Blank values produce no CSS declaration for that field; the current theme or Obsidian default remains in control.
 
+## Section drafts and Apply/Revert
+
+Each major settings section has one **Apply** button and one **Revert** button. Editing a control changes only that section's draft and preview; persisted settings, Markdown views, and other sections remain unchanged until **Apply** is selected. The section shows **Unsaved changes** while its draft differs from the last applied value.
+
+**Apply** validates and saves only that section atomically, makes the saved values the new Revert baseline, updates relevant views, and shows a success notice. **Revert** restores the last successfully applied section values. Dirty sections must be applied or reverted before navigating to another settings section, applying a stored configuration, changing override structure, or leaving the settings tab. Path overrides use the same card-level draft transaction so their match settings, module switches, profile values, and file-explorer values stay isolated.
+
 ## Image controls
 
 Image settings include alignment, width, and a control for respecting explicit image sizes. Blank image settings do not emit image CSS.
@@ -50,6 +56,12 @@ The plugin uses the packaged `styles.css`; it does not create runtime stylesheet
 10. Test Reading view and Live Preview.
 11. Restart Obsidian and confirm persistence.
 12. Test light and dark themes.
+
+## Code-block ownership diagnosis
+
+The reproducible vault fixture is `Metadata class/Untitled 1.md`, whose fenced block begins at line 23 with `QMSE circuit`. In the affected configuration, Style Controller owns the background contribution: its scoped `pre`/Live Preview code-background selectors load after native Obsidian CSS and resolve the approved Off/default `#fafafa` variable. The fix leaves the background behavior intact while keeping the native `pre code` transparency and native block-token colors. A blank Block text setting emits no plugin text-color declaration, and an explicit Block text value is opt-in and scoped separately.
+
+The code-block checks above and the automated tests validate selector ownership and configuration behavior. They do not claim a live Obsidian computed-style check.
 
 ## Heading/native syntax equivalence checklist
 

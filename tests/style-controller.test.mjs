@@ -54,13 +54,17 @@ const {
   DEFAULT_PROFILE,
   INLINE_CODE_SELECTORS,
   NATIVE_DEFAULT_CONFIGURATION,
+  PROFILE_SECTION_FIELDS,
+  SectionDraftManager,
   SETTINGS_SCHEMA_VERSION,
   STYLE_FIELD_REGISTRY,
+  STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS,
   STYLE_SCOPE_CLASS,
   STYLE_HEADING_COLOR_ACTIVE_CLASS,
   STYLE_HEADING_COLOR_CLASSES,
   applyProfileCssVariables,
   applyProfileStateClasses,
+  applyDraftAtomically,
   clearProfileCssVariables,
   codeBackgroundUiState,
   configurationToExport,
@@ -235,6 +239,151 @@ test("content-facing rules stay scoped and emphasis does not style formatting ma
   assert.doesNotMatch(css, /\.osc-style-scope \.markdown-source-view\.mod-cm6 \.HyperMD-header-[1-6]\s*\{/);
 });
 
+test("section drafts stay independent until their own Apply", () => {
+  const persisted = { baseText: "native", links: "native" };
+  const drafts = new SectionDraftManager();
+  const base = drafts.get("base", persisted);
+  const links = drafts.get("links", persisted);
+
+  base.value.baseText = "draft base";
+  drafts.mark(base.value);
+  assert.equal(persisted.baseText, "native");
+  assert.equal(base.dirty, true);
+  assert.equal(links.dirty, false);
+
+  links.value.links = "draft link";
+  drafts.mark(links.value);
+  assert.equal(drafts.dirtyEntries().map((entry) => entry.key).sort().join(","), "base,links");
+  assert.equal(persisted.links, "native");
+});
+
+test("Revert restores the last applied section baseline without persistence", () => {
+  const drafts = new SectionDraftManager();
+  const source = { value: "applied" };
+  const entry = drafts.get("section", source);
+  entry.value.value = "unsaved";
+  drafts.mark(entry.value);
+  assert.equal(entry.dirty, true);
+
+  drafts.revert("section", source);
+  assert.equal(entry.value.value, "applied");
+  assert.equal(entry.baseline.value, "applied");
+  assert.equal(entry.dirty, false);
+  assert.equal(source.value, "applied");
+});
+
+test("Apply validates before commit and commits only the requested section atomically", async () => {
+  const persisted = { baseText: "native", links: "native" };
+  let persistCount = 0;
+  const result = await applyDraftAtomically({
+    draft: { baseText: "draft", links: "other draft" },
+    normalize: (value) => value,
+    validate: () => [],
+    commit: (candidate) => {
+      persisted.baseText = candidate.baseText;
+    },
+    persist: async () => {
+      persistCount += 1;
+    }
+  });
+  assert.equal(result.applied, true);
+  assert.equal(persistCount, 1);
+  assert.deepEqual(persisted, { baseText: "draft", links: "native" });
+
+  let committed = false;
+  const invalid = await applyDraftAtomically({
+    draft: { baseText: "bad" },
+    normalize: (value) => value,
+    validate: () => ["invalid draft"],
+    commit: () => {
+      committed = true;
+    },
+    persist: async () => {
+      throw new Error("must not persist invalid draft");
+    }
+  });
+  assert.equal(invalid.applied, false);
+  assert.equal(committed, false);
+});
+
+test("failed persistence rolls back the section commit", async () => {
+  const persisted = { value: "native" };
+  await assert.rejects(() => applyDraftAtomically({
+    draft: { value: "draft" },
+    normalize: (value) => value,
+    validate: () => [],
+    commit: (candidate) => {
+      persisted.value = candidate.value;
+    },
+    persist: async () => {
+      throw new Error("save failed");
+    },
+    rollback: () => {
+      persisted.value = "native";
+    }
+  }), /save failed/);
+  assert.equal(persisted.value, "native");
+});
+
+test("settings UI exposes section Apply/Revert actions and navigation guard", () => {
+  for (const title of ["Base text", "Bold and italic", "Links", "Tables", "Code", "Quotes"]) {
+    assert.match(source, new RegExp(`renderSettingGroup\\([^\\n]+\\"${title}\\"`));
+  }
+  assert.match(source, /renderHeadingGroup\([^\n]+context/);
+  assert.match(source, /renderImageGroup\([^\n]+context/);
+  assert.match(source, /createEl\("button", \{ text: "Apply"/);
+  assert.match(source, /createEl\("button", \{ text: "Revert"/);
+  assert.match(source, /Apply or Revert unsaved changes before you/);
+  assert.match(source, /Unsaved Style Controller changes were not applied/);
+  assert.match(source, /global:baseText/);
+  assert.match(source, /global:boldItalic/);
+  assert.match(source, /global:code/);
+  assert.match(source, /override:\$\{override\.id\}/);
+  assert.match(source, /callouts:root/);
+  assert.deepEqual(PROFILE_SECTION_FIELDS.baseText.includes("boldColor"), false);
+  assert.deepEqual(PROFILE_SECTION_FIELDS.boldItalic.includes("boldColor"), true);
+});
+
+test("the real fenced code block has an auditable ownership fixture", () => {
+  const notePath = "Metadata class/Untitled 1.md";
+  const fixture = "```text\\nQMSE circuit\\n→ trainable quantum circuit\\n→ quantum measurements\\n→ classical regression\\n→ atomization energy\\n```";
+  assert.match(notePath, /Metadata class/);
+  assert.match(fixture, /QMSE circuit/);
+  assert.deepEqual([...BLOCK_CODE_BACKGROUND_SELECTORS], [
+    ".markdown-rendered pre",
+    ".markdown-source-view.mod-cm6 .HyperMD-codeblock-bg"
+  ]);
+  assert.deepEqual([...BLOCK_CODE_TEXT_SELECTORS], [
+    ".markdown-rendered pre",
+    ".markdown-source-view.mod-cm6 .cm-line.HyperMD-codeblock"
+  ]);
+  assert.notEqual(STYLE_FIELD_REGISTRY.codeBackground.variable, STYLE_FIELD_REGISTRY.codeBlockBackground.variable);
+  assert.equal(STYLE_FIELD_REGISTRY.codeBlockColor.property, "color");
+});
+
+test("block background keeps #fafafa while block text stays native unless explicitly active", () => {
+  const rules = cssRules(css);
+  const backgroundRule = rules.find((rule) => rule.selectors.includes(".markdown-source-view.mod-cm6 .HyperMD-codeblock-bg")
+    && rule.declarations.includes("background-color"));
+  assert.ok(backgroundRule);
+  assert.match(backgroundRule.declarations, /--osc-code-block-background/);
+  assert.doesNotMatch(backgroundRule.selectors, /\.markdown-rendered pre code/);
+
+  const blockTextRule = rules.find((rule) => rule.selectors.includes(STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS)
+    && rule.declarations.includes("var(--osc-code-block-color)"));
+  assert.ok(blockTextRule);
+  assert.match(blockTextRule.selectors, new RegExp(STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS));
+  assert.doesNotMatch(blockTextRule.selectors, /HyperMD-codeblock-bg/);
+
+  const element = fakeElement();
+  applyProfileCssVariables(element, normalizeProfile({}));
+  applyProfileStateClasses(element, normalizeProfile({}));
+  assert.equal(element.css.get("--osc-code-block-background"), "#fafafa");
+  assert.equal(element.classList.contains(STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS), false);
+  applyProfileStateClasses(element, normalizeProfile({ codeBlockColor: "#123456" }));
+  assert.equal(element.classList.contains(STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS), true);
+});
+
 test("inline and block code fields have independent authoritative registry entries", () => {
   const inline = STYLE_FIELD_REGISTRY.codeBackground;
   const block = STYLE_FIELD_REGISTRY.codeBlockBackground;
@@ -248,7 +397,8 @@ test("inline and block code fields have independent authoritative registry entri
   assert.deepEqual(block.selectors, BLOCK_CODE_BACKGROUND_SELECTORS);
   assert.ok(block.selectors.some((selector) => selector.endsWith("pre")));
   assert.ok(block.selectors.some((selector) => selector.includes("HyperMD-codeblock")));
-  assert.ok(BLOCK_CODE_TEXT_SELECTORS.includes(".markdown-source-view.mod-cm6 .cm-code"));
+  assert.ok(BLOCK_CODE_TEXT_SELECTORS.includes(".markdown-source-view.mod-cm6 .cm-line.HyperMD-codeblock"));
+  assert.ok(!BLOCK_CODE_TEXT_SELECTORS.includes(".markdown-source-view.mod-cm6 .HyperMD-codeblock-bg"));
   assert.ok(!inline.selectors.some((selector) => block.selectors.includes(selector)));
   assert.equal(CODE_BACKGROUND_CUSTOM_FIELDS.codeBackground.enabled, "codeBackgroundCustomEnabled");
   assert.equal(CODE_BACKGROUND_CUSTOM_FIELDS.codeBackground.value, "codeBackgroundCustomValue");
@@ -510,7 +660,7 @@ test("path overrides resolve and apply independently per Markdown leaf", () => {
 
 test("unload cleanup removes plugin variables and scope classes", () => {
   const element = fakeElement();
-  element.classList.add(STYLE_SCOPE_CLASS, "osc-scope-0", "style-controller-image-width", STYLE_HEADING_COLOR_ACTIVE_CLASS);
+  element.classList.add(STYLE_SCOPE_CLASS, "osc-scope-0", "style-controller-image-width", STYLE_HEADING_COLOR_ACTIVE_CLASS, STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS);
   element.classList.add(...STYLE_HEADING_COLOR_CLASSES);
   applyProfileCssVariables(element, normalizeProfile({ codeBlockBackground: "#fafafa", h3Color: "#123456" }));
   let explorerCleared = false;
@@ -527,6 +677,7 @@ test("unload cleanup removes plugin variables and scope classes", () => {
   assert.equal(element.classList.contains("osc-scope-0"), false);
   assert.equal(element.classList.contains("style-controller-image-width"), false);
   assert.equal(element.classList.contains(STYLE_HEADING_COLOR_ACTIVE_CLASS), false);
+  assert.equal(element.classList.contains(STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS), false);
   STYLE_HEADING_COLOR_CLASSES.forEach((className) => assert.equal(element.classList.contains(className), false));
   assert.equal(explorerCleared, true);
 });
