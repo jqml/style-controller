@@ -57,7 +57,10 @@ const {
   SETTINGS_SCHEMA_VERSION,
   STYLE_FIELD_REGISTRY,
   STYLE_SCOPE_CLASS,
+  STYLE_HEADING_COLOR_ACTIVE_CLASS,
+  STYLE_HEADING_COLOR_CLASSES,
   applyProfileCssVariables,
+  applyProfileStateClasses,
   clearProfileCssVariables,
   codeBackgroundUiState,
   configurationToExport,
@@ -134,6 +137,103 @@ function cssRules(text) {
     declarations: match[2].trim()
   }));
 }
+
+function selectorExclusions(selector) {
+  const match = selector.match(/:not\(([^)]+)\)$/);
+  return match
+    ? match[1].split(",").map((item) => item.trim().replace(/^\./, ""))
+    : [];
+}
+
+function headingTokenMatches(selector, classes, level) {
+  return selector.includes(`.cm-line.HyperMD-header-${level} > .cm-header-${level}`)
+    && classes.has(`cm-header-${level}`)
+    && !selectorExclusions(selector).some((className) => className.startsWith("[class*")
+      ? [...classes].some((value) => value.startsWith("cm-html-"))
+      : classes.has(className));
+}
+
+function activeHeadingFixture() {
+  return {
+    text: "### 5. Measure an observable $H$ and `code` with [link](url) #tag",
+    line: new Set(["cm-line", "HyperMD-header-3"]),
+    tokens: {
+      semantic: new Set(["cm-header", "cm-header-3"]),
+      markers: new Set(["cm-formatting", "cm-formatting-header", "cm-header", "cm-header-3"]),
+      math: new Set(["cm-math", "cm-header", "cm-header-3"]),
+      inlineCode: new Set(["cm-inline-code", "cm-header", "cm-header-3"]),
+      link: new Set(["cm-link", "cm-header", "cm-header-3"]),
+      url: new Set(["cm-url", "cm-header", "cm-header-3"]),
+      tag: new Set(["cm-hashtag", "cm-header", "cm-header-3"]),
+      comment: new Set(["cm-comment", "cm-header", "cm-header-3"]),
+      html: new Set(["cm-html-embed", "cm-header", "cm-header-3"]),
+      embed: new Set(["cm-embed", "cm-header", "cm-header-3"]),
+      property: new Set(["cm-property", "cm-header", "cm-header-3"])
+    }
+  };
+}
+
+test("heading registry uses semantic Live Preview spans and excludes native token spans", () => {
+  const fixture = activeHeadingFixture();
+  assert.equal(fixture.text, "### 5. Measure an observable $H$ and `code` with [link](url) #tag");
+  const selector = STYLE_FIELD_REGISTRY.h3Color.selectors[1];
+  assert.match(selector, /\.cm-line\.HyperMD-header-3 > \.cm-header-3/);
+  assert.match(selector, /:not\(/);
+  assert.equal(headingTokenMatches(selector, fixture.tokens.semantic, 3), true);
+  for (const name of ["markers", "math", "inlineCode", "link", "url", "tag", "comment", "html", "embed", "property"]) {
+    assert.equal(headingTokenMatches(selector, fixture.tokens[name], 3), false, name);
+  }
+  assert.doesNotMatch(selector, /\.markdown-source-view\.mod-cm6 \.HyperMD-header-3\s*[,{}]/);
+  assert.doesNotMatch(selector, /\.markdown-source-view\.mod-cm6 \.cm-header-3\s*[,{}]/);
+});
+
+test("heading levels remain independent and heading Off emits no heading color variable", () => {
+  for (let level = 1; level <= 6; level += 1) {
+    const selector = STYLE_FIELD_REGISTRY[`h${level}Color`].selectors[1];
+    assert.equal(selector.includes(`.HyperMD-header-${level}`), true);
+    assert.equal(selector.includes(`.cm-header-${level}`), true);
+    for (let other = 1; other <= 6; other += 1) {
+      if (other === level) continue;
+      assert.doesNotMatch(selector, new RegExp(`(?:HyperMD|cm-header)-${other}(?!\\d)`));
+    }
+  }
+
+  const element = fakeElement();
+  applyProfileCssVariables(element, normalizeProfile({ h3Color: "#123456" }));
+  assert.equal(element.css.get("--osc-h3-color"), "#123456");
+  assert.equal(element.css.has("--osc-h2-color"), false);
+  assert.equal(element.css.has("--osc-h4-color"), false);
+
+  applyProfileStateClasses(element, normalizeProfile({ h3Color: "#123456" }));
+  assert.equal(element.classList.contains(STYLE_HEADING_COLOR_ACTIVE_CLASS), true);
+  applyProfileCssVariables(element, normalizeProfile({}));
+  applyProfileStateClasses(element, normalizeProfile({}));
+  assert.equal(element.css.has("--osc-h3-color"), false);
+  assert.equal(element.classList.contains(STYLE_HEADING_COLOR_ACTIVE_CLASS), false);
+  STYLE_HEADING_COLOR_CLASSES.forEach((className) => assert.equal(element.classList.contains(className), false));
+});
+
+test("reading-view MathJax is protected only while a heading color is active", () => {
+  const rules = cssRules(css);
+  const headingColorRules = rules.filter((rule) => /var\(--osc-h[1-6]-color\)/.test(rule.declarations));
+  assert.ok(headingColorRules.length >= 6);
+  headingColorRules.forEach((rule) => {
+    assert.doesNotMatch(rule.selectors, /MathJax|mjx-container|\.math/);
+  });
+  const mathProtection = rules.find((rule) => rule.selectors.includes(STYLE_HEADING_COLOR_ACTIVE_CLASS)
+    && /MathJax|mjx-container|\.math/.test(rule.selectors));
+  assert.ok(mathProtection);
+  assert.match(mathProtection.declarations, /color:\s*var\(--text-normal\)/);
+  assert.doesNotMatch(mathProtection.declarations, /--osc-h[1-6]-color/);
+});
+
+test("content-facing rules stay scoped and emphasis does not style formatting markers", () => {
+  const contentRules = cssRules(css).filter((rule) => /markdown-(?:preview|source|rendered)/.test(rule.selectors));
+  contentRules.forEach((rule) => assert.match(rule.selectors, /\.osc-style-scope/));
+  assert.match(STYLE_FIELD_REGISTRY.boldColor.selectors.at(-1), /:not\(\.cm-formatting\)/);
+  assert.match(STYLE_FIELD_REGISTRY.italicColor.selectors.at(-1), /:not\(\.cm-formatting\)/);
+  assert.doesNotMatch(css, /\.osc-style-scope \.markdown-source-view\.mod-cm6 \.HyperMD-header-[1-6]\s*\{/);
+});
 
 test("inline and block code fields have independent authoritative registry entries", () => {
   const inline = STYLE_FIELD_REGISTRY.codeBackground;
@@ -410,8 +510,9 @@ test("path overrides resolve and apply independently per Markdown leaf", () => {
 
 test("unload cleanup removes plugin variables and scope classes", () => {
   const element = fakeElement();
-  element.classList.add(STYLE_SCOPE_CLASS, "osc-scope-0", "style-controller-image-width");
-  applyProfileCssVariables(element, normalizeProfile({ codeBlockBackground: "#fafafa" }));
+  element.classList.add(STYLE_SCOPE_CLASS, "osc-scope-0", "style-controller-image-width", STYLE_HEADING_COLOR_ACTIVE_CLASS);
+  element.classList.add(...STYLE_HEADING_COLOR_CLASSES);
+  applyProfileCssVariables(element, normalizeProfile({ codeBlockBackground: "#fafafa", h3Color: "#123456" }));
   let explorerCleared = false;
 
   StyleControllerPlugin.prototype.removeStyles.call({
@@ -425,6 +526,8 @@ test("unload cleanup removes plugin variables and scope classes", () => {
   assert.equal(element.classList.contains(STYLE_SCOPE_CLASS), false);
   assert.equal(element.classList.contains("osc-scope-0"), false);
   assert.equal(element.classList.contains("style-controller-image-width"), false);
+  assert.equal(element.classList.contains(STYLE_HEADING_COLOR_ACTIVE_CLASS), false);
+  STYLE_HEADING_COLOR_CLASSES.forEach((className) => assert.equal(element.classList.contains(className), false));
   assert.equal(explorerCleared, true);
 });
 

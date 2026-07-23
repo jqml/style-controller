@@ -51,6 +51,23 @@ The plugin uses the packaged `styles.css`; it does not create runtime stylesheet
 11. Restart Obsidian and confirm persistence.
 12. Test light and dark themes.
 
+## Heading/native syntax equivalence checklist
+
+1. Open a Live Preview heading containing Markdown markers and inline LaTeX.
+2. Capture the native appearance with Style Controller disabled.
+3. Enable Style Controller with the relevant heading configuration.
+4. Confirm `###` remains identical to native.
+5. Confirm `$`, `H`, and other math syntax remain identical to native.
+6. Confirm only intended semantic heading text changes.
+7. Test inline code, links, tags, bold, and italic inside the same heading.
+8. Test Reading view MathJax inside headings.
+9. Turn heading color Off and confirm the entire heading becomes native.
+10. Switch profiles and path overrides and confirm no stale styling.
+11. Test light and dark themes.
+12. Confirm code backgrounds still use the approved `#fafafa` behavior.
+
+This checklist describes the manual equivalence checks; the release tests verify selector structure, variable cleanup, and profile isolation without claiming live UI equivalence.
+
 ## Privacy and network behavior
 
 Style Controller runs locally. It does not use telemetry, analytics, remote code, remote images, or remote fonts.

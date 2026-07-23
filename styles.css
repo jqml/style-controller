@@ -1044,7 +1044,7 @@
 
 .osc-style-scope .markdown-preview-view strong,
 .osc-style-scope .markdown-preview-view b,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-strong {
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-strong:not(.cm-formatting) {
   color: var(--osc-bold-color);
   font-family: var(--osc-bold-font-family);
   font-weight: var(--osc-bold-weight);
@@ -1052,64 +1052,90 @@
 
 .osc-style-scope .markdown-preview-view em,
 .osc-style-scope .markdown-preview-view i,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-em {
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-em:not(.cm-formatting) {
   color: var(--osc-italic-color);
   font-family: var(--osc-italic-font-family);
   font-weight: var(--osc-italic-weight);
 }
 
 .osc-style-scope .markdown-preview-view h1,
-.osc-style-scope .markdown-source-view.mod-cm6 .HyperMD-header-1,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-header-1 {
-  color: var(--osc-h1-color);
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-1 > .cm-header-1:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
   font-family: var(--osc-h1-font-family);
   font-size: var(--osc-h1-size);
   font-weight: var(--osc-h1-weight);
 }
 
 .osc-style-scope .markdown-preview-view h2,
-.osc-style-scope .markdown-source-view.mod-cm6 .HyperMD-header-2,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-header-2 {
-  color: var(--osc-h2-color);
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-2 > .cm-header-2:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
   font-family: var(--osc-h2-font-family);
   font-size: var(--osc-h2-size);
   font-weight: var(--osc-h2-weight);
 }
 
 .osc-style-scope .markdown-preview-view h3,
-.osc-style-scope .markdown-source-view.mod-cm6 .HyperMD-header-3,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-header-3 {
-  color: var(--osc-h3-color);
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-3 > .cm-header-3:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
   font-family: var(--osc-h3-font-family);
   font-size: var(--osc-h3-size);
   font-weight: var(--osc-h3-weight);
 }
 
 .osc-style-scope .markdown-preview-view h4,
-.osc-style-scope .markdown-source-view.mod-cm6 .HyperMD-header-4,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-header-4 {
-  color: var(--osc-h4-color);
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-4 > .cm-header-4:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
   font-family: var(--osc-h4-font-family);
   font-size: var(--osc-h4-size);
   font-weight: var(--osc-h4-weight);
 }
 
 .osc-style-scope .markdown-preview-view h5,
-.osc-style-scope .markdown-source-view.mod-cm6 .HyperMD-header-5,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-header-5 {
-  color: var(--osc-h5-color);
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-5 > .cm-header-5:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
   font-family: var(--osc-h5-font-family);
   font-size: var(--osc-h5-size);
   font-weight: var(--osc-h5-weight);
 }
 
 .osc-style-scope .markdown-preview-view h6,
-.osc-style-scope .markdown-source-view.mod-cm6 .HyperMD-header-6,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-header-6 {
-  color: var(--osc-h6-color);
+.osc-style-scope .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-6 > .cm-header-6:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
   font-family: var(--osc-h6-font-family);
   font-size: var(--osc-h6-size);
   font-weight: var(--osc-h6-weight);
+}
+
+/* Color declarations are gated by per-level state classes so Off has no
+   matching plugin color rule. The Live Preview arm is the semantic span only. */
+.osc-style-scope.style-controller-h1-color-active .markdown-preview-view h1,
+.osc-style-scope.style-controller-h1-color-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-1 > .cm-header-1:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
+  color: var(--osc-h1-color);
+}
+
+.osc-style-scope.style-controller-h2-color-active .markdown-preview-view h2,
+.osc-style-scope.style-controller-h2-color-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-2 > .cm-header-2:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
+  color: var(--osc-h2-color);
+}
+
+.osc-style-scope.style-controller-h3-color-active .markdown-preview-view h3,
+.osc-style-scope.style-controller-h3-color-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-3 > .cm-header-3:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
+  color: var(--osc-h3-color);
+}
+
+.osc-style-scope.style-controller-h4-color-active .markdown-preview-view h4,
+.osc-style-scope.style-controller-h4-color-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-4 > .cm-header-4:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
+  color: var(--osc-h4-color);
+}
+
+.osc-style-scope.style-controller-h5-color-active .markdown-preview-view h5,
+.osc-style-scope.style-controller-h5-color-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-5 > .cm-header-5:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
+  color: var(--osc-h5-color);
+}
+
+.osc-style-scope.style-controller-h6-color-active .markdown-preview-view h6,
+.osc-style-scope.style-controller-h6-color-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-6 > .cm-header-6:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
+  color: var(--osc-h6-color);
+}
+
+/* A heading element is the only native reading-view wrapper for mixed text.
+   Keep MathJax on Obsidian's semantic text color when heading color is active. */
+.osc-style-scope.style-controller-heading-color-active .markdown-preview-view :is(h1, h2, h3, h4, h5, h6) :is(.math, .math-inline, .math-block, .MathJax, .mjx-container, [class*="math"]) {
+  color: var(--text-normal);
 }
 
 .osc-style-scope .markdown-preview-view a,

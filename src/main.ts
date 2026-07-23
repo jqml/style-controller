@@ -148,13 +148,43 @@ const BLOCK_CODE_TEXT_SELECTORS = [
   ...BLOCK_CODE_BACKGROUND_SELECTORS,
   ".markdown-source-view.mod-cm6 .cm-code"
 ];
+
+const HEADING_NATIVE_TOKEN_EXCLUSIONS = [
+  ".cm-formatting",
+  ".cm-formatting-header",
+  ".cm-math",
+  ".cm-inline-code",
+  ".cm-link",
+  ".cm-url",
+  ".cm-hmd-internal-link",
+  ".cm-hashtag",
+  ".cm-tag",
+  ".cm-comment",
+  ".cm-html-embed",
+  '[class*="cm-html-"]',
+  ".cm-embed",
+  ".cm-widgetBuffer",
+  ".cm-foldPlaceholder",
+  ".cm-hmd-frontmatter",
+  ".cm-hmd-orgmode-markup",
+  ".cm-property"
+];
+
+function headingSemanticTokenSuffix() {
+  return `:not(${HEADING_NATIVE_TOKEN_EXCLUSIONS.join(", ")})`;
+}
+
 function headingSelectors(level) {
   return [
     `.markdown-preview-view h${level}`,
-    `.markdown-source-view.mod-cm6 .HyperMD-header-${level}`,
-    `.markdown-source-view.mod-cm6 .cm-header-${level}`
+    `.markdown-source-view.mod-cm6 .cm-line.HyperMD-header-${level} > .cm-header-${level}${headingSemanticTokenSuffix()}`
   ];
 }
+
+const EMPHASIS_SOURCE_SELECTORS = {
+  bold: ".markdown-source-view.mod-cm6 .cm-strong:not(.cm-formatting)",
+  italic: ".markdown-source-view.mod-cm6 .cm-em:not(.cm-formatting)"
+};
 
 function fieldDefinition(type, group, variable, selectors, property = null, options = {}) {
   return {
@@ -173,12 +203,12 @@ const STYLE_FIELD_REGISTRY = {
   fontFamily: fieldDefinition("font", "baseText", "--osc-font-family", BASE_TEXT_SELECTORS, "font-family"),
   textSize: fieldDefinition("size", "baseText", "--osc-text-size", BASE_TEXT_SELECTORS, "font-size"),
   textWeight: fieldDefinition("weight", "baseText", "--osc-text-weight", BASE_TEXT_SELECTORS, "font-weight"),
-  boldFontFamily: fieldDefinition("font", "baseText", "--osc-bold-font-family", [".markdown-preview-view strong", ".markdown-preview-view b", ".markdown-source-view.mod-cm6 .cm-strong"], "font-family"),
-  boldWeight: fieldDefinition("weight", "baseText", "--osc-bold-weight", [".markdown-preview-view strong", ".markdown-preview-view b", ".markdown-source-view.mod-cm6 .cm-strong"], "font-weight"),
-  boldColor: fieldDefinition("color", "baseText", "--osc-bold-color", [".markdown-preview-view strong", ".markdown-preview-view b", ".markdown-source-view.mod-cm6 .cm-strong"], "color"),
-  italicFontFamily: fieldDefinition("font", "baseText", "--osc-italic-font-family", [".markdown-preview-view em", ".markdown-preview-view i", ".markdown-source-view.mod-cm6 .cm-em"], "font-family"),
-  italicWeight: fieldDefinition("weight", "baseText", "--osc-italic-weight", [".markdown-preview-view em", ".markdown-preview-view i", ".markdown-source-view.mod-cm6 .cm-em"], "font-weight"),
-  italicColor: fieldDefinition("color", "baseText", "--osc-italic-color", [".markdown-preview-view em", ".markdown-preview-view i", ".markdown-source-view.mod-cm6 .cm-em"], "color"),
+  boldFontFamily: fieldDefinition("font", "baseText", "--osc-bold-font-family", [".markdown-preview-view strong", ".markdown-preview-view b", EMPHASIS_SOURCE_SELECTORS.bold], "font-family"),
+  boldWeight: fieldDefinition("weight", "baseText", "--osc-bold-weight", [".markdown-preview-view strong", ".markdown-preview-view b", EMPHASIS_SOURCE_SELECTORS.bold], "font-weight"),
+  boldColor: fieldDefinition("color", "baseText", "--osc-bold-color", [".markdown-preview-view strong", ".markdown-preview-view b", EMPHASIS_SOURCE_SELECTORS.bold], "color"),
+  italicFontFamily: fieldDefinition("font", "baseText", "--osc-italic-font-family", [".markdown-preview-view em", ".markdown-preview-view i", EMPHASIS_SOURCE_SELECTORS.italic], "font-family"),
+  italicWeight: fieldDefinition("weight", "baseText", "--osc-italic-weight", [".markdown-preview-view em", ".markdown-preview-view i", EMPHASIS_SOURCE_SELECTORS.italic], "font-weight"),
+  italicColor: fieldDefinition("color", "baseText", "--osc-italic-color", [".markdown-preview-view em", ".markdown-preview-view i", EMPHASIS_SOURCE_SELECTORS.italic], "color"),
   lineHeight: fieldDefinition("text", "baseText", "--osc-line-height", BASE_TEXT_SELECTORS, "line-height"),
   textColor: fieldDefinition("color", "baseText", "--osc-text-color", BASE_TEXT_SELECTORS, "color"),
   backgroundColor: fieldDefinition("color", "baseText", "--osc-background-color", NOTE_BACKGROUND_SELECTORS, "background-color"),
@@ -377,6 +407,8 @@ const STYLE_IMAGE_ALIGNMENT_CLASSES = [
 const STYLE_IMAGE_WIDTH_CLASS = "style-controller-image-width";
 const STYLE_IMAGE_RESPECT_EXPLICIT_CLASS = "style-controller-respect-explicit-image-size";
 const STYLE_IMAGE_IGNORE_EXPLICIT_CLASS = "style-controller-ignore-explicit-image-size";
+const STYLE_HEADING_COLOR_ACTIVE_CLASS = "style-controller-heading-color-active";
+const STYLE_HEADING_COLOR_CLASSES = Array.from({ length: 6 }, (_, index) => `style-controller-h${index + 1}-color-active`);
 const FILE_EXPLORER_TARGET_CLASS = "style-controller-file-explorer-target";
 const FILE_EXPLORER_FOLDER_CLASS = "style-controller-file-explorer-folder";
 const FILE_EXPLORER_FILE_CLASS = "style-controller-file-explorer-file";
@@ -543,7 +575,9 @@ export default class StyleControllerPlugin extends Plugin {
         ...STYLE_IMAGE_ALIGNMENT_CLASSES,
         STYLE_IMAGE_WIDTH_CLASS,
         STYLE_IMAGE_RESPECT_EXPLICIT_CLASS,
-        STYLE_IMAGE_IGNORE_EXPLICIT_CLASS
+        STYLE_IMAGE_IGNORE_EXPLICIT_CLASS,
+        STYLE_HEADING_COLOR_ACTIVE_CLASS,
+        ...STYLE_HEADING_COLOR_CLASSES
       );
       clearProfileCssVariables(container);
       container.removeAttribute("data-osc-profile");
@@ -562,7 +596,9 @@ export default class StyleControllerPlugin extends Plugin {
         ...STYLE_IMAGE_ALIGNMENT_CLASSES,
         STYLE_IMAGE_WIDTH_CLASS,
         STYLE_IMAGE_RESPECT_EXPLICIT_CLASS,
-        STYLE_IMAGE_IGNORE_EXPLICIT_CLASS
+        STYLE_IMAGE_IGNORE_EXPLICIT_CLASS,
+        STYLE_HEADING_COLOR_ACTIVE_CLASS,
+        ...STYLE_HEADING_COLOR_CLASSES
       );
       clearProfileCssVariables(container);
       container.removeAttribute("data-osc-profile");
@@ -1041,6 +1077,15 @@ function applyProfileStateClasses(element, profile) {
   const respectExplicitSize = normalizeImageRespectExplicitSize(profile.imageRespectExplicitSize) !== "false";
   element.toggleClass(STYLE_IMAGE_RESPECT_EXPLICIT_CLASS, hasWidth && respectExplicitSize);
   element.toggleClass(STYLE_IMAGE_IGNORE_EXPLICIT_CLASS, hasWidth && !respectExplicitSize);
+  STYLE_HEADING_COLOR_CLASSES.forEach((className, index) => {
+    element.toggleClass(className, !!cssColorValue(profile[`h${index + 1}Color`]));
+  });
+  element.toggleClass(STYLE_HEADING_COLOR_ACTIVE_CLASS, hasActiveHeadingColor(profile));
+}
+
+function hasActiveHeadingColor(profile) {
+  return Array.from({ length: 6 }, (_, index) => `h${index + 1}Color`)
+    .some((field) => cssColorValue(profile[field]));
 }
 
 function applyCalloutCssVariables(element, callouts) {
@@ -2983,6 +3028,8 @@ export {
   SETTINGS_SCHEMA_VERSION,
   STYLE_FIELD_REGISTRY,
   STYLE_SCOPE_CLASS,
+  STYLE_HEADING_COLOR_ACTIVE_CLASS,
+  STYLE_HEADING_COLOR_CLASSES,
   applyProfileCssVariables,
   applyProfileStateClasses,
   clearProfileCssVariables,
