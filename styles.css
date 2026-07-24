@@ -1067,19 +1067,45 @@
   background-color: var(--osc-background-color);
 }
 
-.osc-style-scope .markdown-preview-view strong,
-.osc-style-scope .markdown-preview-view b,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-strong:not(.cm-formatting) {
+.osc-style-scope.style-controller-bold-color-active .markdown-preview-view strong,
+.osc-style-scope.style-controller-bold-color-active .markdown-preview-view b,
+.osc-style-scope.style-controller-bold-color-active .markdown-source-view.mod-cm6 .cm-strong:not(.cm-formatting) {
   color: var(--osc-bold-color);
+}
+
+.osc-style-scope.style-controller-bold-font-active .markdown-preview-view strong,
+.osc-style-scope.style-controller-bold-font-active .markdown-preview-view b,
+.osc-style-scope.style-controller-bold-font-active .markdown-source-view.mod-cm6 .cm-strong:not(.cm-formatting) {
   font-family: var(--osc-bold-font-family);
+}
+
+.osc-style-scope.style-controller-bold-weight-active .markdown-preview-view strong,
+.osc-style-scope.style-controller-bold-weight-active .markdown-preview-view b,
+.osc-style-scope.style-controller-bold-weight-active .markdown-source-view.mod-cm6 .cm-strong:not(.cm-formatting) {
   font-weight: var(--osc-bold-weight);
 }
 
-.osc-style-scope .markdown-preview-view em,
-.osc-style-scope .markdown-preview-view i,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-em:not(.cm-formatting) {
+.osc-style-scope.style-controller-italic-color-active .markdown-preview-view em,
+.osc-style-scope.style-controller-italic-color-active .markdown-preview-view i,
+.osc-style-scope.style-controller-italic-color-active .markdown-source-view.mod-cm6 .cm-em:not(.cm-formatting) {
   color: var(--osc-italic-color);
+}
+
+.osc-style-scope.style-controller-italic-font-active .markdown-preview-view em,
+.osc-style-scope.style-controller-italic-font-active .markdown-preview-view i,
+.osc-style-scope.style-controller-italic-font-active .markdown-source-view.mod-cm6 .cm-em:not(.cm-formatting) {
   font-family: var(--osc-italic-font-family);
+}
+
+.osc-style-scope.style-controller-italic-size-active .markdown-preview-view em,
+.osc-style-scope.style-controller-italic-size-active .markdown-preview-view i,
+.osc-style-scope.style-controller-italic-size-active .markdown-source-view.mod-cm6 .cm-em:not(.cm-formatting) {
+  font-size: var(--osc-italic-size);
+}
+
+.osc-style-scope.style-controller-italic-weight-active .markdown-preview-view em,
+.osc-style-scope.style-controller-italic-weight-active .markdown-preview-view i,
+.osc-style-scope.style-controller-italic-weight-active .markdown-source-view.mod-cm6 .cm-em:not(.cm-formatting) {
   font-weight: var(--osc-italic-weight);
 }
 
@@ -1341,15 +1367,31 @@ body.style-controller-bottom-left-controls-left .workspace-split.mod-left-split 
   line-height: var(--osc-preview-line-height);
 }
 
-.osc-base-preview strong {
+.osc-base-preview.style-controller-bold-color-active strong {
   color: var(--osc-preview-bold-color);
+}
+
+.osc-base-preview.style-controller-bold-font-active strong {
   font-family: var(--osc-preview-bold-font-family);
+}
+
+.osc-base-preview.style-controller-bold-weight-active strong {
   font-weight: var(--osc-preview-bold-font-weight);
 }
 
-.osc-base-preview em {
+.osc-base-preview.style-controller-italic-color-active em {
   color: var(--osc-preview-italic-color);
+}
+
+.osc-base-preview.style-controller-italic-font-active em {
   font-family: var(--osc-preview-italic-font-family);
+}
+
+.osc-base-preview.style-controller-italic-size-active em {
+  font-size: var(--osc-preview-italic-size);
+}
+
+.osc-base-preview.style-controller-italic-weight-active em {
   font-weight: var(--osc-preview-italic-font-weight);
 }
 

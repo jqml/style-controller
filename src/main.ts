@@ -11,7 +11,7 @@ import {
   Modal
 } from "obsidian";
 
-const SETTINGS_SCHEMA_VERSION = 2;
+const SETTINGS_SCHEMA_VERSION = 3;
 const DEFAULT_CODE_BACKGROUND = "#fafafa";
 const BOTTOM_LEFT_CONTROLS_POSITION_NATIVE = "native";
 const BOTTOM_LEFT_CONTROLS_POSITION_LEFT = "left";
@@ -38,6 +38,7 @@ const DEFAULT_PROFILE = {
   boldWeight: "",
   boldColor: "",
   italicFontFamily: "",
+  italicSize: "",
   italicWeight: "",
   italicColor: "",
   lineHeight: "",
@@ -211,6 +212,7 @@ const STYLE_FIELD_REGISTRY = {
   boldWeight: fieldDefinition("weight", "baseText", "--osc-bold-weight", [".markdown-preview-view strong", ".markdown-preview-view b", EMPHASIS_SOURCE_SELECTORS.bold], "font-weight"),
   boldColor: fieldDefinition("color", "baseText", "--osc-bold-color", [".markdown-preview-view strong", ".markdown-preview-view b", EMPHASIS_SOURCE_SELECTORS.bold], "color"),
   italicFontFamily: fieldDefinition("font", "baseText", "--osc-italic-font-family", [".markdown-preview-view em", ".markdown-preview-view i", EMPHASIS_SOURCE_SELECTORS.italic], "font-family"),
+  italicSize: fieldDefinition("size", "baseText", "--osc-italic-size", [".markdown-preview-view em", ".markdown-preview-view i", EMPHASIS_SOURCE_SELECTORS.italic], "font-size"),
   italicWeight: fieldDefinition("weight", "baseText", "--osc-italic-weight", [".markdown-preview-view em", ".markdown-preview-view i", EMPHASIS_SOURCE_SELECTORS.italic], "font-weight"),
   italicColor: fieldDefinition("color", "baseText", "--osc-italic-color", [".markdown-preview-view em", ".markdown-preview-view i", EMPHASIS_SOURCE_SELECTORS.italic], "color"),
   lineHeight: fieldDefinition("text", "baseText", "--osc-line-height", BASE_TEXT_SELECTORS, "line-height"),
@@ -280,7 +282,7 @@ const PROFILE_SECTION_FIELDS = {
     "fontFamily", "textSize", "textWeight", "lineHeight", "textColor", "backgroundColor", "accentColor"
   ],
   boldItalic: [
-    "boldFontFamily", "boldWeight", "boldColor", "italicFontFamily", "italicWeight", "italicColor"
+    "boldFontFamily", "boldWeight", "boldColor", "italicFontFamily", "italicSize", "italicWeight", "italicColor"
   ],
   headings: Array.from({ length: 6 }, (_, index) => [
     `h${index + 1}FontFamily`, `h${index + 1}Size`, `h${index + 1}Weight`, `h${index + 1}Color`
@@ -487,6 +489,7 @@ const OBSIDIAN_PRO_CONFIGURATION = {
       textWeight: "",
       boldWeight: "500",
       italicFontFamily: "Times New Roman, Times, serif",
+      italicSize: "18px",
       italicWeight: "400",
       italicColor: "#ac38de",
       lineHeight: "",
@@ -583,6 +586,22 @@ const STYLE_IMAGE_IGNORE_EXPLICIT_CLASS = "style-controller-ignore-explicit-imag
 const STYLE_HEADING_COLOR_ACTIVE_CLASS = "style-controller-heading-color-active";
 const STYLE_HEADING_COLOR_CLASSES = Array.from({ length: 6 }, (_, index) => `style-controller-h${index + 1}-color-active`);
 const STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS = "style-controller-code-block-color-active";
+const STYLE_BOLD_FONT_ACTIVE_CLASS = "style-controller-bold-font-active";
+const STYLE_BOLD_WEIGHT_ACTIVE_CLASS = "style-controller-bold-weight-active";
+const STYLE_BOLD_COLOR_ACTIVE_CLASS = "style-controller-bold-color-active";
+const STYLE_ITALIC_FONT_ACTIVE_CLASS = "style-controller-italic-font-active";
+const STYLE_ITALIC_SIZE_ACTIVE_CLASS = "style-controller-italic-size-active";
+const STYLE_ITALIC_WEIGHT_ACTIVE_CLASS = "style-controller-italic-weight-active";
+const STYLE_ITALIC_COLOR_ACTIVE_CLASS = "style-controller-italic-color-active";
+const STYLE_EMPHASIS_ACTIVE_CLASSES = [
+  STYLE_BOLD_FONT_ACTIVE_CLASS,
+  STYLE_BOLD_WEIGHT_ACTIVE_CLASS,
+  STYLE_BOLD_COLOR_ACTIVE_CLASS,
+  STYLE_ITALIC_FONT_ACTIVE_CLASS,
+  STYLE_ITALIC_SIZE_ACTIVE_CLASS,
+  STYLE_ITALIC_WEIGHT_ACTIVE_CLASS,
+  STYLE_ITALIC_COLOR_ACTIVE_CLASS
+];
 const STYLE_BOTTOM_LEFT_CONTROLS_LEFT_CLASS = "style-controller-bottom-left-controls-left";
 const LEGACY_STYLE_SETTINGS_ICON_THEMEPRO_CLASS = "style-controller-settings-icon-themepro";
 const THEMEPRO_ORIGINAL_SELECTOR = ".workspace-drawer-vault-actions";
@@ -783,7 +802,8 @@ export default class StyleControllerPlugin extends Plugin {
         STYLE_IMAGE_IGNORE_EXPLICIT_CLASS,
         STYLE_HEADING_COLOR_ACTIVE_CLASS,
         ...STYLE_HEADING_COLOR_CLASSES,
-        STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS
+        STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS,
+        ...STYLE_EMPHASIS_ACTIVE_CLASSES
       );
       clearProfileCssVariables(container);
       container.removeAttribute("data-osc-profile");
@@ -895,6 +915,14 @@ function normalizeSettings(loaded) {
   settings.global = Object.prototype.hasOwnProperty.call(source, "global")
     ? normalizeProfile(source.global)
     : createDefaultProfile();
+  if (Number(source.schemaVersion || 0) < 3
+    && source.global?.italicFontFamily === "Times New Roman, Times, serif"
+    && source.global?.italicWeight === "400"
+    && source.global?.italicColor === "#ac38de"
+    && !Object.prototype.hasOwnProperty.call(source.global, "italicSize")) {
+    settings.global.italicFontFamily = "";
+    settings.global.italicWeight = "";
+  }
   settings.schemaVersion = SETTINGS_SCHEMA_VERSION;
   settings.callouts = normalizeCallouts(settings.callouts);
   settings.overrides = Array.isArray(settings.overrides)
@@ -1304,6 +1332,7 @@ function applyProfileCssVariables(element, profile) {
 }
 
 function applyProfileStateClasses(element, profile) {
+  applyEmphasisStateClasses(element, profile);
   STYLE_IMAGE_ALIGNMENT_CLASSES.forEach((className) => element.removeClass(className));
   const alignment = normalizeImageAlignment(profile.imageAlignment);
   if (alignment) element.addClass(`style-controller-image-align-${alignment}`);
@@ -1318,6 +1347,25 @@ function applyProfileStateClasses(element, profile) {
   });
   element.toggleClass(STYLE_HEADING_COLOR_ACTIVE_CLASS, hasActiveHeadingColor(profile));
   element.toggleClass(STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS, !!cssColorValue(profile.codeBlockColor));
+}
+
+function applyEmphasisStateClasses(element, profile) {
+  const explicitFont = (value) => {
+    const text = String(value || "").trim();
+    return text !== "" && text.toLowerCase() !== "inherit" && !!cssFontValue(text);
+  };
+  const explicitWeight = (value) => String(value || "").trim() !== "" && validateFontWeight(value).valid;
+  const explicitSize = (value) => !!normalizeCssSizeText(value);
+  const states = {
+    [STYLE_BOLD_FONT_ACTIVE_CLASS]: explicitFont(profile.boldFontFamily),
+    [STYLE_BOLD_WEIGHT_ACTIVE_CLASS]: explicitWeight(profile.boldWeight),
+    [STYLE_BOLD_COLOR_ACTIVE_CLASS]: !!cssColorValue(profile.boldColor),
+    [STYLE_ITALIC_FONT_ACTIVE_CLASS]: explicitFont(profile.italicFontFamily),
+    [STYLE_ITALIC_SIZE_ACTIVE_CLASS]: explicitSize(profile.italicSize),
+    [STYLE_ITALIC_WEIGHT_ACTIVE_CLASS]: explicitWeight(profile.italicWeight),
+    [STYLE_ITALIC_COLOR_ACTIVE_CLASS]: !!cssColorValue(profile.italicColor)
+  };
+  Object.entries(states).forEach(([className, enabled]) => element.toggleClass(className, enabled));
 }
 
 function hasActiveHeadingColor(profile) {
@@ -2481,6 +2529,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
         ["boldWeight", "Bold weight", "700"],
         ["boldColor", "Bold color", "Default"],
         ["italicFontFamily", "Italic font", "Inter, Arial, sans-serif"],
+        ["italicSize", "Italic size", "16"],
         ["italicWeight", "Italic weight", "inherit"],
         ["italicColor", "Italic color", "Default"],
         ["lineHeight", "Line height", "1.65"],
@@ -2690,6 +2739,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
       ["boldWeight", "Bold weight", "700"],
       ["boldColor", "Bold color", "Default"],
       ["italicFontFamily", "Italic font", "Inter, Arial, sans-serif"],
+      ["italicSize", "Italic size", "16"],
       ["italicWeight", "Italic weight", "inherit"],
       ["italicColor", "Italic color", "Default"]
     ], boldItalicContext);
@@ -2837,6 +2887,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
       ],
       [
         ["italicFontFamily", "Italic font", "Inter, Arial, sans-serif"],
+        ["italicSize", "Italic size", "16"],
         ["italicWeight", "Italic weight", "inherit"],
         ["italicColor", "Italic color", "Default"]
       ],
@@ -3105,6 +3156,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
 
   updateBasePreview(profile, root = this.containerEl) {
     root.querySelectorAll(".osc-base-preview").forEach((preview) => {
+      applyEmphasisStateClasses(preview, profile);
       preview.setCssProps({
         "--osc-preview-font-family": cssFontValue(profile.fontFamily),
         "--osc-preview-font-size": cssValue(profile.textSize),
@@ -3115,7 +3167,8 @@ class StyleControllerSettingTab extends PluginSettingTab {
         "--osc-preview-bold-font-family": cssFontValue(profile.boldFontFamily || profile.fontFamily),
         "--osc-preview-bold-font-weight": cssValue(profile.boldWeight),
         "--osc-preview-bold-color": cssValue(profile.boldColor),
-        "--osc-preview-italic-font-family": cssFontValue(profile.italicFontFamily || profile.fontFamily),
+        "--osc-preview-italic-font-family": cssFontValue(profile.italicFontFamily),
+        "--osc-preview-italic-size": normalizeCssSizeText(profile.italicSize),
         "--osc-preview-italic-font-weight": cssValue(profile.italicWeight),
         "--osc-preview-italic-color": cssValue(profile.italicColor)
       });
@@ -3471,6 +3524,14 @@ export {
   STYLE_HEADING_COLOR_ACTIVE_CLASS,
   STYLE_HEADING_COLOR_CLASSES,
   STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS,
+  STYLE_EMPHASIS_ACTIVE_CLASSES,
+  STYLE_BOLD_FONT_ACTIVE_CLASS,
+  STYLE_BOLD_WEIGHT_ACTIVE_CLASS,
+  STYLE_BOLD_COLOR_ACTIVE_CLASS,
+  STYLE_ITALIC_FONT_ACTIVE_CLASS,
+  STYLE_ITALIC_SIZE_ACTIVE_CLASS,
+  STYLE_ITALIC_WEIGHT_ACTIVE_CLASS,
+  STYLE_ITALIC_COLOR_ACTIVE_CLASS,
   STYLE_BOTTOM_LEFT_CONTROLS_LEFT_CLASS,
   applyDraftAtomically,
   applyInterfaceStateClasses,

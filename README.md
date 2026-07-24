@@ -93,6 +93,16 @@ This checklist describes the manual equivalence checks; the release tests verify
 
 The authoritative Obsidian Pro snippet contains `.workspace-drawer-vault-actions { order: -1; }`. The plugin applies that exact group-level behavior within the left sidebar vault-profile/footer area. The current vault does not enable that snippet.
 
+## Italic size equivalence checklist
+
+1. Open `Obsidian Pro/Cambridge/RSI/QC/Direct Variational Quantum Regression model.md` and locate the sentence containing “too *coarse*”.
+2. With Style Controller disabled, compare `coarse` with adjacent normal words in the same sentence.
+3. Enable Style Controller without explicitly configuring italic size or font and compare again.
+4. Confirm italic text keeps the same effective size and native font metrics.
+5. Set only italic color, select **Apply**, and confirm size and family do not change.
+6. Set an explicit italic font or size, select **Apply**, and confirm only configured geometry changes.
+7. Switch profiles and path overrides and confirm no stale italic geometry remains.
+
 ## Privacy and network behavior
 
 Style Controller runs locally. It does not use telemetry, analytics, remote code, remote images, or remote fonts.

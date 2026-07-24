@@ -65,6 +65,14 @@ const {
   SETTINGS_SCHEMA_VERSION,
   STYLE_FIELD_REGISTRY,
   STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS,
+  STYLE_EMPHASIS_ACTIVE_CLASSES,
+  STYLE_BOLD_FONT_ACTIVE_CLASS,
+  STYLE_BOLD_WEIGHT_ACTIVE_CLASS,
+  STYLE_BOLD_COLOR_ACTIVE_CLASS,
+  STYLE_ITALIC_FONT_ACTIVE_CLASS,
+  STYLE_ITALIC_SIZE_ACTIVE_CLASS,
+  STYLE_ITALIC_WEIGHT_ACTIVE_CLASS,
+  STYLE_ITALIC_COLOR_ACTIVE_CLASS,
   STYLE_SCOPE_CLASS,
   STYLE_HEADING_COLOR_ACTIVE_CLASS,
   STYLE_HEADING_COLOR_CLASSES,
@@ -247,6 +255,62 @@ test("content-facing rules stay scoped and emphasis does not style formatting ma
   assert.match(STYLE_FIELD_REGISTRY.boldColor.selectors.at(-1), /:not\(\.cm-formatting\)/);
   assert.match(STYLE_FIELD_REGISTRY.italicColor.selectors.at(-1), /:not\(\.cm-formatting\)/);
   assert.doesNotMatch(css, /\.osc-style-scope \.markdown-source-view\.mod-cm6 \.HyperMD-header-[1-6]\s*\{/);
+});
+
+test("italic geometry is opt-in and semantic tokens stay separate from formatting markers", () => {
+  const rules = cssRules(css);
+  const italicGeometryRules = rules.filter((rule) => /font-(?:family|size|weight):\s*var\(--osc-(?:italic-font-family|italic-size|italic-weight)/.test(rule.declarations));
+  assert.ok(italicGeometryRules.length >= 3);
+  italicGeometryRules.forEach((rule) => {
+    assert.match(rule.selectors, /style-controller-italic-(?:font|size|weight)-active/);
+    assert.match(rule.selectors, /:not\(\.cm-formatting\)/);
+    assert.doesNotMatch(rule.selectors, /cm-formatting-header|cm-math|cm-inline-code|cm-link|cm-url|cm-tag|cm-comment|cm-html|cm-embed/);
+  });
+  assert.doesNotMatch(css, /\.osc-style-scope[^{}]*\.cm-em\s*\{[^}]*font-(?:family|size|weight)/s);
+  assert.doesNotMatch(css, /\.osc-style-scope[^{}]*\.markdown-preview-view\s+(?:em|i)\s*\{[^}]*font-(?:family|size|weight)/s);
+
+  const element = fakeElement();
+  const native = createDefaultProfile();
+  applyProfileCssVariables(element, native);
+  applyProfileStateClasses(element, native);
+  assert.equal(element.css.has("--osc-italic-font-family"), false);
+  assert.equal(element.css.has("--osc-italic-size"), false);
+  assert.equal(element.css.has("--osc-italic-weight"), false);
+  STYLE_EMPHASIS_ACTIVE_CLASSES.forEach((className) => assert.equal(element.classList.contains(className), false));
+
+  const colorOnly = normalizeProfile({ italicColor: "#123456" });
+  applyProfileCssVariables(element, colorOnly);
+  applyProfileStateClasses(element, colorOnly);
+  assert.equal(element.classList.contains(STYLE_ITALIC_COLOR_ACTIVE_CLASS), true);
+  assert.equal(element.classList.contains(STYLE_ITALIC_FONT_ACTIVE_CLASS), false);
+  assert.equal(element.classList.contains(STYLE_ITALIC_SIZE_ACTIVE_CLASS), false);
+  assert.equal(element.classList.contains(STYLE_ITALIC_WEIGHT_ACTIVE_CLASS), false);
+  assert.equal(element.css.has("--osc-italic-font-family"), false);
+  assert.equal(element.css.has("--osc-italic-size"), false);
+  assert.equal(element.css.has("--osc-italic-weight"), false);
+});
+
+test("explicit italic font and size apply independently and clear on profile switching", () => {
+  const element = fakeElement();
+  const configured = normalizeProfile({
+    italicFontFamily: "serif, Arial, sans-serif",
+    italicSize: "18px"
+  });
+  applyProfileCssVariables(element, configured);
+  applyProfileStateClasses(element, configured);
+  assert.equal(element.css.get("--osc-italic-font-family"), "serif, Arial, sans-serif");
+  assert.equal(element.css.get("--osc-italic-size"), "18px");
+  assert.equal(element.classList.contains(STYLE_ITALIC_FONT_ACTIVE_CLASS), true);
+  assert.equal(element.classList.contains(STYLE_ITALIC_SIZE_ACTIVE_CLASS), true);
+  assert.equal(element.classList.contains(STYLE_ITALIC_WEIGHT_ACTIVE_CLASS), false);
+
+  const native = createDefaultProfile();
+  applyProfileCssVariables(element, native);
+  applyProfileStateClasses(element, native);
+  assert.equal(element.css.has("--osc-italic-font-family"), false);
+  assert.equal(element.css.has("--osc-italic-size"), false);
+  assert.equal(element.classList.contains(STYLE_ITALIC_FONT_ACTIVE_CLASS), false);
+  assert.equal(element.classList.contains(STYLE_ITALIC_SIZE_ACTIVE_CLASS), false);
 });
 
 test("Bottom-left controls position uses the exact ThemePro group rule and never broad sidebar selectors", () => {
@@ -615,6 +679,34 @@ test("legacy blank and #fafafa migrate Off while custom colors migrate On", () =
   assert.equal(explicitlyOff.global.codeBlockBackgroundCustomEnabled, false);
   assert.equal(explicitlyOff.global.codeBlockBackgroundCustomValue, "#fedcba");
   assert.equal(explicitlyOff.global.codeBlockBackground, "#fafafa");
+});
+
+test("legacy imported italic geometry is cleared only during schema migration", () => {
+  const migrated = normalizeSettings({
+    schemaVersion: 2,
+    global: {
+      italicFontFamily: "Times New Roman, Times, serif",
+      italicWeight: "400",
+      italicColor: "#ac38de"
+    }
+  });
+  assert.equal(migrated.schemaVersion, SETTINGS_SCHEMA_VERSION);
+  assert.equal(migrated.global.italicFontFamily, "");
+  assert.equal(migrated.global.italicWeight, "");
+  assert.equal(migrated.global.italicColor, "#ac38de");
+  assert.equal(migrated.global.italicSize, "");
+
+  const explicit = normalizeSettings({
+    schemaVersion: SETTINGS_SCHEMA_VERSION,
+    global: {
+      italicFontFamily: "Times New Roman, Times, serif",
+      italicSize: "18px",
+      italicWeight: "400"
+    }
+  });
+  assert.equal(explicit.global.italicFontFamily, "Times New Roman, Times, serif");
+  assert.equal(explicit.global.italicSize, "18px");
+  assert.equal(explicit.global.italicWeight, "400");
 });
 
 test("partial path overrides inherit unless an effective background is explicitly configured", () => {
