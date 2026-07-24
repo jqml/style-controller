@@ -1327,8 +1327,8 @@
   margin-right: 0.25em;
 }
 
-/* ThemePro position: the native Settings control is the second direct icon child. */
-body.style-controller-settings-icon-themepro .workspace-split.mod-left-split .workspace-sidedock-vault-profile .workspace-drawer-vault-actions > span.clickable-icon:nth-of-type(2) {
+/* ThemePro's order is applied only to the native Settings icon, identified by its semantic icon class. */
+body.style-controller-settings-icon-themepro .workspace-split.mod-left-split .workspace-sidedock-vault-profile .workspace-drawer-vault-actions > .clickable-icon:has(.lucide-settings) {
   order: -1;
 }
 

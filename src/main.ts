@@ -583,7 +583,9 @@ const STYLE_HEADING_COLOR_ACTIVE_CLASS = "style-controller-heading-color-active"
 const STYLE_HEADING_COLOR_CLASSES = Array.from({ length: 6 }, (_, index) => `style-controller-h${index + 1}-color-active`);
 const STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS = "style-controller-code-block-color-active";
 const STYLE_SETTINGS_ICON_THEMEPRO_CLASS = "style-controller-settings-icon-themepro";
-const SETTINGS_ICON_THEMEPRO_SELECTOR = ".workspace-drawer-vault-actions > span.clickable-icon:nth-of-type(2)";
+const THEMEPRO_ORIGINAL_SELECTOR = ".workspace-drawer-vault-actions";
+const THEMEPRO_ORIGINAL_ORDER = -1;
+const SETTINGS_ICON_THEMEPRO_SELECTOR = ".workspace-drawer-vault-actions > .clickable-icon:has(.lucide-settings)";
 const FILE_EXPLORER_TARGET_CLASS = "style-controller-file-explorer-target";
 const FILE_EXPLORER_FOLDER_CLASS = "style-controller-file-explorer-folder";
 const FILE_EXPLORER_FILE_CLASS = "style-controller-file-explorer-file";
@@ -3451,6 +3453,8 @@ export {
   PROFILE_SECTION_FIELDS,
   PROFILE_FIELDS,
   SectionDraftManager,
+  THEMEPRO_ORIGINAL_ORDER,
+  THEMEPRO_ORIGINAL_SELECTOR,
   SETTINGS_ICON_POSITION_NATIVE,
   SETTINGS_ICON_POSITION_THEMEPRO,
   SETTINGS_ICON_THEMEPRO_SELECTOR,

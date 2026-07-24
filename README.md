@@ -91,7 +91,7 @@ This checklist describes the manual equivalence checks; the release tests verify
 7. Test with ThemePro.css disabled.
 8. If ThemePro.css is available and enabled, report separately whether it creates a duplicate or conflicting rule.
 
-The current vault does not contain a file named `ThemePro.css`, and its CSS snippets are disabled. The plugin therefore uses only the current Obsidian vault-actions DOM target and does not copy any unrelated ThemePro styles.
+The authoritative Obsidian Pro snippet contains `.workspace-drawer-vault-actions { order: -1; }`. The plugin preserves that order declaration but scopes it to the native Settings icon identified by `.lucide-settings`, so the Help icon and unrelated controls are not repositioned. The current vault does not enable that snippet.
 
 ## Privacy and network behavior
 

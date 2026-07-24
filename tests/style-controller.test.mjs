@@ -57,6 +57,8 @@ const {
   NATIVE_DEFAULT_CONFIGURATION,
   PROFILE_SECTION_FIELDS,
   SectionDraftManager,
+  THEMEPRO_ORIGINAL_ORDER,
+  THEMEPRO_ORIGINAL_SELECTOR,
   SETTINGS_ICON_POSITION_NATIVE,
   SETTINGS_ICON_POSITION_THEMEPRO,
   SETTINGS_ICON_THEMEPRO_SELECTOR,
@@ -249,13 +251,16 @@ test("content-facing rules stay scoped and emphasis does not style formatting ma
 
 test("Settings icon position uses one exact scoped rule and never broad sidebar selectors", () => {
   assert.equal(DEFAULT_INTERFACE_SETTINGS.settingsIconPosition, SETTINGS_ICON_POSITION_NATIVE);
-  assert.equal(SETTINGS_ICON_THEMEPRO_SELECTOR, ".workspace-drawer-vault-actions > span.clickable-icon:nth-of-type(2)");
+  assert.equal(THEMEPRO_ORIGINAL_SELECTOR, ".workspace-drawer-vault-actions");
+  assert.equal(THEMEPRO_ORIGINAL_ORDER, -1);
+  assert.equal(SETTINGS_ICON_THEMEPRO_SELECTOR, ".workspace-drawer-vault-actions > .clickable-icon:has(.lucide-settings)");
   const rule = cssRules(css).find((candidate) => candidate.selectors.includes(STYLE_SETTINGS_ICON_THEMEPRO_CLASS));
   assert.ok(rule);
   assert.match(rule.selectors, /\.workspace-split\.mod-left-split/);
   assert.match(rule.selectors, /\.workspace-sidedock-vault-profile/);
-  assert.match(rule.selectors, /\.workspace-drawer-vault-actions\s*>\s*span\.clickable-icon:nth-of-type\(2\)/);
+  assert.match(rule.selectors, /\.workspace-drawer-vault-actions\s*>\s*\.clickable-icon:has\(\.lucide-settings\)/);
   assert.match(rule.declarations, /order:\s*-1/);
+  assert.doesNotMatch(rule.selectors, /nth-(?:child|of-type)/);
   assert.doesNotMatch(rule.selectors, /button|\.sidebar|\.workspace-ribbon|\.workspace-drawer-vault-switcher|collapse/);
   assert.doesNotMatch(css, /\.style-controller-settings-icon-themepro\s+[^{}]*(?:button|\.sidebar)\b/);
 });
