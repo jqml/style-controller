@@ -76,6 +76,10 @@ const {
   STYLE_SCOPE_CLASS,
   STYLE_HEADING_COLOR_ACTIVE_CLASS,
   STYLE_HEADING_COLOR_CLASSES,
+  STYLE_TITLE_FONT_ACTIVE_CLASS,
+  STYLE_TITLE_SIZE_ACTIVE_CLASS,
+  STYLE_TITLE_WEIGHT_ACTIVE_CLASS,
+  STYLE_TITLE_ACTIVE_CLASSES,
   STYLE_BOTTOM_LEFT_CONTROLS_LEFT_CLASS,
   applyProfileCssVariables,
   applyProfileStateClasses,
@@ -247,6 +251,79 @@ test("reading-view MathJax is protected only while a heading color is active", (
   assert.ok(mathProtection);
   assert.match(mathProtection.declarations, /color:\s*var\(--text-normal\)/);
   assert.doesNotMatch(mathProtection.declarations, /--osc-h[1-6]-color/);
+});
+
+test("math source and rendered MathJax have no Style Controller color owner", () => {
+  const directMathRules = cssRules(css).filter((rule) => {
+    if (rule.selectors.includes(STYLE_HEADING_COLOR_ACTIVE_CLASS)) return false;
+    const selectorsWithoutExclusions = rule.selectors.replace(/:not\([^)]*\)/g, "");
+    return /(?:^|[ ,>])(?:\.cm-math|\.cm-formatting-math|\.MathJax|\.mjx-container|\.math(?:[-. ]|$))/i.test(selectorsWithoutExclusions);
+  });
+  assert.equal(directMathRules.length, 0);
+  const mathProtection = cssRules(css).find((rule) => rule.selectors.includes(STYLE_HEADING_COLOR_ACTIVE_CLASS)
+    && /MathJax|mjx-container|\.math/.test(rule.selectors));
+  assert.ok(mathProtection);
+  assert.doesNotMatch(mathProtection.declarations, /var\(--osc-(?:text|bold|italic|h[1-6])-color\)/);
+  assert.doesNotMatch(STYLE_FIELD_REGISTRY.textColor.selectors.join("\n"), /cm-math|MathJax|mjx-container/);
+  assert.doesNotMatch(STYLE_FIELD_REGISTRY.italicColor.selectors.join("\n"), /cm-math|MathJax|mjx-container/);
+  assert.doesNotMatch(source, /(?:EditorView\.inputHandler|keymap\.of|beforeinput|latex-suite)/i);
+});
+
+test("Headings and title keeps title fields before independent H1 fields", () => {
+  assert.match(source, /renderCollapsibleGroup\(parent, "Headings and title"\)/);
+  assert.equal(Array.from(PROFILE_SECTION_FIELDS.headings.slice(0, 3)).join(","), "titleFontFamily,titleSize,titleWeight");
+  assert.equal(STYLE_FIELD_REGISTRY.titleFontFamily.selectors.join("\n"), [
+    ".markdown-preview-view .inline-title:not([data-level])",
+    ".markdown-source-view.mod-cm6 .inline-title:not([data-level])"
+  ].join("\n"));
+  for (const field of ["titleFontFamily", "titleSize", "titleWeight"]) {
+    assert.doesNotMatch(STYLE_FIELD_REGISTRY[field].selectors.join("\n"), /h[1-6]|nav-|breadcrumb|tab|file-title/);
+  }
+  assert.notDeepEqual(STYLE_FIELD_REGISTRY.titleSize.selectors, STYLE_FIELD_REGISTRY.h1Size.selectors);
+
+  const element = fakeElement();
+  const native = createDefaultProfile();
+  applyProfileCssVariables(element, native);
+  applyProfileStateClasses(element, native);
+  assert.equal(element.css.has("--osc-title-font-family"), false);
+  assert.equal(element.css.has("--osc-title-size"), false);
+  assert.equal(element.css.has("--osc-title-weight"), false);
+  STYLE_TITLE_ACTIVE_CLASSES.forEach((className) => assert.equal(element.classList.contains(className), false));
+
+  const configured = normalizeProfile({
+    titleFontFamily: "serif, sans-serif",
+    titleSize: "40px",
+    titleWeight: "400",
+    h1Size: "32px"
+  });
+  applyProfileCssVariables(element, configured);
+  applyProfileStateClasses(element, configured);
+  assert.equal(element.css.get("--osc-title-font-family"), "serif, sans-serif");
+  assert.equal(element.css.get("--osc-title-size"), "40px");
+  assert.equal(element.css.get("--osc-title-weight"), "400");
+  assert.equal(element.css.get("--osc-h1-size"), "32px");
+  assert.equal(element.classList.contains(STYLE_TITLE_FONT_ACTIVE_CLASS), true);
+  assert.equal(element.classList.contains(STYLE_TITLE_SIZE_ACTIVE_CLASS), true);
+  assert.equal(element.classList.contains(STYLE_TITLE_WEIGHT_ACTIVE_CLASS), true);
+
+  applyProfileCssVariables(element, native);
+  applyProfileStateClasses(element, native);
+  assert.equal(element.css.has("--osc-title-font-family"), false);
+  assert.equal(element.css.has("--osc-title-size"), false);
+  assert.equal(element.css.has("--osc-title-weight"), false);
+  STYLE_TITLE_ACTIVE_CLASSES.forEach((className) => assert.equal(element.classList.contains(className), false));
+});
+
+test("title CSS is static, class-gated, and cannot target tabs, explorer, or breadcrumbs", () => {
+  const titleRules = cssRules(css).filter((rule) => /--osc-title-(?:font-family|size|weight)/.test(rule.declarations));
+  assert.equal(titleRules.length, 3);
+  titleRules.forEach((rule) => {
+    assert.match(rule.selectors, /style-controller-title-(?:font|size|weight)-active/);
+    assert.match(rule.selectors, /inline-title:not\(\[data-level\]\)/);
+    assert.doesNotMatch(rule.selectors, /nav-|breadcrumb|tab-|\.workspace-tab-header|nav-file-title/);
+  });
+  assert.match(css, /\.osc-heading-preview-title/);
+  assert.match(css, /\.osc-heading-preview-title\.style-controller-title-(?:font|size|weight)-active/);
 });
 
 test("content-facing rules stay scoped and emphasis does not style formatting markers", () => {
@@ -826,11 +903,33 @@ test("path overrides resolve and apply independently per Markdown leaf", () => {
   assert.equal(personalLeaf.css.get("--osc-code-block-background"), "#fafafa");
 });
 
+test("heading path overrides can control Title without changing H1", () => {
+  const settings = normalizeSettings({
+    global: { titleSize: "40px", h1Size: "32px" },
+    overrides: [{
+      id: "title-work",
+      name: "Title work",
+      type: "folder",
+      pattern: "Work",
+      enabled: true,
+      modules: { headings: true },
+      profile: { titleSize: "48px" }
+    }]
+  });
+  const context = { settings };
+  const work = StyleControllerPlugin.prototype.getProfileForPath.call(context, "Work/One.md");
+  const personal = StyleControllerPlugin.prototype.getProfileForPath.call(context, "Personal/Two.md");
+  assert.equal(work.profile.titleSize, "48px");
+  assert.equal(work.profile.h1Size, "32px");
+  assert.equal(personal.profile.titleSize, "40px");
+  assert.equal(personal.profile.h1Size, "32px");
+});
+
 test("unload cleanup removes plugin variables and scope classes", () => {
   const element = fakeElement();
   const interfaceRoot = fakeElement();
   applyInterfaceStateClasses(interfaceRoot, { bottomLeftControlsPosition: BOTTOM_LEFT_CONTROLS_POSITION_LEFT });
-  element.classList.add(STYLE_SCOPE_CLASS, "osc-scope-0", "style-controller-image-width", STYLE_HEADING_COLOR_ACTIVE_CLASS, STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS);
+  element.classList.add(STYLE_SCOPE_CLASS, "osc-scope-0", "style-controller-image-width", STYLE_HEADING_COLOR_ACTIVE_CLASS, STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS, ...STYLE_TITLE_ACTIVE_CLASSES);
   element.classList.add(...STYLE_HEADING_COLOR_CLASSES);
   applyProfileCssVariables(element, normalizeProfile({ codeBlockBackground: "#fafafa", h3Color: "#123456" }));
   let explorerCleared = false;
@@ -851,6 +950,7 @@ test("unload cleanup removes plugin variables and scope classes", () => {
   assert.equal(element.classList.contains(STYLE_HEADING_COLOR_ACTIVE_CLASS), false);
   assert.equal(element.classList.contains(STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS), false);
   STYLE_HEADING_COLOR_CLASSES.forEach((className) => assert.equal(element.classList.contains(className), false));
+  STYLE_TITLE_ACTIVE_CLASSES.forEach((className) => assert.equal(element.classList.contains(className), false));
   assert.equal(explorerCleared, true);
 });
 

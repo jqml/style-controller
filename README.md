@@ -103,6 +103,23 @@ The authoritative Obsidian Pro snippet contains `.workspace-drawer-vault-actions
 6. Set an explicit italic font or size, select **Apply**, and confirm only configured geometry changes.
 7. Switch profiles and path overrides and confirm no stale italic geometry remains.
 
+## Math and LaTeX Suite checklist
+
+1. Open the reference fixture `Test/Test 6.md` with Style Controller disabled and compare inline `$dear_all$` and display `$$\text{Dr Christopher G Lester}$$`.
+2. Repeat in Live Preview with the cursor outside and inside the math, then repeat in Reading view.
+3. Confirm source delimiters and math tokens use native/LaTeX Suite syntax colors and rendered MathJax is unchanged.
+4. `dear_all` is not a configured LaTeX Suite trigger. Test the configured inline triggers instead: `txt` expands automatically, while `te` requires the manual snippet trigger (Tab) inside math.
+5. Compare `$dear_all$` with `$ dear_all $`; whitespace does not create an unconfigured snippet.
+6. Confirm Style Controller does not intercept editor input, keyboard events, or LaTeX Suite context detection.
+
+## Note-title checklist
+
+1. In **Headings and title**, leave Title font, size, and weight Off and select **Apply**; confirm the inline note title is native.
+2. Configure Title font/size/weight and select **Apply**; confirm only the Markdown note title changes.
+3. Confirm H1, tab titles, file explorer names, and breadcrumbs remain independent.
+4. Edit the title or H1 controls without applying, then use **Revert** and confirm the last applied state remains.
+5. Switch profiles and heading path overrides, then disable Style Controller and confirm native title styling returns.
+
 ## Privacy and network behavior
 
 Style Controller runs locally. It does not use telemetry, analytics, remote code, remote images, or remote fonts.

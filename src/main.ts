@@ -49,6 +49,9 @@ const DEFAULT_PROFILE = {
   linkHoverColor: "#ff6b9f",
   internalLinkColor: "#6eb47c",
   externalLinkColor: "#66d9ef",
+  titleFontFamily: "",
+  titleSize: "",
+  titleWeight: "",
   h1FontFamily: "",
   h1Size: "32px",
   h1Weight: "700",
@@ -186,6 +189,13 @@ function headingSelectors(level) {
   ];
 }
 
+function titleSelectors() {
+  return [
+    ".markdown-preview-view .inline-title:not([data-level])",
+    ".markdown-source-view.mod-cm6 .inline-title:not([data-level])"
+  ];
+}
+
 const EMPHASIS_SOURCE_SELECTORS = {
   bold: ".markdown-source-view.mod-cm6 .cm-strong:not(.cm-formatting)",
   italic: ".markdown-source-view.mod-cm6 .cm-em:not(.cm-formatting)"
@@ -235,6 +245,9 @@ const STYLE_FIELD_REGISTRY = {
     ".markdown-source-view.mod-cm6 .cm-hmd-internal-link .cm-underline"
   ], "color"),
   externalLinkColor: fieldDefinition("color", "links", "--osc-external-link-color", [".markdown-preview-view .external-link", ".markdown-source-view.mod-cm6 .cm-link.cm-url"], "color"),
+  titleFontFamily: fieldDefinition("font", "headings", "--osc-title-font-family", titleSelectors(), "font-family", { allowShortStack: true }),
+  titleSize: fieldDefinition("size", "headings", "--osc-title-size", titleSelectors(), "font-size"),
+  titleWeight: fieldDefinition("weight", "headings", "--osc-title-weight", titleSelectors(), "font-weight"),
   tableHeaderBackground: fieldDefinition("color", "tablesCodeQuotes", "--osc-table-header-background", [".markdown-preview-view th", ".markdown-source-view.mod-cm6 .cm-table-widget th"], "background"),
   tableHeaderColor: fieldDefinition("color", "tablesCodeQuotes", "--osc-table-header-color", [".markdown-preview-view th", ".markdown-source-view.mod-cm6 .cm-table-widget th"], "color"),
   tableBorderColor: fieldDefinition("color", "tablesCodeQuotes", "--osc-table-border-color", [
@@ -284,9 +297,9 @@ const PROFILE_SECTION_FIELDS = {
   boldItalic: [
     "boldFontFamily", "boldWeight", "boldColor", "italicFontFamily", "italicSize", "italicWeight", "italicColor"
   ],
-  headings: Array.from({ length: 6 }, (_, index) => [
+  headings: ["titleFontFamily", "titleSize", "titleWeight"].concat(Array.from({ length: 6 }, (_, index) => [
     `h${index + 1}FontFamily`, `h${index + 1}Size`, `h${index + 1}Weight`, `h${index + 1}Color`
-  ]).flat(),
+  ]).flat()),
   links: ["linkColor", "linkHoverColor", "internalLinkColor", "externalLinkColor"],
   tables: ["tableHeaderBackground", "tableHeaderColor", "tableBorderColor", "tableRowAltBackground"],
   code: [
@@ -385,7 +398,7 @@ function validateProfileSection(profile, fields) {
     const meta = STYLE_FIELD_REGISTRY[field];
     if (!meta || value === undefined || value === null || String(value).trim() === "") return;
     if (meta.type === "color" && !normalizeHexColor(value)) errors.push(`${field} must be a valid hex color`);
-    if (meta.type === "font" && !validateFont(value).valid) errors.push(`${field} must be a valid font family`);
+    if (meta.type === "font" && !validateFont(value, meta).valid) errors.push(`${field} must be a valid font family`);
     if (meta.type === "weight" && !validateFontWeight(value).valid) errors.push(`${field} must be a valid font weight`);
     if (meta.type === "size" && !normalizeCssSizeText(value)) errors.push(`${field} must be a valid CSS size`);
   });
@@ -497,6 +510,9 @@ const OBSIDIAN_PRO_CONFIGURATION = {
       linkHoverColor: "#0aa1ff",
       internalLinkColor: "#1804f3",
       externalLinkColor: "#1804f3",
+      titleFontFamily: "Georgia, sans-serif",
+      titleSize: "40px",
+      titleWeight: "400",
       h1FontFamily: "Lucida Handwriting, cursive, serif",
       h1Size: "30px",
       h1Weight: "700",
@@ -585,6 +601,14 @@ const STYLE_IMAGE_RESPECT_EXPLICIT_CLASS = "style-controller-respect-explicit-im
 const STYLE_IMAGE_IGNORE_EXPLICIT_CLASS = "style-controller-ignore-explicit-image-size";
 const STYLE_HEADING_COLOR_ACTIVE_CLASS = "style-controller-heading-color-active";
 const STYLE_HEADING_COLOR_CLASSES = Array.from({ length: 6 }, (_, index) => `style-controller-h${index + 1}-color-active`);
+const STYLE_TITLE_FONT_ACTIVE_CLASS = "style-controller-title-font-active";
+const STYLE_TITLE_SIZE_ACTIVE_CLASS = "style-controller-title-size-active";
+const STYLE_TITLE_WEIGHT_ACTIVE_CLASS = "style-controller-title-weight-active";
+const STYLE_TITLE_ACTIVE_CLASSES = [
+  STYLE_TITLE_FONT_ACTIVE_CLASS,
+  STYLE_TITLE_SIZE_ACTIVE_CLASS,
+  STYLE_TITLE_WEIGHT_ACTIVE_CLASS
+];
 const STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS = "style-controller-code-block-color-active";
 const STYLE_BOLD_FONT_ACTIVE_CLASS = "style-controller-bold-font-active";
 const STYLE_BOLD_WEIGHT_ACTIVE_CLASS = "style-controller-bold-weight-active";
@@ -802,6 +826,7 @@ export default class StyleControllerPlugin extends Plugin {
         STYLE_IMAGE_IGNORE_EXPLICIT_CLASS,
         STYLE_HEADING_COLOR_ACTIVE_CLASS,
         ...STYLE_HEADING_COLOR_CLASSES,
+        ...STYLE_TITLE_ACTIVE_CLASSES,
         STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS,
         ...STYLE_EMPHASIS_ACTIVE_CLASSES
       );
@@ -832,6 +857,8 @@ export default class StyleControllerPlugin extends Plugin {
         STYLE_IMAGE_IGNORE_EXPLICIT_CLASS,
         STYLE_HEADING_COLOR_ACTIVE_CLASS,
         ...STYLE_HEADING_COLOR_CLASSES,
+        ...STYLE_TITLE_ACTIVE_CLASSES,
+        ...STYLE_EMPHASIS_ACTIVE_CLASSES,
         STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS
       );
       clearProfileCssVariables(container);
@@ -1303,7 +1330,10 @@ function setCssVariable(element, variable, value) {
 
 function normalizedCssVariableValue(field, variable, rawValue) {
   if (rawValue === undefined || rawValue === null || String(rawValue).trim() === "") return "";
-  if (FONT_VARIABLES.has(variable)) return validateFont(rawValue).valid ? cssFontValue(rawValue) : "";
+  if (FONT_VARIABLES.has(variable)) {
+    const meta = STYLE_FIELD_REGISTRY[field];
+    return validateFont(rawValue, meta).valid ? cssFontValue(rawValue, meta) : "";
+  }
   if (variable.includes("weight")) return validateFontWeight(rawValue).valid ? cssValue(rawValue) : "";
   if (COLOR_FIELDS.has(field)) return cssColorValue(rawValue);
   return cssValue(rawValue);
@@ -1333,6 +1363,7 @@ function applyProfileCssVariables(element, profile) {
 
 function applyProfileStateClasses(element, profile) {
   applyEmphasisStateClasses(element, profile);
+  applyTitleStateClasses(element, profile);
   STYLE_IMAGE_ALIGNMENT_CLASSES.forEach((className) => element.removeClass(className));
   const alignment = normalizeImageAlignment(profile.imageAlignment);
   if (alignment) element.addClass(`style-controller-image-align-${alignment}`);
@@ -1347,6 +1378,17 @@ function applyProfileStateClasses(element, profile) {
   });
   element.toggleClass(STYLE_HEADING_COLOR_ACTIVE_CLASS, hasActiveHeadingColor(profile));
   element.toggleClass(STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS, !!cssColorValue(profile.codeBlockColor));
+}
+
+function applyTitleStateClasses(element, profile) {
+  const titleFont = String(profile.titleFontFamily || "").trim();
+  const hasTitleFont = titleFont !== ""
+    && titleFont.toLowerCase() !== "inherit"
+    && !!cssFontValue(titleFont, STYLE_FIELD_REGISTRY.titleFontFamily);
+  element.toggleClass(STYLE_TITLE_FONT_ACTIVE_CLASS, hasTitleFont);
+  element.toggleClass(STYLE_TITLE_SIZE_ACTIVE_CLASS, !!normalizeCssSizeText(profile.titleSize));
+  element.toggleClass(STYLE_TITLE_WEIGHT_ACTIVE_CLASS, String(profile.titleWeight || "").trim() !== ""
+    && validateFontWeight(profile.titleWeight).valid);
 }
 
 function applyEmphasisStateClasses(element, profile) {
@@ -1510,8 +1552,8 @@ function cssColorValue(value) {
   return normalizeHexColor(value) || "";
 }
 
-function cssFontValue(value) {
-  return validateFont(value).valid ? cssValue(value) : "";
+function cssFontValue(value, options = {}) {
+  return validateFont(value, options).valid ? cssValue(value) : "";
 }
 
 function withPreviewProbe(callback) {
@@ -1808,14 +1850,15 @@ function ensureFontDatalist() {
   FONT_SUGGESTIONS.forEach((font) => datalist.createEl("option", { value: font }));
 }
 
-function validateFont(value) {
+function validateFont(value, options = {}) {
   const font = String(value || "").trim();
   if (!font || font === "inherit") {
     return { valid: true, label: "Off", title: "Uses the default inherited font." };
   }
 
   const families = splitFontStack(font);
-  if (families.length < 3) {
+  const minimumFamilies = options.allowShortStack ? 2 : 3;
+  if (families.length < minimumFamilies) {
     return { valid: false, label: "Error", title: "Use at least three font entries, for example: SF Pro Display, Arial, sans-serif. Default font will be used until then." };
   }
 
@@ -2546,7 +2589,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
         ["externalLinkColor", "External", "#66d9ef"]
       ]);
 
-      this.renderOverrideModuleToggle(card, draft, "headings", "Headings");
+      this.renderOverrideModuleToggle(card, draft, "headings", "Headings and title");
       if (draft.modules.headings) this.renderHeadingGroup(card, draft.profile);
 
       this.renderOverrideModuleToggle(card, draft, "tablesCodeQuotes", "Tables, code, quotes");
@@ -2752,7 +2795,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
       ["externalLinkColor", "External", "#66d9ef"]
     ], linksContext);
 
-    const headingsContext = this.getProfileSectionContext("global:headings", "Headings settings", target, PROFILE_SECTION_FIELDS.headings);
+    const headingsContext = this.getProfileSectionContext("global:headings", "Headings and title settings", target, PROFILE_SECTION_FIELDS.headings);
     this.renderHeadingGroup(profileRoot, headingsContext.value, headingsContext);
 
     const tablesContext = this.getProfileSectionContext("global:tables", "Tables settings", target, PROFILE_SECTION_FIELDS.tables);
@@ -2911,10 +2954,15 @@ class StyleControllerSettingTab extends PluginSettingTab {
   }
 
   renderHeadingGroup(parent, profile, context = null) {
-    const content = this.renderCollapsibleGroup(parent, "Headings");
+    const content = this.renderCollapsibleGroup(parent, "Headings and title");
     this.renderSectionActions(content, context);
     context && (context.previewRoot = content);
     this.renderHeadingPreview(content, profile);
+    const titleGrid = content.createDiv({ cls: "osc-title-controls" });
+    this.addTextSetting(titleGrid, profile, "titleFontFamily", "Title font", "Georgia, sans-serif");
+    const titleMetrics = titleGrid.createDiv({ cls: "osc-title-controls-row" });
+    this.addTextSetting(titleMetrics, profile, "titleSize", "Title size", "40");
+    this.addTextSetting(titleMetrics, profile, "titleWeight", "Title weight", "400");
     const grid = content.createDiv({ cls: "osc-heading-grid" });
     for (let level = 1; level <= 6; level += 1) {
       const card = grid.createDiv({ cls: "osc-heading-card" });
@@ -3141,6 +3189,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
 
   renderHeadingPreview(parent, profile) {
     const preview = parent.createDiv({ cls: "osc-mini-preview osc-heading-preview" });
+    preview.createDiv({ text: "Note title", cls: "osc-heading-preview-title" });
     for (let level = 1; level <= 6; level += 1) {
       preview.createDiv({ text: `Heading ${level}`, cls: `osc-heading-preview-h${level}` });
     }
@@ -3185,6 +3234,14 @@ class StyleControllerSettingTab extends PluginSettingTab {
   }
 
   updateHeadingPreview(profile, root = this.containerEl) {
+    root.querySelectorAll(".osc-heading-preview-title").forEach((el) => {
+      applyTitleStateClasses(el, profile);
+      el.setCssProps({
+        "--osc-preview-title-font-family": cssFontValue(profile.titleFontFamily, STYLE_FIELD_REGISTRY.titleFontFamily),
+        "--osc-preview-title-size": normalizeCssSizeText(profile.titleSize),
+        "--osc-preview-title-weight": cssValue(profile.titleWeight)
+      });
+    });
     for (let level = 1; level <= 6; level += 1) {
       root.querySelectorAll(`.osc-heading-preview-h${level}`).forEach((el) => {
         el.setCssProps({
@@ -3345,7 +3402,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
     ensureFontDatalist();
 
     const updateStatus = () => {
-      updateFontStatus(status, validateFont(input.value));
+      updateFontStatus(status, validateFont(input.value, STYLE_FIELD_REGISTRY[key]));
     };
 
     input.addEventListener("input", () => {
@@ -3468,7 +3525,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
     ensureFontDatalist();
 
     const updateStatus = () => {
-      updateFontStatus(status, validateFont(input.value));
+      updateFontStatus(status, validateFont(input.value, STYLE_FIELD_REGISTRY[key]));
     };
 
     input.addEventListener("input", () => {
@@ -3523,6 +3580,10 @@ export {
   STYLE_SCOPE_CLASS,
   STYLE_HEADING_COLOR_ACTIVE_CLASS,
   STYLE_HEADING_COLOR_CLASSES,
+  STYLE_TITLE_FONT_ACTIVE_CLASS,
+  STYLE_TITLE_SIZE_ACTIVE_CLASS,
+  STYLE_TITLE_WEIGHT_ACTIVE_CLASS,
+  STYLE_TITLE_ACTIVE_CLASSES,
   STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS,
   STYLE_EMPHASIS_ACTIVE_CLASSES,
   STYLE_BOLD_FONT_ACTIVE_CLASS,

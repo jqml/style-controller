@@ -252,6 +252,18 @@
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
 }
 
+.osc-title-controls {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.osc-title-controls-row {
+  display: grid;
+  gap: 8px 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .osc-setting-grid .setting-item.osc-font-setting {
   grid-column: span 2;
 }
@@ -1109,6 +1121,21 @@
   font-weight: var(--osc-italic-weight);
 }
 
+.osc-style-scope.style-controller-title-font-active .markdown-preview-view .inline-title:not([data-level]),
+.osc-style-scope.style-controller-title-font-active .markdown-source-view.mod-cm6 .inline-title:not([data-level]) {
+  font-family: var(--osc-title-font-family);
+}
+
+.osc-style-scope.style-controller-title-size-active .markdown-preview-view .inline-title:not([data-level]),
+.osc-style-scope.style-controller-title-size-active .markdown-source-view.mod-cm6 .inline-title:not([data-level]) {
+  font-size: var(--osc-title-size);
+}
+
+.osc-style-scope.style-controller-title-weight-active .markdown-preview-view .inline-title:not([data-level]),
+.osc-style-scope.style-controller-title-weight-active .markdown-source-view.mod-cm6 .inline-title:not([data-level]) {
+  font-weight: var(--osc-title-weight);
+}
+
 .osc-style-scope .markdown-preview-view h1,
 .osc-style-scope .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-1 > .cm-header-1:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
   font-family: var(--osc-h1-font-family);
@@ -1393,6 +1420,24 @@ body.style-controller-bottom-left-controls-left .workspace-split.mod-left-split 
 
 .osc-base-preview.style-controller-italic-weight-active em {
   font-weight: var(--osc-preview-italic-font-weight);
+}
+
+.osc-heading-preview-title.style-controller-title-font-active {
+  font-family: var(--osc-preview-title-font-family);
+}
+
+.osc-heading-preview-title.style-controller-title-size-active {
+  font-size: var(--osc-preview-title-size);
+}
+
+.osc-heading-preview-title.style-controller-title-weight-active {
+  font-weight: var(--osc-preview-title-weight);
+}
+
+.osc-heading-preview-title {
+  color: var(--text-normal);
+  font-size: var(--font-ui-large);
+  margin-bottom: 8px;
 }
 
 .osc-heading-preview [class*="osc-heading-preview-h"] {

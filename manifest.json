@@ -1,7 +1,7 @@
 {
   "id": "style-controller",
   "name": "Style Controller",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "minAppVersion": "1.13.0",
   "description": "Manage reusable style profiles, path overrides, and visual settings through a native settings interface.",
   "author": "JQML",
