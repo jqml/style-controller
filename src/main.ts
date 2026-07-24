@@ -13,6 +13,11 @@ import {
 
 const SETTINGS_SCHEMA_VERSION = 2;
 const DEFAULT_CODE_BACKGROUND = "#fafafa";
+const SETTINGS_ICON_POSITION_NATIVE = "native";
+const SETTINGS_ICON_POSITION_THEMEPRO = "themepro";
+const DEFAULT_INTERFACE_SETTINGS = {
+  settingsIconPosition: SETTINGS_ICON_POSITION_NATIVE
+};
 const CODE_BACKGROUND_CUSTOM_FIELDS = {
   codeBackground: {
     enabled: "codeBackgroundCustomEnabled",
@@ -441,6 +446,7 @@ const DEFAULT_SETTINGS = {
   schemaVersion: SETTINGS_SCHEMA_VERSION,
   enabled: true,
   activeSettingsTab: "global",
+  interface: DEFAULT_INTERFACE_SETTINGS,
   global: DEFAULT_PROFILE,
   callouts: {
     borderWidth: "2px",
@@ -576,6 +582,8 @@ const STYLE_IMAGE_IGNORE_EXPLICIT_CLASS = "style-controller-ignore-explicit-imag
 const STYLE_HEADING_COLOR_ACTIVE_CLASS = "style-controller-heading-color-active";
 const STYLE_HEADING_COLOR_CLASSES = Array.from({ length: 6 }, (_, index) => `style-controller-h${index + 1}-color-active`);
 const STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS = "style-controller-code-block-color-active";
+const STYLE_SETTINGS_ICON_THEMEPRO_CLASS = "style-controller-settings-icon-themepro";
+const SETTINGS_ICON_THEMEPRO_SELECTOR = ".workspace-drawer-vault-actions > span.clickable-icon:nth-of-type(2)";
 const FILE_EXPLORER_TARGET_CLASS = "style-controller-file-explorer-target";
 const FILE_EXPLORER_FOLDER_CLASS = "style-controller-file-explorer-folder";
 const FILE_EXPLORER_FILE_CLASS = "style-controller-file-explorer-file";
@@ -616,6 +624,28 @@ const PREVIEW_STYLE_VARIABLES = [
   "--osc-preview-blockquote-background",
   "--osc-preview-blockquote-border-color"
 ];
+
+function toggleElementClass(element, className, enabled) {
+  if (!element) return;
+  if (typeof element.toggleClass === "function") {
+    element.toggleClass(className, enabled);
+    return;
+  }
+  element.classList?.toggle(className, enabled);
+}
+
+function applyInterfaceStateClasses(element, interfaceSettings) {
+  const settings = normalizeInterfaceSettings(interfaceSettings);
+  toggleElementClass(
+    element,
+    STYLE_SETTINGS_ICON_THEMEPRO_CLASS,
+    settings.settingsIconPosition === SETTINGS_ICON_POSITION_THEMEPRO
+  );
+}
+
+function clearInterfaceStateClasses(element) {
+  toggleElementClass(element, STYLE_SETTINGS_ICON_THEMEPRO_CLASS, false);
+}
 const SIZE_UNITS = ["px", "rem", "em", "%", "pt"];
 const SIZE_FIELDS = new Set([
   ...Object.entries(STYLE_FIELD_REGISTRY)
@@ -735,6 +765,8 @@ export default class StyleControllerPlugin extends Plugin {
   }
 
   removeStyles() {
+    const interfaceRoot = this.getInterfaceRoot();
+    clearInterfaceStateClasses(interfaceRoot);
     this.getMarkdownContainers().forEach((container) => {
       cleanScopeClasses(container);
       container.classList.remove(
@@ -753,7 +785,14 @@ export default class StyleControllerPlugin extends Plugin {
     this.clearFileExplorerStyles();
   }
 
+  getInterfaceRoot() {
+    const rootDocument = this.app?.workspace?.containerEl?.ownerDocument
+      || (typeof document !== "undefined" ? document : null);
+    return rootDocument?.body || rootDocument?.documentElement || null;
+  }
+
   applyStyles() {
+    applyInterfaceStateClasses(this.getInterfaceRoot(), this.settings?.interface);
     this.getMarkdownViews().forEach((view, index) => {
       const file = view.file;
       const container = view.containerEl;
@@ -846,6 +885,7 @@ function normalizeSettings(loaded) {
   const settings = { ...DEFAULT_SETTINGS, ...source };
   settings.enabled = true;
   settings.activeSettingsTab = settings.activeSettingsTab || "global";
+  settings.interface = normalizeInterfaceSettings(source.interface || settings.interface);
   settings.global = Object.prototype.hasOwnProperty.call(source, "global")
     ? normalizeProfile(source.global)
     : createDefaultProfile();
@@ -856,6 +896,22 @@ function normalizeSettings(loaded) {
     : [];
   settings.storedConfigurations = normalizeStoredConfigurations(settings.storedConfigurations);
   return settings;
+}
+
+function normalizeInterfaceSettings(interfaceSettings) {
+  const source = interfaceSettings && typeof interfaceSettings === "object" ? interfaceSettings : {};
+  return {
+    ...DEFAULT_INTERFACE_SETTINGS,
+    settingsIconPosition: source.settingsIconPosition === SETTINGS_ICON_POSITION_THEMEPRO
+      ? SETTINGS_ICON_POSITION_THEMEPRO
+      : SETTINGS_ICON_POSITION_NATIVE
+  };
+}
+
+function validateInterfaceSection(interfaceSettings) {
+  return [SETTINGS_ICON_POSITION_NATIVE, SETTINGS_ICON_POSITION_THEMEPRO].includes(interfaceSettings?.settingsIconPosition)
+    ? []
+    : ["settingsIconPosition must be Native or ThemePro position"];
 }
 
 function normalizeStoredConfigurations(configurations) {
@@ -907,11 +963,13 @@ function normalizeProfile(profile) {
 
 function normalizeOptionalProfile(profile) {
   const source = profile && typeof profile === "object" ? profile : {};
-  return normalizeCodeBackgroundStates(
+  const normalized = normalizeCodeBackgroundStates(
     sanitizeProfile({ ...blankProfileData(), ...source }, source),
     source,
     true
   );
+  delete normalized.settingsIconPosition;
+  return normalized;
 }
 
 function createDefaultProfile() {
@@ -2077,6 +2135,10 @@ class StyleControllerSettingTab extends PluginSettingTab {
       this.renderProfileSection(containerEl, "Global defaults", this.plugin.settings.global);
     }
 
+    if (activeTab === "interface") {
+      this.renderInterfaceSection(containerEl);
+    }
+
     if (activeTab === "callouts") {
       this.renderCalloutSection(containerEl, this.plugin.settings.callouts);
     }
@@ -2115,6 +2177,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
     const nav = parent.createDiv({ cls: "osc-top-nav" });
     [
       ["global", "Style Controller"],
+      ["interface", "Interface"],
       ["callouts", "Callouts"],
       ["overrides", "Overrides"],
       ["fileExplorer", "File Explorer"],
@@ -2129,6 +2192,30 @@ class StyleControllerSettingTab extends PluginSettingTab {
         this.display();
       });
     });
+  }
+
+  renderInterfaceSection(parent) {
+    const context = this.getSectionContext("interface:root", () => this.plugin.settings.interface, "Interface settings", {
+      normalize: normalizeInterfaceSettings,
+      validate: validateInterfaceSection,
+      commit: (candidate) => {
+        this.plugin.settings.interface = candidate;
+      }
+    });
+    const root = parent.createDiv({ cls: "osc-profile" });
+    root.createEl("div", { text: "Interface", cls: "osc-section-heading" });
+    this.renderSectionActions(root, context);
+    new Setting(root)
+      .setName("Settings icon position")
+      .setDesc("Choose whether the bottom-left Settings gear stays in native Obsidian order or uses the isolated ThemePro position.")
+      .addDropdown((dropdown) => dropdown
+        .addOption(SETTINGS_ICON_POSITION_NATIVE, "Native")
+        .addOption(SETTINGS_ICON_POSITION_THEMEPRO, "ThemePro position")
+        .setValue(context.value.settingsIconPosition)
+        .onChange((value) => {
+          context.value.settingsIconPosition = value;
+          this.noteDraftMutation(context.value);
+        }));
   }
 
   renderConfigurationsSection(containerEl) {
@@ -3356,6 +3443,7 @@ export {
   BLOCK_CODE_TEXT_SELECTORS,
   CODE_BACKGROUND_CUSTOM_FIELDS,
   DEFAULT_CODE_BACKGROUND,
+  DEFAULT_INTERFACE_SETTINGS,
   DEFAULT_PROFILE,
   DEFAULT_SETTINGS,
   INLINE_CODE_SELECTORS,
@@ -3363,15 +3451,21 @@ export {
   PROFILE_SECTION_FIELDS,
   PROFILE_FIELDS,
   SectionDraftManager,
+  SETTINGS_ICON_POSITION_NATIVE,
+  SETTINGS_ICON_POSITION_THEMEPRO,
+  SETTINGS_ICON_THEMEPRO_SELECTOR,
   SETTINGS_SCHEMA_VERSION,
   STYLE_FIELD_REGISTRY,
   STYLE_SCOPE_CLASS,
   STYLE_HEADING_COLOR_ACTIVE_CLASS,
   STYLE_HEADING_COLOR_CLASSES,
   STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS,
+  STYLE_SETTINGS_ICON_THEMEPRO_CLASS,
   applyDraftAtomically,
+  applyInterfaceStateClasses,
   applyProfileCssVariables,
   applyProfileStateClasses,
+  clearInterfaceStateClasses,
   clearProfileCssVariables,
   codeBackgroundUiState,
   configurationToExport,
@@ -3381,6 +3475,7 @@ export {
   effectiveCodeBackground,
   hasActiveValue,
   normalizeHexColor,
+  normalizeInterfaceSettings,
   normalizeOptionalProfile,
   normalizeProfile,
   normalizeSettings,

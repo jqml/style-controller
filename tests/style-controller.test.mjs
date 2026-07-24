@@ -51,21 +51,28 @@ const {
   BLOCK_CODE_TEXT_SELECTORS,
   CODE_BACKGROUND_CUSTOM_FIELDS,
   DEFAULT_CODE_BACKGROUND,
+  DEFAULT_INTERFACE_SETTINGS,
   DEFAULT_PROFILE,
   INLINE_CODE_SELECTORS,
   NATIVE_DEFAULT_CONFIGURATION,
   PROFILE_SECTION_FIELDS,
   SectionDraftManager,
+  SETTINGS_ICON_POSITION_NATIVE,
+  SETTINGS_ICON_POSITION_THEMEPRO,
+  SETTINGS_ICON_THEMEPRO_SELECTOR,
   SETTINGS_SCHEMA_VERSION,
   STYLE_FIELD_REGISTRY,
   STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS,
   STYLE_SCOPE_CLASS,
   STYLE_HEADING_COLOR_ACTIVE_CLASS,
   STYLE_HEADING_COLOR_CLASSES,
+  STYLE_SETTINGS_ICON_THEMEPRO_CLASS,
   applyProfileCssVariables,
   applyProfileStateClasses,
   applyDraftAtomically,
+  applyInterfaceStateClasses,
   clearProfileCssVariables,
+  clearInterfaceStateClasses,
   codeBackgroundUiState,
   configurationToExport,
   createConfigurationSnapshot,
@@ -73,6 +80,7 @@ const {
   createNativeConfigurationData,
   effectiveCodeBackground,
   normalizeHexColor,
+  normalizeInterfaceSettings,
   normalizeOptionalProfile,
   normalizeProfile,
   normalizeSettings,
@@ -237,6 +245,66 @@ test("content-facing rules stay scoped and emphasis does not style formatting ma
   assert.match(STYLE_FIELD_REGISTRY.boldColor.selectors.at(-1), /:not\(\.cm-formatting\)/);
   assert.match(STYLE_FIELD_REGISTRY.italicColor.selectors.at(-1), /:not\(\.cm-formatting\)/);
   assert.doesNotMatch(css, /\.osc-style-scope \.markdown-source-view\.mod-cm6 \.HyperMD-header-[1-6]\s*\{/);
+});
+
+test("Settings icon position uses one exact scoped rule and never broad sidebar selectors", () => {
+  assert.equal(DEFAULT_INTERFACE_SETTINGS.settingsIconPosition, SETTINGS_ICON_POSITION_NATIVE);
+  assert.equal(SETTINGS_ICON_THEMEPRO_SELECTOR, ".workspace-drawer-vault-actions > span.clickable-icon:nth-of-type(2)");
+  const rule = cssRules(css).find((candidate) => candidate.selectors.includes(STYLE_SETTINGS_ICON_THEMEPRO_CLASS));
+  assert.ok(rule);
+  assert.match(rule.selectors, /\.workspace-split\.mod-left-split/);
+  assert.match(rule.selectors, /\.workspace-sidedock-vault-profile/);
+  assert.match(rule.selectors, /\.workspace-drawer-vault-actions\s*>\s*span\.clickable-icon:nth-of-type\(2\)/);
+  assert.match(rule.declarations, /order:\s*-1/);
+  assert.doesNotMatch(rule.selectors, /button|\.sidebar|\.workspace-ribbon|\.workspace-drawer-vault-switcher|collapse/);
+  assert.doesNotMatch(css, /\.style-controller-settings-icon-themepro\s+[^{}]*(?:button|\.sidebar)\b/);
+});
+
+test("Native and ThemePro interface states toggle only the Settings class", () => {
+  const root = fakeElement();
+  applyInterfaceStateClasses(root, normalizeInterfaceSettings(null));
+  assert.equal(root.classList.contains(STYLE_SETTINGS_ICON_THEMEPRO_CLASS), false);
+
+  applyInterfaceStateClasses(root, { settingsIconPosition: SETTINGS_ICON_POSITION_THEMEPRO });
+  assert.equal(root.classList.contains(STYLE_SETTINGS_ICON_THEMEPRO_CLASS), true);
+
+  applyInterfaceStateClasses(root, { settingsIconPosition: SETTINGS_ICON_POSITION_NATIVE });
+  assert.equal(root.classList.contains(STYLE_SETTINGS_ICON_THEMEPRO_CLASS), false);
+  clearInterfaceStateClasses(root);
+  assert.equal(root.classList.contains(STYLE_SETTINGS_ICON_THEMEPRO_CLASS), false);
+});
+
+test("interface selection survives settings normalization but is not profile- or path-controlled", () => {
+  const loaded = normalizeSettings({
+    interface: { settingsIconPosition: SETTINGS_ICON_POSITION_THEMEPRO },
+    global: { h3Color: "#123456" },
+    overrides: [{
+      id: "work",
+      type: "folder",
+      pattern: "Work",
+      modules: { headings: true },
+      profile: { settingsIconPosition: SETTINGS_ICON_POSITION_THEMEPRO, h3Color: "#abcdef" }
+    }]
+  });
+  assert.equal(loaded.interface.settingsIconPosition, SETTINGS_ICON_POSITION_THEMEPRO);
+  assert.equal(normalizeSettings(loaded).interface.settingsIconPosition, SETTINGS_ICON_POSITION_THEMEPRO);
+  assert.equal(Object.hasOwn(loaded.overrides[0].profile, "settingsIconPosition"), false);
+  const match = StyleControllerPlugin.prototype.getProfileForPath.call({ settings: loaded }, "Work/Note.md");
+  assert.equal(Object.hasOwn(match.profile, "settingsIconPosition"), false);
+
+  const snapshot = createConfigurationSnapshot(loaded);
+  assert.equal(Object.hasOwn(snapshot, "interface"), false);
+});
+
+test("Interface settings use the section Apply/Revert transaction", () => {
+  assert.match(source, /\["interface", "Interface"\]/);
+  assert.match(source, /activeTab === "interface"/);
+  assert.match(source, /getSectionContext\("interface:root"/);
+  assert.match(source, /setName\("Settings icon position"\)/);
+  assert.match(source, /addOption\(SETTINGS_ICON_POSITION_NATIVE, "Native"\)/);
+  assert.match(source, /addOption\(SETTINGS_ICON_POSITION_THEMEPRO, "ThemePro position"\)/);
+  assert.match(source, /this\.noteDraftMutation\(context\.value\)/);
+  assert.match(source, /new Notice\(`\$\{context\.label\} applied\.`\)/);
 });
 
 test("section drafts stay independent until their own Apply", () => {
@@ -660,18 +728,22 @@ test("path overrides resolve and apply independently per Markdown leaf", () => {
 
 test("unload cleanup removes plugin variables and scope classes", () => {
   const element = fakeElement();
+  const interfaceRoot = fakeElement();
+  applyInterfaceStateClasses(interfaceRoot, { settingsIconPosition: SETTINGS_ICON_POSITION_THEMEPRO });
   element.classList.add(STYLE_SCOPE_CLASS, "osc-scope-0", "style-controller-image-width", STYLE_HEADING_COLOR_ACTIVE_CLASS, STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS);
   element.classList.add(...STYLE_HEADING_COLOR_CLASSES);
   applyProfileCssVariables(element, normalizeProfile({ codeBlockBackground: "#fafafa", h3Color: "#123456" }));
   let explorerCleared = false;
 
   StyleControllerPlugin.prototype.removeStyles.call({
+    getInterfaceRoot: () => interfaceRoot,
     getMarkdownContainers: () => [element],
     clearFileExplorerStyles: () => {
       explorerCleared = true;
     }
   });
 
+  assert.equal(interfaceRoot.classList.contains(STYLE_SETTINGS_ICON_THEMEPRO_CLASS), false);
   assert.equal(element.css.has("--osc-code-block-background"), false);
   assert.equal(element.classList.contains(STYLE_SCOPE_CLASS), false);
   assert.equal(element.classList.contains("osc-scope-0"), false);

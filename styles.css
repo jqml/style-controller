@@ -1327,6 +1327,11 @@
   margin-right: 0.25em;
 }
 
+/* ThemePro position: the native Settings control is the second direct icon child. */
+body.style-controller-settings-icon-themepro .workspace-split.mod-left-split .workspace-sidedock-vault-profile .workspace-drawer-vault-actions > span.clickable-icon:nth-of-type(2) {
+  order: -1;
+}
+
 .osc-base-preview {
   background: var(--osc-preview-background);
   color: var(--osc-preview-color);

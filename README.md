@@ -80,6 +80,19 @@ The code-block checks above and the automated tests validate selector ownership 
 
 This checklist describes the manual equivalence checks; the release tests verify selector structure, variable cleanup, and profile isolation without claiming live UI equivalence.
 
+## Settings icon position checklist
+
+1. Set **Settings icon position** to **Native** and select **Apply**.
+2. Confirm the bottom-left controls match native Obsidian.
+3. Select **ThemePro position** and select **Apply**.
+4. Confirm only the Settings gear moves to the isolated ThemePro position.
+5. Revert an unsaved change and confirm the applied position remains.
+6. Disable Style Controller and confirm native positioning returns.
+7. Test with ThemePro.css disabled.
+8. If ThemePro.css is available and enabled, report separately whether it creates a duplicate or conflicting rule.
+
+The current vault does not contain a file named `ThemePro.css`, and its CSS snippets are disabled. The plugin therefore uses only the current Obsidian vault-actions DOM target and does not copy any unrelated ThemePro styles.
+
 ## Privacy and network behavior
 
 Style Controller runs locally. It does not use telemetry, analytics, remote code, remote images, or remote fonts.
