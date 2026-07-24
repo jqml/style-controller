@@ -13,10 +13,11 @@ import {
 
 const SETTINGS_SCHEMA_VERSION = 2;
 const DEFAULT_CODE_BACKGROUND = "#fafafa";
-const SETTINGS_ICON_POSITION_NATIVE = "native";
-const SETTINGS_ICON_POSITION_THEMEPRO = "themepro";
+const BOTTOM_LEFT_CONTROLS_POSITION_NATIVE = "native";
+const BOTTOM_LEFT_CONTROLS_POSITION_LEFT = "left";
+const LEGACY_SETTINGS_ICON_POSITION_THEMEPRO = "themepro";
 const DEFAULT_INTERFACE_SETTINGS = {
-  settingsIconPosition: SETTINGS_ICON_POSITION_NATIVE
+  bottomLeftControlsPosition: BOTTOM_LEFT_CONTROLS_POSITION_NATIVE
 };
 const CODE_BACKGROUND_CUSTOM_FIELDS = {
   codeBackground: {
@@ -582,10 +583,11 @@ const STYLE_IMAGE_IGNORE_EXPLICIT_CLASS = "style-controller-ignore-explicit-imag
 const STYLE_HEADING_COLOR_ACTIVE_CLASS = "style-controller-heading-color-active";
 const STYLE_HEADING_COLOR_CLASSES = Array.from({ length: 6 }, (_, index) => `style-controller-h${index + 1}-color-active`);
 const STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS = "style-controller-code-block-color-active";
-const STYLE_SETTINGS_ICON_THEMEPRO_CLASS = "style-controller-settings-icon-themepro";
+const STYLE_BOTTOM_LEFT_CONTROLS_LEFT_CLASS = "style-controller-bottom-left-controls-left";
+const LEGACY_STYLE_SETTINGS_ICON_THEMEPRO_CLASS = "style-controller-settings-icon-themepro";
 const THEMEPRO_ORIGINAL_SELECTOR = ".workspace-drawer-vault-actions";
 const THEMEPRO_ORIGINAL_ORDER = -1;
-const SETTINGS_ICON_THEMEPRO_SELECTOR = ".workspace-drawer-vault-actions > .clickable-icon:has(.lucide-settings)";
+const BOTTOM_LEFT_CONTROLS_LEFT_SELECTOR = THEMEPRO_ORIGINAL_SELECTOR;
 const FILE_EXPLORER_TARGET_CLASS = "style-controller-file-explorer-target";
 const FILE_EXPLORER_FOLDER_CLASS = "style-controller-file-explorer-folder";
 const FILE_EXPLORER_FILE_CLASS = "style-controller-file-explorer-file";
@@ -640,13 +642,15 @@ function applyInterfaceStateClasses(element, interfaceSettings) {
   const settings = normalizeInterfaceSettings(interfaceSettings);
   toggleElementClass(
     element,
-    STYLE_SETTINGS_ICON_THEMEPRO_CLASS,
-    settings.settingsIconPosition === SETTINGS_ICON_POSITION_THEMEPRO
+    STYLE_BOTTOM_LEFT_CONTROLS_LEFT_CLASS,
+    settings.bottomLeftControlsPosition === BOTTOM_LEFT_CONTROLS_POSITION_LEFT
   );
+  toggleElementClass(element, LEGACY_STYLE_SETTINGS_ICON_THEMEPRO_CLASS, false);
 }
 
 function clearInterfaceStateClasses(element) {
-  toggleElementClass(element, STYLE_SETTINGS_ICON_THEMEPRO_CLASS, false);
+  toggleElementClass(element, STYLE_BOTTOM_LEFT_CONTROLS_LEFT_CLASS, false);
+  toggleElementClass(element, LEGACY_STYLE_SETTINGS_ICON_THEMEPRO_CLASS, false);
 }
 const SIZE_UNITS = ["px", "rem", "em", "%", "pt"];
 const SIZE_FIELDS = new Set([
@@ -902,18 +906,20 @@ function normalizeSettings(loaded) {
 
 function normalizeInterfaceSettings(interfaceSettings) {
   const source = interfaceSettings && typeof interfaceSettings === "object" ? interfaceSettings : {};
+  const configuredPosition = source.bottomLeftControlsPosition ?? source.settingsIconPosition;
   return {
     ...DEFAULT_INTERFACE_SETTINGS,
-    settingsIconPosition: source.settingsIconPosition === SETTINGS_ICON_POSITION_THEMEPRO
-      ? SETTINGS_ICON_POSITION_THEMEPRO
-      : SETTINGS_ICON_POSITION_NATIVE
+    bottomLeftControlsPosition: configuredPosition === BOTTOM_LEFT_CONTROLS_POSITION_LEFT
+      || configuredPosition === LEGACY_SETTINGS_ICON_POSITION_THEMEPRO
+      ? BOTTOM_LEFT_CONTROLS_POSITION_LEFT
+      : BOTTOM_LEFT_CONTROLS_POSITION_NATIVE
   };
 }
 
 function validateInterfaceSection(interfaceSettings) {
-  return [SETTINGS_ICON_POSITION_NATIVE, SETTINGS_ICON_POSITION_THEMEPRO].includes(interfaceSettings?.settingsIconPosition)
+  return [BOTTOM_LEFT_CONTROLS_POSITION_NATIVE, BOTTOM_LEFT_CONTROLS_POSITION_LEFT].includes(interfaceSettings?.bottomLeftControlsPosition)
     ? []
-    : ["settingsIconPosition must be Native or ThemePro position"];
+    : ["bottomLeftControlsPosition must be Native or Left"];
 }
 
 function normalizeStoredConfigurations(configurations) {
@@ -971,6 +977,7 @@ function normalizeOptionalProfile(profile) {
     true
   );
   delete normalized.settingsIconPosition;
+  delete normalized.bottomLeftControlsPosition;
   return normalized;
 }
 
@@ -2208,14 +2215,14 @@ class StyleControllerSettingTab extends PluginSettingTab {
     root.createEl("div", { text: "Interface", cls: "osc-section-heading" });
     this.renderSectionActions(root, context);
     new Setting(root)
-      .setName("Settings icon position")
-      .setDesc("Choose whether the bottom-left Settings gear stays in native Obsidian order or uses the isolated ThemePro position.")
+      .setName("Bottom-left controls position")
+      .setDesc("Choose whether the Help and Settings controls stay in native Obsidian order or move together to the left of the vault footer.")
       .addDropdown((dropdown) => dropdown
-        .addOption(SETTINGS_ICON_POSITION_NATIVE, "Native")
-        .addOption(SETTINGS_ICON_POSITION_THEMEPRO, "ThemePro position")
-        .setValue(context.value.settingsIconPosition)
+        .addOption(BOTTOM_LEFT_CONTROLS_POSITION_NATIVE, "Native")
+        .addOption(BOTTOM_LEFT_CONTROLS_POSITION_LEFT, "Left")
+        .setValue(context.value.bottomLeftControlsPosition)
         .onChange((value) => {
-          context.value.settingsIconPosition = value;
+          context.value.bottomLeftControlsPosition = value;
           this.noteDraftMutation(context.value);
         }));
   }
@@ -3455,16 +3462,16 @@ export {
   SectionDraftManager,
   THEMEPRO_ORIGINAL_ORDER,
   THEMEPRO_ORIGINAL_SELECTOR,
-  SETTINGS_ICON_POSITION_NATIVE,
-  SETTINGS_ICON_POSITION_THEMEPRO,
-  SETTINGS_ICON_THEMEPRO_SELECTOR,
+  BOTTOM_LEFT_CONTROLS_POSITION_NATIVE,
+  BOTTOM_LEFT_CONTROLS_POSITION_LEFT,
+  BOTTOM_LEFT_CONTROLS_LEFT_SELECTOR,
   SETTINGS_SCHEMA_VERSION,
   STYLE_FIELD_REGISTRY,
   STYLE_SCOPE_CLASS,
   STYLE_HEADING_COLOR_ACTIVE_CLASS,
   STYLE_HEADING_COLOR_CLASSES,
   STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS,
-  STYLE_SETTINGS_ICON_THEMEPRO_CLASS,
+  STYLE_BOTTOM_LEFT_CONTROLS_LEFT_CLASS,
   applyDraftAtomically,
   applyInterfaceStateClasses,
   applyProfileCssVariables,

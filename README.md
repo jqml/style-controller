@@ -80,18 +80,18 @@ The code-block checks above and the automated tests validate selector ownership 
 
 This checklist describes the manual equivalence checks; the release tests verify selector structure, variable cleanup, and profile isolation without claiming live UI equivalence.
 
-## Settings icon position checklist
+## Bottom-left controls position checklist
 
-1. Set **Settings icon position** to **Native** and select **Apply**.
-2. Confirm the bottom-left controls match native Obsidian.
-3. Select **ThemePro position** and select **Apply**.
-4. Confirm only the Settings gear moves to the isolated ThemePro position.
-5. Revert an unsaved change and confirm the applied position remains.
-6. Disable Style Controller and confirm native positioning returns.
-7. Test with ThemePro.css disabled.
-8. If ThemePro.css is available and enabled, report separately whether it creates a duplicate or conflicting rule.
+1. Select **Native** and select **Apply**.
+2. Confirm Help and Settings remain in their native position.
+3. Select **Left** and select **Apply**.
+4. Confirm Help and Settings move together to the left of the vault footer.
+5. Confirm neither icon is obscured by the bottom status bar.
+6. Confirm their internal order is unchanged.
+7. Return to **Native** and confirm the original layout returns.
+8. Disable Style Controller and confirm native placement returns.
 
-The authoritative Obsidian Pro snippet contains `.workspace-drawer-vault-actions { order: -1; }`. The plugin preserves that order declaration but scopes it to the native Settings icon identified by `.lucide-settings`, so the Help icon and unrelated controls are not repositioned. The current vault does not enable that snippet.
+The authoritative Obsidian Pro snippet contains `.workspace-drawer-vault-actions { order: -1; }`. The plugin applies that exact group-level behavior within the left sidebar vault-profile/footer area. The current vault does not enable that snippet.
 
 ## Privacy and network behavior
 
