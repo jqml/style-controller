@@ -53,6 +53,8 @@ const {
   DEFAULT_CODE_BACKGROUND,
   DEFAULT_INTERFACE_SETTINGS,
   DEFAULT_PROFILE,
+  HEADING_SPACE_ABOVE_FIELDS,
+  HEADING_SPACE_ABOVE_UNITS,
   INLINE_CODE_SELECTORS,
   NATIVE_DEFAULT_CONFIGURATION,
   PROFILE_SECTION_FIELDS,
@@ -76,6 +78,8 @@ const {
   STYLE_SCOPE_CLASS,
   STYLE_HEADING_COLOR_ACTIVE_CLASS,
   STYLE_HEADING_COLOR_CLASSES,
+  STYLE_HEADING_SPACE_ABOVE_CLASSES,
+  STYLE_HEADING_SPACE_ABOVE_VARIABLES,
   STYLE_TITLE_FONT_ACTIVE_CLASS,
   STYLE_TITLE_SIZE_ACTIVE_CLASS,
   STYLE_TITLE_WEIGHT_ACTIVE_CLASS,
@@ -93,6 +97,8 @@ const {
   createDefaultProfile,
   createNativeConfigurationData,
   effectiveCodeBackground,
+  headingSpaceAboveCssValue,
+  isValidHeadingSpaceAboveValue,
   normalizeHexColor,
   normalizeInterfaceSettings,
   normalizeOptionalProfile,
@@ -237,6 +243,119 @@ test("heading levels remain independent and heading Off emits no heading color v
   assert.equal(element.css.has("--osc-h3-color"), false);
   assert.equal(element.classList.contains(STYLE_HEADING_COLOR_ACTIVE_CLASS), false);
   STYLE_HEADING_COLOR_CLASSES.forEach((className) => assert.equal(element.classList.contains(className), false));
+});
+
+test("all heading Space above fields default Off and older profiles retain heading styling", () => {
+  assert.equal(Array.from(HEADING_SPACE_ABOVE_FIELDS).length, 18);
+  assert.deepEqual(Array.from(HEADING_SPACE_ABOVE_UNITS), ["px", "rem", "em", "%", "pt"]);
+  const legacy = normalizeProfile({
+    h1FontFamily: "Georgia, Times New Roman, serif",
+    h2Size: "24px",
+    h3Weight: "650",
+    h4Color: "#123456",
+    unknownFutureHeadingField: "preserved"
+  });
+  assert.equal(legacy.h1FontFamily, "Georgia, Times New Roman, serif");
+  assert.equal(legacy.h2Size, "24px");
+  assert.equal(legacy.h3Weight, "650");
+  assert.equal(legacy.h4Color, "#123456");
+  assert.equal(legacy.unknownFutureHeadingField, "preserved");
+  for (let level = 1; level <= 6; level += 1) {
+    assert.equal(legacy[`h${level}SpaceAboveEnabled`], false);
+    assert.equal(legacy[`h${level}SpaceAboveValue`], "0");
+    assert.equal(legacy[`h${level}SpaceAboveUnit`], "px");
+  }
+});
+
+test("H5 Space above is independent, unit-aware, and Off emits no active override", () => {
+  const element = fakeElement();
+  const native = normalizeProfile({});
+  applyProfileCssVariables(element, native);
+  applyProfileStateClasses(element, native);
+  STYLE_HEADING_SPACE_ABOVE_VARIABLES.forEach((variable) => assert.equal(element.css.has(variable), false));
+  STYLE_HEADING_SPACE_ABOVE_CLASSES.forEach((className) => assert.equal(element.classList.contains(className), false));
+
+  const configured = normalizeProfile({
+    h1FontFamily: "serif, sans-serif, cursive",
+    h2Size: "24px",
+    h3Weight: "650",
+    h4Color: "#123456",
+    h5SpaceAboveEnabled: true,
+    h5SpaceAboveValue: "0.5",
+    h5SpaceAboveUnit: "rem"
+  });
+  applyProfileCssVariables(element, configured);
+  applyProfileStateClasses(element, configured);
+  assert.equal(headingSpaceAboveCssValue(configured, 5), "0.5rem");
+  assert.equal(element.css.get("--osc-h5-space-above"), "0.5rem");
+  assert.equal(element.classList.contains(STYLE_HEADING_SPACE_ABOVE_CLASSES[4]), true);
+  for (const level of [1, 2, 3, 4, 6]) {
+    assert.equal(element.css.has(`--osc-h${level}-space-above`), false);
+    assert.equal(element.classList.contains(STYLE_HEADING_SPACE_ABOVE_CLASSES[level - 1]), false);
+  }
+  assert.equal(element.css.get("--osc-h1-font-family"), "serif, sans-serif, cursive");
+  assert.equal(element.css.get("--osc-h2-size"), "24px");
+  assert.equal(element.css.get("--osc-h3-weight"), "650");
+  assert.equal(element.css.get("--osc-h4-color"), "#123456");
+
+  configured.h5SpaceAboveEnabled = false;
+  applyProfileCssVariables(element, configured);
+  applyProfileStateClasses(element, configured);
+  assert.equal(element.css.has("--osc-h5-space-above"), false);
+  assert.equal(element.classList.contains(STYLE_HEADING_SPACE_ABOVE_CLASSES[4]), false);
+});
+
+test("heading Space above validation rejects unsafe values and invalid units", () => {
+  for (const value of ["", "-1", "-0.1", "Infinity", "NaN", "1e3", "  "]) {
+    assert.equal(isValidHeadingSpaceAboveValue(value), false, value);
+    assert.equal(headingSpaceAboveCssValue({
+      h5SpaceAboveEnabled: true,
+      h5SpaceAboveValue: value,
+      h5SpaceAboveUnit: "px"
+    }, 5), "");
+  }
+  for (const value of ["0", "0.1", "12", "12.5"]) {
+    assert.equal(isValidHeadingSpaceAboveValue(value), true, value);
+  }
+  assert.equal(headingSpaceAboveCssValue({
+    h5SpaceAboveEnabled: true,
+    h5SpaceAboveValue: "12",
+    h5SpaceAboveUnit: "vh"
+  }, 5), "");
+});
+
+test("heading Space above CSS is per-level, scoped, property-correct, and has no important declarations", () => {
+  const spacingRules = cssRules(css).filter((rule) => /--osc-h[1-6]-space-above/.test(rule.declarations));
+  assert.equal(spacingRules.length, 12);
+  for (let level = 1; level <= 6; level += 1) {
+    const rules = spacingRules.filter((rule) => rule.declarations.includes(`--osc-h${level}-space-above`));
+    assert.equal(rules.length, 2);
+    const reading = rules.find((rule) => rule.selectors.includes(`.markdown-preview-view h${level}`));
+    const editor = rules.find((rule) => rule.selectors.includes(`.cm-line.HyperMD-header-${level}`));
+    assert.ok(reading);
+    assert.ok(editor);
+    assert.match(reading.selectors, new RegExp(`\\.osc-style-scope\\.style-controller-h${level}-space-above-active`));
+    assert.match(editor.selectors, new RegExp(`\\.osc-style-scope\\.style-controller-h${level}-space-above-active`));
+    assert.equal(reading.selectors.startsWith(".osc-style-scope."), true);
+    assert.equal(editor.selectors.startsWith(".osc-style-scope."), true);
+    assert.match(reading.declarations, /margin-block-start:/);
+    assert.match(editor.declarations, /padding-top:/);
+    assert.doesNotMatch(`${reading.selectors}${editor.selectors}`, /\bbody\b/);
+    assert.doesNotMatch(`${reading.declarations}${editor.declarations}`, /!important/);
+  }
+});
+
+test("heading settings render one Space above card per H1-H6 loop iteration", () => {
+  const headingUi = source.slice(source.indexOf("  renderHeadingGroup(parent"), source.indexOf("  renderImageGroup(parent"));
+  assert.equal((headingUi.match(/addHeadingSpaceAboveControl\(controlsRow, profile, level\)/g) || []).length, 1);
+  const controlMethod = source.slice(source.indexOf("  addHeadingSpaceAboveControl(parent"), source.indexOf("  addColorControl(setting"));
+  assert.equal((controlMethod.match(/setName\("Space above"\)/g) || []).length, 1);
+  assert.match(controlMethod, /type: "number"/);
+  assert.match(controlMethod, /min: "0"/);
+  assert.match(controlMethod, /HEADING_SPACE_ABOVE_UNITS/);
+  assert.match(controlMethod, /addToggle/);
+  assert.match(controlMethod, /aria-labelledby/);
+  assert.match(controlMethod, /aria-label/);
 });
 
 test("reading-view MathJax is protected only while a heading color is active", () => {
@@ -931,7 +1050,14 @@ test("unload cleanup removes plugin variables and scope classes", () => {
   applyInterfaceStateClasses(interfaceRoot, { bottomLeftControlsPosition: BOTTOM_LEFT_CONTROLS_POSITION_LEFT });
   element.classList.add(STYLE_SCOPE_CLASS, "osc-scope-0", "style-controller-image-width", STYLE_HEADING_COLOR_ACTIVE_CLASS, STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS, ...STYLE_TITLE_ACTIVE_CLASSES);
   element.classList.add(...STYLE_HEADING_COLOR_CLASSES);
-  applyProfileCssVariables(element, normalizeProfile({ codeBlockBackground: "#fafafa", h3Color: "#123456" }));
+  element.classList.add(...STYLE_HEADING_SPACE_ABOVE_CLASSES);
+  applyProfileCssVariables(element, normalizeProfile({
+    codeBlockBackground: "#fafafa",
+    h3Color: "#123456",
+    h5SpaceAboveEnabled: true,
+    h5SpaceAboveValue: "8",
+    h5SpaceAboveUnit: "px"
+  }));
   let explorerCleared = false;
 
   StyleControllerPlugin.prototype.removeStyles.call({
@@ -944,12 +1070,14 @@ test("unload cleanup removes plugin variables and scope classes", () => {
 
   assert.equal(interfaceRoot.classList.contains(STYLE_BOTTOM_LEFT_CONTROLS_LEFT_CLASS), false);
   assert.equal(element.css.has("--osc-code-block-background"), false);
+  assert.equal(element.css.has("--osc-h5-space-above"), false);
   assert.equal(element.classList.contains(STYLE_SCOPE_CLASS), false);
   assert.equal(element.classList.contains("osc-scope-0"), false);
   assert.equal(element.classList.contains("style-controller-image-width"), false);
   assert.equal(element.classList.contains(STYLE_HEADING_COLOR_ACTIVE_CLASS), false);
   assert.equal(element.classList.contains(STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS), false);
   STYLE_HEADING_COLOR_CLASSES.forEach((className) => assert.equal(element.classList.contains(className), false));
+  STYLE_HEADING_SPACE_ABOVE_CLASSES.forEach((className) => assert.equal(element.classList.contains(className), false));
   STYLE_TITLE_ACTIVE_CLASSES.forEach((className) => assert.equal(element.classList.contains(className), false));
   assert.equal(explorerCleared, true);
 });

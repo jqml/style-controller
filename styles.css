@@ -415,7 +415,7 @@
 .osc-heading-controls-row {
   display: grid;
   gap: 8px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   min-width: 0;
 }
 
@@ -442,6 +442,17 @@
   max-width: 54px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.osc-heading-space-above-setting .setting-item-control {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.osc-heading-space-above-control {
+  flex: 1 1 138px;
 }
 
 .osc-heading-card .setting-item:last-child,
@@ -1176,6 +1187,54 @@
   font-family: var(--osc-h6-font-family);
   font-size: var(--osc-h6-size);
   font-weight: var(--osc-h6-weight);
+}
+
+.osc-style-scope.style-controller-h1-space-above-active .markdown-preview-view h1 {
+  margin-block-start: var(--osc-h1-space-above);
+}
+
+.osc-style-scope.style-controller-h1-space-above-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-1 {
+  padding-top: var(--osc-h1-space-above);
+}
+
+.osc-style-scope.style-controller-h2-space-above-active .markdown-preview-view h2 {
+  margin-block-start: var(--osc-h2-space-above);
+}
+
+.osc-style-scope.style-controller-h2-space-above-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-2 {
+  padding-top: var(--osc-h2-space-above);
+}
+
+.osc-style-scope.style-controller-h3-space-above-active .markdown-preview-view h3 {
+  margin-block-start: var(--osc-h3-space-above);
+}
+
+.osc-style-scope.style-controller-h3-space-above-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-3 {
+  padding-top: var(--osc-h3-space-above);
+}
+
+.osc-style-scope.style-controller-h4-space-above-active .markdown-preview-view h4 {
+  margin-block-start: var(--osc-h4-space-above);
+}
+
+.osc-style-scope.style-controller-h4-space-above-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-4 {
+  padding-top: var(--osc-h4-space-above);
+}
+
+.osc-style-scope.style-controller-h5-space-above-active .markdown-preview-view h5 {
+  margin-block-start: var(--osc-h5-space-above);
+}
+
+.osc-style-scope.style-controller-h5-space-above-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-5 {
+  padding-top: var(--osc-h5-space-above);
+}
+
+.osc-style-scope.style-controller-h6-space-above-active .markdown-preview-view h6 {
+  margin-block-start: var(--osc-h6-space-above);
+}
+
+.osc-style-scope.style-controller-h6-space-above-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-6 {
+  padding-top: var(--osc-h6-space-above);
 }
 
 /* Color declarations are gated by per-level state classes so Off has no

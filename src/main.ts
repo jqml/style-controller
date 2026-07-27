@@ -13,6 +13,8 @@ import {
 
 const SETTINGS_SCHEMA_VERSION = 3;
 const DEFAULT_CODE_BACKGROUND = "#fafafa";
+const SIZE_UNITS = ["px", "rem", "em", "%", "pt"];
+const HEADING_SPACE_ABOVE_UNITS = [...SIZE_UNITS];
 const BOTTOM_LEFT_CONTROLS_POSITION_NATIVE = "native";
 const BOTTOM_LEFT_CONTROLS_POSITION_LEFT = "left";
 const LEGACY_SETTINGS_ICON_POSITION_THEMEPRO = "themepro";
@@ -97,6 +99,12 @@ const DEFAULT_PROFILE = {
   imageRespectExplicitSize: "",
   customCss: ""
 };
+
+for (let level = 1; level <= 6; level += 1) {
+  DEFAULT_PROFILE[`h${level}SpaceAboveEnabled`] = false;
+  DEFAULT_PROFILE[`h${level}SpaceAboveValue`] = "0";
+  DEFAULT_PROFILE[`h${level}SpaceAboveUnit`] = "px";
+}
 
 const DEFAULT_OVERRIDE_MODULES = {
   baseText: false,
@@ -290,6 +298,16 @@ const PROFILE_GROUP_FIELDS = Object.entries(STYLE_FIELD_REGISTRY).reduce((groups
   return groups;
 }, {});
 
+const HEADING_SPACE_ABOVE_FIELDS = Array.from({ length: 6 }, (_, index) => {
+  const level = index + 1;
+  return [
+    `h${level}SpaceAboveEnabled`,
+    `h${level}SpaceAboveValue`,
+    `h${level}SpaceAboveUnit`
+  ];
+}).flat();
+PROFILE_GROUP_FIELDS.headings.push(...HEADING_SPACE_ABOVE_FIELDS);
+
 const PROFILE_SECTION_FIELDS = {
   baseText: [
     "fontFamily", "textSize", "textWeight", "lineHeight", "textColor", "backgroundColor", "accentColor"
@@ -298,7 +316,8 @@ const PROFILE_SECTION_FIELDS = {
     "boldFontFamily", "boldWeight", "boldColor", "italicFontFamily", "italicSize", "italicWeight", "italicColor"
   ],
   headings: ["titleFontFamily", "titleSize", "titleWeight"].concat(Array.from({ length: 6 }, (_, index) => [
-    `h${index + 1}FontFamily`, `h${index + 1}Size`, `h${index + 1}Weight`, `h${index + 1}Color`
+    `h${index + 1}FontFamily`, `h${index + 1}Size`, `h${index + 1}Weight`, `h${index + 1}Color`,
+    `h${index + 1}SpaceAboveEnabled`, `h${index + 1}SpaceAboveValue`, `h${index + 1}SpaceAboveUnit`
   ]).flat()),
   links: ["linkColor", "linkHoverColor", "internalLinkColor", "externalLinkColor"],
   tables: ["tableHeaderBackground", "tableHeaderColor", "tableBorderColor", "tableRowAltBackground"],
@@ -402,6 +421,14 @@ function validateProfileSection(profile, fields) {
     if (meta.type === "weight" && !validateFontWeight(value).valid) errors.push(`${field} must be a valid font weight`);
     if (meta.type === "size" && !normalizeCssSizeText(value)) errors.push(`${field} must be a valid CSS size`);
   });
+  for (let level = 1; level <= 6; level += 1) {
+    const enabledField = `h${level}SpaceAboveEnabled`;
+    if (!fields.includes(enabledField) || profile[enabledField] !== true) continue;
+    const value = String(profile[`h${level}SpaceAboveValue`] ?? "").trim();
+    const unit = String(profile[`h${level}SpaceAboveUnit`] ?? "").trim();
+    if (!isValidHeadingSpaceAboveValue(value)) errors.push(`H${level} Space above must be a finite non-negative number`);
+    if (!HEADING_SPACE_ABOVE_UNITS.includes(unit)) errors.push(`H${level} Space above unit must be ${HEADING_SPACE_ABOVE_UNITS.join(", ")}`);
+  }
   Object.entries(CODE_BACKGROUND_CUSTOM_FIELDS).forEach(([field, stateFields]) => {
     if (!fields.includes(field) || profile[stateFields.enabled] !== true) return;
     if (!normalizeHexColor(profile[stateFields.value])) errors.push(`${field} custom value must be a valid hex color`);
@@ -601,6 +628,14 @@ const STYLE_IMAGE_RESPECT_EXPLICIT_CLASS = "style-controller-respect-explicit-im
 const STYLE_IMAGE_IGNORE_EXPLICIT_CLASS = "style-controller-ignore-explicit-image-size";
 const STYLE_HEADING_COLOR_ACTIVE_CLASS = "style-controller-heading-color-active";
 const STYLE_HEADING_COLOR_CLASSES = Array.from({ length: 6 }, (_, index) => `style-controller-h${index + 1}-color-active`);
+const STYLE_HEADING_SPACE_ABOVE_CLASSES = Array.from(
+  { length: 6 },
+  (_, index) => `style-controller-h${index + 1}-space-above-active`
+);
+const STYLE_HEADING_SPACE_ABOVE_VARIABLES = Array.from(
+  { length: 6 },
+  (_, index) => `--osc-h${index + 1}-space-above`
+);
 const STYLE_TITLE_FONT_ACTIVE_CLASS = "style-controller-title-font-active";
 const STYLE_TITLE_SIZE_ACTIVE_CLASS = "style-controller-title-size-active";
 const STYLE_TITLE_WEIGHT_ACTIVE_CLASS = "style-controller-title-weight-active";
@@ -695,7 +730,6 @@ function clearInterfaceStateClasses(element) {
   toggleElementClass(element, STYLE_BOTTOM_LEFT_CONTROLS_LEFT_CLASS, false);
   toggleElementClass(element, LEGACY_STYLE_SETTINGS_ICON_THEMEPRO_CLASS, false);
 }
-const SIZE_UNITS = ["px", "rem", "em", "%", "pt"];
 const SIZE_FIELDS = new Set([
   ...Object.entries(STYLE_FIELD_REGISTRY)
     .filter(([, meta]) => meta.type === "size")
@@ -826,6 +860,7 @@ export default class StyleControllerPlugin extends Plugin {
         STYLE_IMAGE_IGNORE_EXPLICIT_CLASS,
         STYLE_HEADING_COLOR_ACTIVE_CLASS,
         ...STYLE_HEADING_COLOR_CLASSES,
+        ...STYLE_HEADING_SPACE_ABOVE_CLASSES,
         ...STYLE_TITLE_ACTIVE_CLASSES,
         STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS,
         ...STYLE_EMPHASIS_ACTIVE_CLASSES
@@ -857,6 +892,7 @@ export default class StyleControllerPlugin extends Plugin {
         STYLE_IMAGE_IGNORE_EXPLICIT_CLASS,
         STYLE_HEADING_COLOR_ACTIVE_CLASS,
         ...STYLE_HEADING_COLOR_CLASSES,
+        ...STYLE_HEADING_SPACE_ABOVE_CLASSES,
         ...STYLE_TITLE_ACTIVE_CLASSES,
         ...STYLE_EMPHASIS_ACTIVE_CLASSES,
         STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS
@@ -1017,20 +1053,21 @@ function isBuiltinConfigurationId(id) {
 
 function normalizeProfile(profile) {
   const source = profile && typeof profile === "object" ? profile : DEFAULT_PROFILE;
-  return normalizeCodeBackgroundStates(
+  const normalized = normalizeCodeBackgroundStates(
     sanitizeProfile({ ...DEFAULT_PROFILE, ...source }, source),
     source,
     false
   );
+  return normalizeHeadingSpaceAboveStates(normalized, source, false);
 }
 
 function normalizeOptionalProfile(profile) {
   const source = profile && typeof profile === "object" ? profile : {};
-  const normalized = normalizeCodeBackgroundStates(
+  const normalized = normalizeHeadingSpaceAboveStates(normalizeCodeBackgroundStates(
     sanitizeProfile({ ...blankProfileData(), ...source }, source),
     source,
     true
-  );
+  ), source, true);
   delete normalized.settingsIconPosition;
   delete normalized.bottomLeftControlsPosition;
   return normalized;
@@ -1070,6 +1107,33 @@ function normalizeCodeBackgroundStates(profile, source, optional) {
 
     profile[field] = effectiveCodeBackground(profile, field);
   });
+  return profile;
+}
+
+function normalizeHeadingSpaceAboveStates(profile, source, optional) {
+  for (let level = 1; level <= 6; level += 1) {
+    const enabledField = `h${level}SpaceAboveEnabled`;
+    const valueField = `h${level}SpaceAboveValue`;
+    const unitField = `h${level}SpaceAboveUnit`;
+    const rawEnabled = source[enabledField];
+    const rawValue = String(source[valueField] ?? profile[valueField] ?? "").trim();
+    const rawUnit = String(source[unitField] ?? profile[unitField] ?? "").trim();
+
+    if (optional && rawEnabled === undefined && source[valueField] === undefined && source[unitField] === undefined) {
+      profile[enabledField] = "";
+      profile[valueField] = "";
+      profile[unitField] = "";
+      continue;
+    }
+
+    profile[enabledField] = optional && rawEnabled === ""
+      ? ""
+      : rawEnabled === true || String(rawEnabled).toLowerCase() === "true";
+    profile[valueField] = rawValue || (optional ? "" : "0");
+    profile[unitField] = HEADING_SPACE_ABOVE_UNITS.includes(rawUnit)
+      ? rawUnit
+      : optional && !rawUnit ? "" : "px";
+  }
   return profile;
 }
 
@@ -1342,6 +1406,7 @@ function normalizedCssVariableValue(field, variable, rawValue) {
 function clearProfileCssVariables(element) {
   const props = Object.fromEntries([
     ...PROFILE_FIELDS.map(([, variable]) => [variable, ""]),
+    ...STYLE_HEADING_SPACE_ABOVE_VARIABLES.map((variable) => [variable, ""]),
     ["--osc-image-width", ""],
     ["--style-controller-callout-border-width", ""],
     ["--style-controller-callout-radius", ""],
@@ -1358,6 +1423,9 @@ function applyProfileCssVariables(element, profile) {
     props[variable] = normalizedCssVariableValue(field, variable, profile[field]);
   });
   props["--osc-image-width"] = normalizeCssSizeText(profile.imageWidth);
+  STYLE_HEADING_SPACE_ABOVE_VARIABLES.forEach((variable, index) => {
+    props[variable] = headingSpaceAboveCssValue(profile, index + 1);
+  });
   element.setCssProps(props);
 }
 
@@ -1375,6 +1443,9 @@ function applyProfileStateClasses(element, profile) {
   element.toggleClass(STYLE_IMAGE_IGNORE_EXPLICIT_CLASS, hasWidth && !respectExplicitSize);
   STYLE_HEADING_COLOR_CLASSES.forEach((className, index) => {
     element.toggleClass(className, !!cssColorValue(profile[`h${index + 1}Color`]));
+  });
+  STYLE_HEADING_SPACE_ABOVE_CLASSES.forEach((className, index) => {
+    element.toggleClass(className, !!headingSpaceAboveCssValue(profile, index + 1));
   });
   element.toggleClass(STYLE_HEADING_COLOR_ACTIVE_CLASS, hasActiveHeadingColor(profile));
   element.toggleClass(STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS, !!cssColorValue(profile.codeBlockColor));
@@ -1474,6 +1545,21 @@ function parseCssSize(value) {
   const match = String(value || "").trim().match(/^(-?\d+(?:\.\d+)?)(px|rem|em|%|pt)?$/i);
   if (!match) return { value: "", unit: "px" };
   return { value: match[1], unit: match[2] || "px" };
+}
+
+function isValidHeadingSpaceAboveValue(value) {
+  const text = String(value ?? "").trim();
+  if (!/^\d+(?:\.\d+)?$/.test(text)) return false;
+  const numeric = Number(text);
+  return Number.isFinite(numeric) && numeric >= 0;
+}
+
+function headingSpaceAboveCssValue(profile, level) {
+  if (profile?.[`h${level}SpaceAboveEnabled`] !== true) return "";
+  const value = String(profile[`h${level}SpaceAboveValue`] ?? "").trim();
+  const unit = String(profile[`h${level}SpaceAboveUnit`] ?? "").trim();
+  if (!isValidHeadingSpaceAboveValue(value) || !HEADING_SPACE_ABOVE_UNITS.includes(unit)) return "";
+  return `${value}${unit}`;
 }
 
 function normalizeHexColor(value) {
@@ -2973,6 +3059,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
       this.addTextSetting(controlsRow, profile, `h${level}Size`, "Size", String(parseCssSize(DEFAULT_PROFILE[`h${level}Size`]).value));
       this.addTextSetting(controlsRow, profile, `h${level}Weight`, "Weight", level <= 2 ? "700" : "650");
       this.addTextSetting(controlsRow, profile, `h${level}Color`, "Color", "#ffffff");
+      this.addHeadingSpaceAboveControl(controlsRow, profile, level);
     }
   }
 
@@ -3325,6 +3412,73 @@ class StyleControllerSettingTab extends PluginSettingTab {
     select.addEventListener("change", save);
   }
 
+  addHeadingSpaceAboveControl(parent, profile, level) {
+    const enabledField = `h${level}SpaceAboveEnabled`;
+    const valueField = `h${level}SpaceAboveValue`;
+    const unitField = `h${level}SpaceAboveUnit`;
+    const setting = new Setting(parent).setName("Space above");
+    setting.settingEl.addClass("osc-heading-space-above-setting");
+    const labelId = `osc-h${level}-space-above-label`;
+    setting.nameEl?.setAttribute("id", labelId);
+
+    const wrapper = setting.controlEl.createDiv({ cls: "osc-size-control osc-heading-space-above-control" });
+    const input = wrapper.createEl("input", {
+      attr: {
+        type: "number",
+        min: "0",
+        step: "0.1",
+        inputmode: "decimal",
+        "aria-labelledby": labelId
+      }
+    });
+    input.value = String(profile[valueField] ?? "").trim() || "0";
+    const select = wrapper.createEl("select", {
+      attr: { "aria-label": `H${level} Space above unit` }
+    });
+    HEADING_SPACE_ABOVE_UNITS.forEach((unit) => select.createEl("option", { text: unit, value: unit }));
+    select.value = HEADING_SPACE_ABOVE_UNITS.includes(profile[unitField]) ? profile[unitField] : "px";
+    const status = wrapper.createSpan({ cls: "osc-value-status" });
+
+    const updateStatus = () => {
+      const enabled = profile[enabledField] === true;
+      const valid = isValidHeadingSpaceAboveValue(profile[valueField])
+        && HEADING_SPACE_ABOVE_UNITS.includes(profile[unitField]);
+      status.setText(!enabled ? "Off" : valid ? "On" : "Error");
+      status.toggleClass("is-active", enabled && valid);
+      status.toggleClass("is-placeholder", !enabled);
+      status.toggleClass("is-error", enabled && !valid);
+      status.setAttribute("title", !enabled
+        ? "Using Obsidian's resolved default spacing."
+        : valid ? "Saved and applied." : "Enter a finite non-negative value.");
+      input.setCustomValidity(enabled && !isValidHeadingSpaceAboveValue(input.value)
+        ? "Enter a finite non-negative value."
+        : "");
+    };
+    const saveValue = () => {
+      profile[valueField] = input.value;
+      profile[unitField] = select.value;
+      updateStatus();
+      this.noteDraftMutation(profile);
+      this.updateDraftPreview(profile);
+    };
+    input.addEventListener("input", saveValue);
+    select.addEventListener("change", saveValue);
+    setting.addToggle((toggle) => {
+      toggle
+        .setValue(profile[enabledField] === true)
+        .onChange((enabled) => {
+          profile[enabledField] = enabled;
+          if (!hasActiveValue(profile[valueField])) profile[valueField] = input.value || "0";
+          if (!HEADING_SPACE_ABOVE_UNITS.includes(profile[unitField])) profile[unitField] = select.value;
+          updateStatus();
+          this.noteDraftMutation(profile);
+          this.updateDraftPreview(profile);
+        });
+      toggle.toggleEl.setAttribute("aria-label", `H${level} Space above On or Off`);
+    });
+    updateStatus();
+  }
+
   addColorControl(setting, profile, key, placeholder) {
     const wrapper = setting.controlEl.createDiv({ cls: "osc-color-control" });
     const swatch = wrapper.createEl("input", { attr: { type: "color", "aria-label": `${key} color picker` } });
@@ -3565,6 +3719,8 @@ export {
   DEFAULT_INTERFACE_SETTINGS,
   DEFAULT_PROFILE,
   DEFAULT_SETTINGS,
+  HEADING_SPACE_ABOVE_FIELDS,
+  HEADING_SPACE_ABOVE_UNITS,
   INLINE_CODE_SELECTORS,
   NATIVE_DEFAULT_CONFIGURATION,
   PROFILE_SECTION_FIELDS,
@@ -3580,6 +3736,8 @@ export {
   STYLE_SCOPE_CLASS,
   STYLE_HEADING_COLOR_ACTIVE_CLASS,
   STYLE_HEADING_COLOR_CLASSES,
+  STYLE_HEADING_SPACE_ABOVE_CLASSES,
+  STYLE_HEADING_SPACE_ABOVE_VARIABLES,
   STYLE_TITLE_FONT_ACTIVE_CLASS,
   STYLE_TITLE_SIZE_ACTIVE_CLASS,
   STYLE_TITLE_WEIGHT_ACTIVE_CLASS,
@@ -3607,6 +3765,8 @@ export {
   createNativeConfigurationData,
   effectiveCodeBackground,
   hasActiveValue,
+  headingSpaceAboveCssValue,
+  isValidHeadingSpaceAboveValue,
   normalizeHexColor,
   normalizeInterfaceSettings,
   normalizeOptionalProfile,
