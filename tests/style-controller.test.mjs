@@ -445,6 +445,40 @@ test("title CSS is static, class-gated, and cannot target tabs, explorer, or bre
   assert.match(css, /\.osc-heading-preview-title\.style-controller-title-(?:font|size|weight)-active/);
 });
 
+test("heading preview uses a full-width title followed by two three-heading rows", () => {
+  const headingPreview = source.slice(
+    source.indexOf("  renderHeadingPreview(parent, profile)"),
+    source.indexOf("  updatePreview(profile", source.indexOf("  renderHeadingPreview(parent, profile)"))
+  );
+  assert.match(headingPreview, /osc-heading-preview-grid/);
+  assert.match(headingPreview, /grid\.createDiv\(\{ text: "Note title", cls: "osc-heading-preview-title" \}\)/);
+  assert.match(headingPreview, /for \(let level = 1; level <= 6; level \+= 1\)/);
+
+  const gridRule = cssRules(css).find((rule) => rule.selectors === ".osc-heading-preview-grid"
+    && rule.declarations.includes("repeat(3, minmax(0, 1fr))"));
+  assert.ok(gridRule);
+  const titleRule = cssRules(css).find((rule) => rule.selectors === ".osc-heading-preview-title"
+    && rule.declarations.includes("grid-column: 1 / -1"));
+  assert.ok(titleRule);
+});
+
+test("heading preview narrows without overflow and preserves heading typography", () => {
+  assert.match(css, /@container \(max-width: 480px\)[\s\S]*?repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(css, /@container \(max-width: 280px\)[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/);
+  assert.doesNotMatch(css, /\.osc-heading-preview(?:-grid)?[^{}]*\{[^}]*overflow-x\s*:/s);
+  assert.doesNotMatch(css, /\.osc-heading-preview(?:-grid)?[^{}]*\{[^}]*width\s*:/s);
+
+  const headingStyle = cssRules(css).find((rule) => rule.selectors
+    === '.osc-heading-preview [class*="osc-heading-preview-h"]');
+  assert.ok(headingStyle);
+  assert.deepEqual(headingStyle.declarations.split("\n").map((declaration) => declaration.trim()), [
+    "color: var(--osc-preview-heading-color);",
+    "font-family: var(--osc-preview-heading-font-family);",
+    "font-size: var(--osc-preview-heading-font-size);",
+    "font-weight: var(--osc-preview-heading-font-weight);"
+  ]);
+});
+
 test("content-facing rules stay scoped and emphasis does not style formatting markers", () => {
   const contentRules = cssRules(css).filter((rule) => /markdown-(?:preview|source|rendered)/.test(rule.selectors));
   contentRules.forEach((rule) => assert.match(rule.selectors, /\.osc-style-scope/));

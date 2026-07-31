@@ -3276,9 +3276,10 @@ class StyleControllerSettingTab extends PluginSettingTab {
 
   renderHeadingPreview(parent, profile) {
     const preview = parent.createDiv({ cls: "osc-mini-preview osc-heading-preview" });
-    preview.createDiv({ text: "Note title", cls: "osc-heading-preview-title" });
+    const grid = preview.createDiv({ cls: "osc-heading-preview-grid" });
+    grid.createDiv({ text: "Note title", cls: "osc-heading-preview-title" });
     for (let level = 1; level <= 6; level += 1) {
-      preview.createDiv({ text: `Heading ${level}`, cls: `osc-heading-preview-h${level}` });
+      grid.createDiv({ text: `Heading ${level}`, cls: `osc-heading-preview-h${level}` });
     }
     this.updateHeadingPreview(profile, parent);
   }
