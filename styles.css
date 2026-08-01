@@ -870,6 +870,42 @@
   padding: 8px;
 }
 
+.osc-mini-preview.osc-compact-preview {
+  align-self: start;
+  box-sizing: border-box;
+  display: block;
+  flex: 0 0 auto;
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+  width: 100%;
+}
+
+.osc-style-scope.osc-compact-preview > .osc-compact-preview-content.markdown-preview-view {
+  box-sizing: border-box;
+  display: block;
+  flex: 0 0 auto;
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+  padding: 0;
+  position: static;
+  width: 100%;
+}
+
+.osc-compact-preview-content > :first-child {
+  margin-top: 0;
+}
+
+.osc-compact-preview-content > :last-child {
+  margin-bottom: 0;
+}
+
+.osc-base-preview p,
+.osc-emphasis-preview p {
+  margin: 0;
+}
+
 .osc-links-preview p {
   margin: 0;
 }
@@ -888,8 +924,22 @@
   overflow-wrap: anywhere;
 }
 
+.osc-heading-preview .osc-heading-preview-grid > h1 {
+  display: block;
+}
+
+.osc-heading-preview-grid > h1,
+.osc-heading-preview-grid > h2,
+.osc-heading-preview-grid > h3,
+.osc-heading-preview-grid > h4,
+.osc-heading-preview-grid > h5,
+.osc-heading-preview-grid > h6 {
+  margin: 0;
+}
+
 .osc-heading-preview-title {
   grid-column: 1 / -1;
+  margin: 0;
 }
 
 @container (max-width: 480px) {
@@ -910,6 +960,15 @@
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
+.osc-code-preview .osc-compact-preview-content {
+  display: grid;
+  gap: 8px;
+}
+
+.osc-code-preview .osc-inline-code-row {
+  margin: 0;
+}
+
 .osc-rich-preview .osc-preview-table {
   margin: 0;
   min-width: 0;
@@ -918,6 +977,7 @@
 .osc-rich-preview .osc-inline-code-preview {
   align-self: start;
   border-radius: 4px;
+  line-height: var(--osc-native-inline-code-line-height);
   padding: 4px 6px;
 }
 
@@ -935,12 +995,23 @@
   white-space: pre;
 }
 
+.osc-rich-preview .osc-code-block-rendered-preview pre,
+.osc-rich-preview .osc-code-block-rendered-preview pre code {
+  line-height: var(--osc-native-block-code-line-height);
+}
+
 .osc-rich-preview .osc-code-block-rendered-preview pre code {
   padding: 0;
 }
 
 .osc-rich-preview blockquote {
   margin: 0;
+}
+
+.osc-image-preview .image-embed,
+.osc-image-preview img {
+  display: block;
+  max-width: 100%;
 }
 
 .osc-file-explorer-preview {

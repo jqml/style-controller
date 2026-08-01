@@ -101,6 +101,7 @@ const {
   isValidHeadingSpaceAboveValue,
   normalizeHexColor,
   normalizeInterfaceSettings,
+  normalizeNativeFontFamilyStack,
   normalizeOptionalProfile,
   normalizeProfile,
   normalizeSettings,
@@ -741,7 +742,71 @@ test("Bold and italic owns exactly one complete control set and a real Markdown 
   assert.match(emphasisBranch, /MarkdownRenderer\.renderMarkdown/);
   assert.match(emphasisBranch, /\*\*bold text\*\*/);
   assert.match(emphasisBranch, /\*italic text\*/);
-  assert.match(emphasisBranch, /markdown-preview-view markdown-rendered/);
+  assert.match(emphasisBranch, /createCompactPreview\(parent, "osc-emphasis-preview"\)/);
+});
+
+test("every first-tab preview uses one compact semantic shell without pane layout classes", () => {
+  const helper = source.slice(source.indexOf("  createCompactPreview(parent"), source.indexOf("  renderTablePreview(parent"));
+  assert.match(helper, /osc-mini-preview osc-compact-preview osc-style-scope/);
+  assert.match(helper, /osc-compact-preview-content markdown-preview-view markdown-rendered/);
+  assert.doesNotMatch(helper, /markdown-source-view|mod-cm6|(?:^|[\s"])view-content/u);
+
+  for (const previewClass of [
+    "osc-base-preview",
+    "osc-emphasis-preview",
+    "osc-links-preview",
+    "osc-heading-preview",
+    "osc-table-preview",
+    "osc-code-preview",
+    "osc-quote-preview",
+    "osc-image-preview"
+  ]) {
+    assert.match(source, new RegExp(`createCompactPreview\\([^\\n]+${previewClass}`), previewClass);
+  }
+
+  const compactRule = cssRules(css).find((rule) => rule.selectors === ".osc-mini-preview.osc-compact-preview");
+  assert.ok(compactRule);
+  assert.match(compactRule.declarations, /height: auto/);
+  assert.match(compactRule.declarations, /min-height: 0/);
+  assert.match(compactRule.declarations, /flex: 0 0 auto/);
+  assert.doesNotMatch(compactRule.declarations, /(?:min-)?height:\s*\d+(?:px|rem|vh)/);
+
+  const contentRule = cssRules(css).find((rule) => rule.selectors.includes("osc-compact-preview-content.markdown-preview-view"));
+  assert.ok(contentRule);
+  assert.match(contentRule.declarations, /height: auto/);
+  assert.match(contentRule.declarations, /min-height: 0/);
+  assert.match(contentRule.declarations, /overflow: visible/);
+  assert.match(contentRule.declarations, /padding: 0/);
+  assert.match(contentRule.declarations, /position: static/);
+  assert.doesNotMatch(contentRule.declarations, /flex-grow:\s*[1-9]/);
+});
+
+test("heading preview restores H1 locally and preserves the three-row grid order", () => {
+  assert.match(css, /\.osc-heading-preview \.osc-heading-preview-grid > h1\s*\{\s*display: block/);
+  assert.doesNotMatch(css, /(?:^|,)\s*h1\s*\{[^}]*display: block/s);
+  assert.match(css, /\.osc-heading-preview-title\s*\{[^}]*grid-column: 1 \/ -1/s);
+  assert.match(css, /\.osc-heading-preview-grid > h1,[\s\S]*\.osc-heading-preview-grid > h6\s*\{[^}]*margin: 0/s);
+  const headingMethod = source.slice(source.indexOf("  renderHeadingPreview(parent"), source.indexOf("  updatePreview(profile"));
+  assert.match(headingMethod, /createCompactPreview\(parent, "osc-heading-preview"\)/);
+  assert.match(headingMethod, /for \(let level = 1; level <= 6; level \+= 1\)/);
+  assert.doesNotMatch(headingMethod, /markdown-source-view|mod-cm6/);
+});
+
+test("native font stacks remove corrupted tokens and duplicates without losing Unicode families", () => {
+  const raw = '"??", "??", ui-sans-serif, "system-ui", system-ui, "Noto Sans CJK JP", 游ゴシック, "�"';
+  assert.equal(
+    normalizeNativeFontFamilyStack(raw),
+    'ui-sans-serif, system-ui, "Noto Sans CJK JP", 游ゴシック'
+  );
+  assert.equal(normalizeNativeFontFamilyStack('"宋体", "宋体", sans-serif'), '宋体, sans-serif');
+  assert.match(source, /resolvedNativeDisplayValueForField[\s\S]*normalizeNativeFontFamilyStack/);
+  assert.match(source, /data-osc-native-value", nativeValue/);
+  assert.doesNotMatch(source, /profile\[key\]\s*=\s*resolvedNativeDisplayValueForField/);
+});
+
+test("preview corrections introduce no important declarations", () => {
+  assert.doesNotMatch(css, /!important/);
+  assert.doesNotMatch(source, /!important/);
 });
 
 test("all section previews use the production profile pipeline and draft handlers update immediately", () => {
@@ -760,6 +825,18 @@ test("all section previews use the production profile pipeline and draft handler
 
 test("native values are resolved semantically, displayed without persistence, and refreshed on theme changes", () => {
   assert.match(source, /nativeSemanticElementForField/);
+  assert.match(source, /function nativeActiveElementForField\(field\)/);
+  assert.match(source, /STYLE_FIELD_REGISTRY\[field\]\?\.selectors/);
+  assert.match(source, /nativeSemanticProbeUsesReadingView[\s\S]*\.markdown-preview-view[\s\S]*\.markdown-source-view/);
+  assert.match(source, /nativeActiveElementForField\(field\)[\s\S]*nativeSemanticElementForField\(probe, field\)/);
+  assert.match(source, /\.markdown-source-view\.mod-cm6 \.cm-inline-code/);
+  assert.match(source, /--osc-native-inline-code-line-height/);
+  assert.match(source, /function resolvedNativePreviewValueForField\(field, profile = null\)/);
+  assert.match(source, /return "transparent"/);
+  assert.match(source, /String\(style\[property\] \|\| ""\)\.trim\(\)/);
+  assert.match(source, /nativeProps\[variable\] = resolvedNativePreviewValueForField\(field, profile\)/);
+  assert.match(source, /createEl\("p", \{ cls: "osc-inline-code-row" \}\)[\s\S]*createEl\("code", \{ text: "inline code sample"/);
+  assert.match(css, /\.osc-rich-preview \.osc-inline-code-preview[\s\S]*line-height: var\(--osc-native-inline-code-line-height\)/);
   assert.match(source, /inline-title/);
   assert.match(source, /probe\.ownerDocument\.defaultView/);
   assert.match(source, /view\.getComputedStyle\(element\)/);
