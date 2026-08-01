@@ -97,11 +97,11 @@ The authoritative Obsidian Pro snippet contains `.workspace-drawer-vault-actions
 ## Reading/editing layout checklist
 
 1. In **Interface**, leave **Reading/editing layout** on **Native**, select **Apply**, and confirm Reading view and Live Preview retain their native horizontal layout.
-2. Select **Matched**, select **Apply**, and compare the left edge, centering, and available width of the inline title, Properties block, and note body in both views.
+2. Select **Matched**, select **Apply**, and compare body typography, inline-title height, Properties height, H1–H6 typography, and horizontal document geometry in both views.
 3. Repeat with **Readable line length** enabled and disabled, and in narrow and split panes.
 4. Confirm draft changes do not affect open notes before **Apply**, and that **Revert** restores the applied choice.
 5. Return to **Native**, then disable Style Controller, and confirm no matched-layout class or override remains.
-6. Confirm vertical spacing, wrapping, cursor/selection behavior, scrolling, and LaTeX Suite behavior are unchanged. Visible Markdown syntax in Live Preview can occupy horizontal space while it is being edited; the underlying document container geometry should still match Reading view.
+6. Confirm native paragraph margins, editable blank-line height, list markers, wrapping, cursor/selection behavior, scrolling, and LaTeX Suite behavior are unchanged. Visible Markdown syntax in Live Preview can occupy horizontal space while it is being edited.
 
 ## Long text field checklist
 

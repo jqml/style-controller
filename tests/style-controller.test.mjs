@@ -442,9 +442,9 @@ test("Headings and title keeps title fields before independent H1 fields", () =>
 
 test("title CSS is static, class-gated, and cannot target tabs, explorer, or breadcrumbs", () => {
   const titleRules = cssRules(css).filter((rule) => /--osc-title-(?:font-family|size|weight)/.test(rule.declarations));
-  assert.equal(titleRules.length, 3);
+  assert.equal(titleRules.length, 4);
   titleRules.forEach((rule) => {
-    assert.match(rule.selectors, /style-controller-title-(?:font|size|weight)-active/);
+    assert.match(rule.selectors, /style-controller-(?:title-(?:font|size|weight)-active|matched-document-layout)/);
     assert.match(rule.selectors, /inline-title:not\(\[data-level\]\)/);
     assert.doesNotMatch(rule.selectors, /nav-|breadcrumb|tab-|\.workspace-tab-header|nav-file-title/);
   });
@@ -617,14 +617,14 @@ test("Matched layout class follows only the applied Interface state", () => {
   assert.equal(root.classList.contains(STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS), false);
 });
 
-test("Matched document layout CSS is horizontal, native-variable based, and Markdown-scoped", () => {
+test("Matched document layout CSS is native-variable based and Markdown-scoped", () => {
   const matchedRules = cssRules(css).filter((rule) => rule.selectors.includes(STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS));
   assert.ok(matchedRules.length >= 5);
   matchedRules.forEach((rule) => {
     const selectors = rule.selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim();
     assert.match(selectors, /^\.osc-style-scope\.style-controller-matched-document-layout/);
     assert.doesNotMatch(selectors, /\bbody\b|\.workspace-split|\.workspace-leaf(?!-content)/);
-    assert.doesNotMatch(rule.declarations, /!important|transform|position|top|bottom|height/);
+    assert.doesNotMatch(rule.declarations, /!important|transform|position|(?:^|[;\s])(?:top|bottom|height)\s*:/);
   });
   assert.match(css, /--osc-matched-document-line-width:\s*var\(--file-line-width\)/);
   assert.match(css, /--osc-matched-document-margin-x:\s*var\(--file-margins-x\)/);
@@ -633,6 +633,60 @@ test("Matched document layout CSS is horizontal, native-variable based, and Mark
   assert.match(css, /padding-inline:\s*var\(--osc-matched-document-margin-x\)/);
   assert.match(css, /max-width:\s*var\(--osc-matched-document-line-width\)/);
   assert.doesNotMatch(matchedRules.map((rule) => rule.declarations).join("\n"), /\b\d+px\b/);
+});
+
+test("Matched body and title metrics use native fallbacks while Native remains untouched", () => {
+  const matchedRules = cssRules(css).filter((rule) => rule.selectors.includes(STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS));
+  const bodyRule = matchedRules.find((rule) =>
+    rule.selectors.includes(".markdown-preview-view")
+    && rule.selectors.includes(".markdown-source-view.mod-cm6")
+    && rule.declarations.includes("--osc-text-size")
+  );
+  const titleRule = matchedRules.find((rule) =>
+    rule.selectors.includes(".inline-title:not([data-level])")
+    && rule.declarations.includes("--inline-title-line-height")
+  );
+
+  assert.ok(bodyRule);
+  assert.match(bodyRule.declarations, /font-family:\s*var\(--osc-font-family,\s*var\(--font-text\)\)/);
+  assert.match(bodyRule.declarations, /font-size:\s*var\(--osc-text-size,\s*var\(--font-text-size\)\)/);
+  assert.match(bodyRule.declarations, /font-weight:\s*var\(--osc-text-weight,\s*var\(--font-normal\)\)/);
+  assert.match(bodyRule.declarations, /line-height:\s*var\(--osc-line-height,\s*var\(--line-height-normal\)\)/);
+  assert.ok(titleRule);
+  assert.match(titleRule.declarations, /font-size:\s*var\(--osc-title-size,\s*var\(--inline-title-size\)\)/);
+  assert.match(titleRule.declarations, /font-weight:\s*var\(--osc-title-weight,\s*var\(--inline-title-weight\)\)/);
+  assert.match(titleRule.declarations, /line-height:\s*var\(--inline-title-line-height\)/);
+
+  const nativeRules = cssRules(css).filter((rule) =>
+    !rule.selectors.includes(STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS)
+    && /--osc-text-size,|--osc-title-size,/.test(rule.declarations)
+  );
+  assert.equal(nativeRules.length, 0);
+});
+
+test("Matched H1-H6 metrics target Reading headings and Live Preview heading lines", () => {
+  const matchedRules = cssRules(css).filter((rule) => rule.selectors.includes(STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS));
+  for (let level = 1; level <= 6; level += 1) {
+    const rule = matchedRules.find((candidate) =>
+      candidate.selectors.includes(`.markdown-preview-view h${level}`)
+      && candidate.selectors.includes(`.cm-line.HyperMD-header-${level}`)
+    );
+    assert.ok(rule, `missing matched H${level} rule`);
+    assert.doesNotMatch(rule.selectors, new RegExp(`HyperMD-header-${level}\\s*>\\s*\\.cm-header-${level}`));
+    assert.match(rule.declarations, new RegExp(`font-family:\\s*var\\(--osc-h${level}-font-family,\\s*var\\(--h${level}-font\\)\\)`));
+    assert.match(rule.declarations, new RegExp(`font-size:\\s*var\\(--osc-h${level}-size,\\s*var\\(--h${level}-size\\)\\)`));
+    assert.match(rule.declarations, new RegExp(`font-weight:\\s*var\\(--osc-h${level}-weight,\\s*var\\(--h${level}-weight\\)\\)`));
+    assert.match(rule.declarations, new RegExp(`line-height:\\s*var\\(--h${level}-line-height\\)`));
+  }
+});
+
+test("Matched layout does not manipulate CodeMirror or native syntax behavior", () => {
+  assert.doesNotMatch(source, /MutationObserver|EditorView|ViewPlugin|requestMeasure|\.dispatch\(/);
+  const matchedCss = cssRules(css)
+    .filter((rule) => rule.selectors.includes(STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS))
+    .map((rule) => `${rule.selectors} { ${rule.declarations} }`)
+    .join("\n");
+  assert.doesNotMatch(matchedCss, /\.cm-formatting|\.cm-cursor|\.cm-selection|color\s*:|visibility\s*:|display\s*:|transform\s*:|!important/);
 });
 
 test("bottom-left controls selection survives settings normalization but is not profile- or path-controlled", () => {
@@ -666,7 +720,7 @@ test("Interface settings use the section Apply/Revert transaction", () => {
   assert.match(source, /addOption\(BOTTOM_LEFT_CONTROLS_POSITION_NATIVE, "Native"\)/);
   assert.match(source, /addOption\(BOTTOM_LEFT_CONTROLS_POSITION_LEFT, "Left"\)/);
   assert.match(source, /setName\("Reading\/editing layout"\)/);
-  assert.match(source, /share the same horizontal document layout/);
+  assert.match(source, /share safe text metrics and horizontal document geometry/);
   assert.match(source, /addOption\(READING_EDITING_LAYOUT_NATIVE, "Native"\)/);
   assert.match(source, /addOption\(READING_EDITING_LAYOUT_MATCHED, "Matched"\)/);
   assert.match(source, /context\.value\.readingEditingLayout = value/);

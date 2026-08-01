@@ -2857,7 +2857,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
         }));
     new Setting(root)
       .setName("Reading/editing layout")
-      .setDesc("Choose whether Reading view and Live Preview use their native layouts or share the same horizontal document layout.")
+      .setDesc("Choose whether Reading view and Live Preview use their native layouts or share safe text metrics and horizontal document geometry.")
       .addDropdown((dropdown) => dropdown
         .addOption(READING_EDITING_LAYOUT_NATIVE, "Native")
         .addOption(READING_EDITING_LAYOUT_MATCHED, "Matched")

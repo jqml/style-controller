@@ -1577,10 +1577,74 @@ body.style-controller-bottom-left-controls-left .workspace-split.mod-left-split 
   order: -1;
 }
 
-/* Share only native horizontal document geometry between Reading view and Live Preview. */
+/* Share native horizontal geometry and safe text metrics between Reading view and Live Preview. */
 .osc-style-scope.style-controller-matched-document-layout {
   --osc-matched-document-line-width: var(--file-line-width);
   --osc-matched-document-margin-x: var(--file-margins-x);
+}
+
+.osc-style-scope.style-controller-matched-document-layout .markdown-preview-view,
+.osc-style-scope.style-controller-matched-document-layout .markdown-source-view.mod-cm6 {
+  font-family: var(--osc-font-family, var(--font-text));
+  font-size: var(--osc-text-size, var(--font-text-size));
+  font-weight: var(--osc-text-weight, var(--font-normal));
+  line-height: var(--osc-line-height, var(--line-height-normal));
+}
+
+.osc-style-scope.style-controller-matched-document-layout .markdown-preview-view .inline-title:not([data-level]),
+.osc-style-scope.style-controller-matched-document-layout .markdown-source-view.mod-cm6 .inline-title:not([data-level]) {
+  font-family: var(--osc-title-font-family, var(--inline-title-font));
+  font-size: var(--osc-title-size, var(--inline-title-size));
+  font-weight: var(--osc-title-weight, var(--inline-title-weight));
+  line-height: var(--inline-title-line-height);
+}
+
+.osc-style-scope.style-controller-matched-document-layout .markdown-preview-view h1,
+.osc-style-scope.style-controller-matched-document-layout .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-1 {
+  font-family: var(--osc-h1-font-family, var(--h1-font));
+  font-size: var(--osc-h1-size, var(--h1-size));
+  font-weight: var(--osc-h1-weight, var(--h1-weight));
+  line-height: var(--h1-line-height);
+}
+
+.osc-style-scope.style-controller-matched-document-layout .markdown-preview-view h2,
+.osc-style-scope.style-controller-matched-document-layout .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-2 {
+  font-family: var(--osc-h2-font-family, var(--h2-font));
+  font-size: var(--osc-h2-size, var(--h2-size));
+  font-weight: var(--osc-h2-weight, var(--h2-weight));
+  line-height: var(--h2-line-height);
+}
+
+.osc-style-scope.style-controller-matched-document-layout .markdown-preview-view h3,
+.osc-style-scope.style-controller-matched-document-layout .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-3 {
+  font-family: var(--osc-h3-font-family, var(--h3-font));
+  font-size: var(--osc-h3-size, var(--h3-size));
+  font-weight: var(--osc-h3-weight, var(--h3-weight));
+  line-height: var(--h3-line-height);
+}
+
+.osc-style-scope.style-controller-matched-document-layout .markdown-preview-view h4,
+.osc-style-scope.style-controller-matched-document-layout .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-4 {
+  font-family: var(--osc-h4-font-family, var(--h4-font));
+  font-size: var(--osc-h4-size, var(--h4-size));
+  font-weight: var(--osc-h4-weight, var(--h4-weight));
+  line-height: var(--h4-line-height);
+}
+
+.osc-style-scope.style-controller-matched-document-layout .markdown-preview-view h5,
+.osc-style-scope.style-controller-matched-document-layout .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-5 {
+  font-family: var(--osc-h5-font-family, var(--h5-font));
+  font-size: var(--osc-h5-size, var(--h5-size));
+  font-weight: var(--osc-h5-weight, var(--h5-weight));
+  line-height: var(--h5-line-height);
+}
+
+.osc-style-scope.style-controller-matched-document-layout .markdown-preview-view h6,
+.osc-style-scope.style-controller-matched-document-layout .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-6 {
+  font-family: var(--osc-h6-font-family, var(--h6-font));
+  font-size: var(--osc-h6-size, var(--h6-size));
+  font-weight: var(--osc-h6-weight, var(--h6-weight));
+  line-height: var(--h6-line-height);
 }
 
 .osc-style-scope.style-controller-matched-document-layout .markdown-preview-view,
