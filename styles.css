@@ -252,18 +252,6 @@
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
 }
 
-.osc-title-controls {
-  display: grid;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-.osc-title-controls-row {
-  display: grid;
-  gap: 8px 10px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
 .osc-setting-grid .setting-item.osc-font-setting {
   grid-column: span 2;
 }
@@ -383,6 +371,13 @@
   font-size: var(--font-ui-small);
   font-weight: 700;
   margin-bottom: 6px;
+}
+
+.osc-title-card .setting-item-name {
+  max-width: 100%;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 .osc-callout-card-title {

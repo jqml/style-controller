@@ -2188,6 +2188,7 @@ function singleLineScrollState(inputValue, displayValue, editingBlank = false) {
 class ScrollableSingleLineTextField {
   constructor(input, displayValue = "") {
     this.input = input;
+    this.ownerWindow = input.ownerDocument?.defaultView || window;
     this.displayValue = String(displayValue || "");
     this.updateTimer = null;
     this.drag = null;
@@ -2243,9 +2244,12 @@ class ScrollableSingleLineTextField {
     this.track.addEventListener("pointerup", (event) => this.endTrackDrag(event));
     this.track.addEventListener("pointercancel", (event) => this.endTrackDrag(event));
 
-    this.resizeObserver = typeof ResizeObserver === "undefined"
+    const OwnerResizeObserver = this.ownerWindow.ResizeObserver || globalThis.ResizeObserver;
+    this.handleOwnerResize = () => this.scheduleUpdate();
+    this.ownerWindow.addEventListener("resize", this.handleOwnerResize);
+    this.resizeObserver = typeof OwnerResizeObserver === "undefined"
       ? null
-      : new ResizeObserver(() => this.scheduleUpdate());
+      : new OwnerResizeObserver(() => this.scheduleUpdate());
     this.resizeObserver?.observe(this.shell);
     this.scheduleUpdate();
   }
@@ -2264,7 +2268,7 @@ class ScrollableSingleLineTextField {
 
   scheduleUpdate() {
     if (this.updateTimer !== null) return;
-    this.updateTimer = window.setTimeout(() => {
+    this.updateTimer = this.ownerWindow.setTimeout(() => {
       this.updateTimer = null;
       this.update();
     }, 0);
@@ -2338,7 +2342,8 @@ class ScrollableSingleLineTextField {
   }
 
   destroy() {
-    if (this.updateTimer !== null) window.clearTimeout(this.updateTimer);
+    if (this.updateTimer !== null) this.ownerWindow.clearTimeout(this.updateTimer);
+    this.ownerWindow.removeEventListener("resize", this.handleOwnerResize);
     this.resizeObserver?.disconnect();
   }
 }
@@ -3515,9 +3520,11 @@ class StyleControllerSettingTab extends PluginSettingTab {
     this.renderSectionActions(content, context);
     context && (context.previewRoot = content);
     this.renderHeadingPreview(content, profile);
-    const titleGrid = content.createDiv({ cls: "osc-title-controls" });
-    this.addTextSetting(titleGrid, profile, "titleFontFamily", "Title font", "");
-    const titleMetrics = titleGrid.createDiv({ cls: "osc-title-controls-row" });
+    const titleCard = content.createDiv({ cls: "osc-heading-card osc-title-card" });
+    titleCard.createEl("div", { text: "Title", cls: "osc-heading-card-title" });
+    const titleFontRow = titleCard.createDiv({ cls: "osc-heading-font-row" });
+    this.addTextSetting(titleFontRow, profile, "titleFontFamily", "Title font", "");
+    const titleMetrics = titleCard.createDiv({ cls: "osc-heading-controls-row osc-title-controls-row" });
     this.addTextSetting(titleMetrics, profile, "titleSize", "Title size", "");
     this.addTextSetting(titleMetrics, profile, "titleWeight", "Title weight", "");
     const grid = content.createDiv({ cls: "osc-heading-grid" });

@@ -440,6 +440,60 @@ test("Headings and title keeps title fields before independent H1 fields", () =>
   STYLE_TITLE_ACTIVE_CLASSES.forEach((className) => assert.equal(element.classList.contains(className), false));
 });
 
+test("Title uses one heading card with a full-width font row and wrapping metric cards", () => {
+  const start = source.indexOf("  renderHeadingGroup(parent, profile, context = null) {");
+  const end = source.indexOf("\n  renderImageGroup(", start);
+  const headingMethod = source.slice(start, end);
+  const titleStart = headingMethod.indexOf('cls: "osc-heading-card osc-title-card"');
+  const h1Start = headingMethod.indexOf("for (let level = 1; level <= 6; level += 1)");
+  const titleSection = headingMethod.slice(titleStart, h1Start);
+
+  assert.ok(titleStart >= 0 && h1Start > titleStart);
+  assert.match(titleSection, /createEl\("div", \{ text: "Title", cls: "osc-heading-card-title" \}\)/);
+  assert.match(titleSection, /titleCard\.createDiv\(\{ cls: "osc-heading-font-row" \}\)/);
+  assert.match(titleSection, /addTextSetting\(titleFontRow, profile, "titleFontFamily", "Title font", ""\)/);
+  assert.match(titleSection, /titleCard\.createDiv\(\{ cls: "osc-heading-controls-row osc-title-controls-row" \}\)/);
+  assert.match(titleSection, /addTextSetting\(titleMetrics, profile, "titleSize", "Title size", ""\)/);
+  assert.match(titleSection, /addTextSetting\(titleMetrics, profile, "titleWeight", "Title weight", ""\)/);
+  assert.doesNotMatch(titleSection, /osc-title-controls"/);
+
+  const titleLabelRule = cssRules(css).find((rule) => rule.selectors === ".osc-title-card .setting-item-name");
+  assert.ok(titleLabelRule);
+  assert.match(titleLabelRule.declarations, /overflow:\s*visible/);
+  assert.match(titleLabelRule.declarations, /text-overflow:\s*clip/);
+  assert.match(titleLabelRule.declarations, /white-space:\s*normal/);
+  assert.doesNotMatch(titleLabelRule.declarations, /ellipsis/);
+
+  const headingCardRule = cssRules(css).find((rule) => rule.selectors.includes(".osc-heading-card .setting-item")
+    && /display:\s*block/.test(rule.declarations));
+  assert.ok(headingCardRule);
+  const controlsRule = cssRules(css).find((rule) => rule.selectors === ".osc-heading-controls-row"
+    && /minmax\(150px,\s*1fr\)/.test(rule.declarations));
+  assert.ok(controlsRule);
+  assert.match(css, /@media \(max-width: 820px\)[\s\S]*?\.osc-heading-controls-row\s*\{\s*grid-template-columns:\s*1fr/);
+  assert.doesNotMatch(css, /\.osc-title-card[^{}]*\{[^}]*(?:overflow-x|white-space:\s*nowrap|text-overflow:\s*ellipsis)/s);
+});
+
+test("Title card keeps the production field, scroll, draft, Apply, and Revert pipelines", () => {
+  assert.deepEqual(Array.from(PROFILE_SECTION_FIELDS.headings.slice(0, 3)), ["titleFontFamily", "titleSize", "titleWeight"]);
+  assert.match(source, /addFontControl\(setting, profile, key, resolvedPlaceholder\)/);
+  assert.match(source, /addScrollableTextField\(input, resolvedDefault \|\| placeholder\)/);
+  assert.match(source, /const status = wrapper\.createEl\("span", \{ cls: "osc-font-status"[\s\S]*addScrollableTextField\(input/);
+  assert.match(source, /renderHeadingGroup[\s\S]*renderSectionActions\(content, context\)/);
+  assert.match(source, /profile\[key\] = input\.value[\s\S]*noteDraftMutation\(profile\)[\s\S]*updateDraftPreview\(profile\)/);
+  assert.match(source, /applyDraftContext[\s\S]*applyDraftAtomically/);
+  assert.match(source, /revertDraftContext/);
+
+  const saved = normalizeProfile({
+    titleFontFamily: '"Linux Libertine", Georgia, "Times New Roman", serif',
+    titleSize: "41px",
+    titleWeight: "450"
+  });
+  assert.equal(saved.titleFontFamily, '"Linux Libertine", Georgia, "Times New Roman", serif');
+  assert.equal(saved.titleSize, "41px");
+  assert.equal(saved.titleWeight, "450");
+});
+
 test("title CSS is static, class-gated, and cannot target tabs, explorer, or breadcrumbs", () => {
   const titleRules = cssRules(css).filter((rule) => /--osc-title-(?:font-family|size|weight)/.test(rule.declarations));
   assert.equal(titleRules.length, 4);
@@ -1010,6 +1064,15 @@ test("scrollable text enhancement preserves editing, layout, and accessibility w
   assert.match(source, /addSizeControl[\s\S]*type: "number"/);
   assert.match(source, /addColorControl[\s\S]*type: "color"/);
   assert.match(source, /new OverridePathSuggest\(this\.app, text\.inputEl/);
+});
+
+test("scrollable text fields remeasure in their owning Obsidian Settings window", () => {
+  assert.match(source, /this\.ownerWindow = input\.ownerDocument\?\.defaultView \|\| window/);
+  assert.match(source, /const OwnerResizeObserver = this\.ownerWindow\.ResizeObserver \|\| globalThis\.ResizeObserver/);
+  assert.match(source, /this\.ownerWindow\.addEventListener\("resize", this\.handleOwnerResize\)/);
+  assert.match(source, /new OwnerResizeObserver\(\(\) => this\.scheduleUpdate\(\)\)/);
+  assert.match(source, /this\.ownerWindow\.setTimeout/);
+  assert.match(source, /this\.ownerWindow\.removeEventListener\("resize", this\.handleOwnerResize\)/);
 });
 
 test("preview corrections introduce no important declarations", () => {
