@@ -694,15 +694,17 @@
   align-items: center;
   color: var(--text-muted);
   cursor: text;
-  display: none;
+  display: flex;
+  opacity: 0;
   padding-inline: var(--size-4-2);
   pointer-events: none;
+  visibility: hidden;
   z-index: 1;
 }
 
-.osc-scroll-text-field.is-native .osc-scroll-text-native {
-  display: flex;
-  pointer-events: auto;
+.osc-scroll-text-field.is-native:not(.is-editing-native) .osc-scroll-text-native {
+  opacity: 1;
+  visibility: visible;
 }
 
 .osc-scroll-text-field.is-native > input[type="text"]::placeholder {

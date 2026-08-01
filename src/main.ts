@@ -2163,7 +2163,8 @@ function singleLineScrollGeometry(scrollWidth, clientWidth, trackWidth, scrollLe
   if (maxScroll <= 1 || availableTrackWidth <= 0) {
     return { overflows: false, maxScroll: 0, thumbWidth: availableTrackWidth, thumbOffset: 0 };
   }
-  const thumbWidth = Math.max(18, Math.min(availableTrackWidth, availableTrackWidth * viewportWidth / contentWidth));
+  const proportionalThumbWidth = availableTrackWidth * viewportWidth / contentWidth;
+  const thumbWidth = Math.min(availableTrackWidth, Math.max(18, proportionalThumbWidth));
   const thumbTravel = Math.max(0, availableTrackWidth - thumbWidth);
   const clampedScroll = Math.max(0, Math.min(maxScroll, Number(scrollLeft) || 0));
   return {
@@ -2174,12 +2175,23 @@ function singleLineScrollGeometry(scrollWidth, clientWidth, trackWidth, scrollLe
   };
 }
 
+function singleLineScrollState(inputValue, displayValue, editingBlank = false) {
+  const native = !hasActiveValue(inputValue) && !!String(displayValue || "");
+  const nativeVisible = native && !editingBlank;
+  return {
+    native,
+    nativeVisible,
+    target: nativeVisible ? "native" : "input"
+  };
+}
+
 class ScrollableSingleLineTextField {
   constructor(input, displayValue = "") {
     this.input = input;
     this.displayValue = String(displayValue || "");
     this.updateTimer = null;
     this.drag = null;
+    this.editingBlank = false;
     this.shell = document.createElement("div");
     this.shell.className = "osc-scroll-text-field";
     input.parentElement?.insertBefore(this.shell, input);
@@ -2202,15 +2214,28 @@ class ScrollableSingleLineTextField {
 
     const describedBy = input.getAttribute("aria-describedby");
     input.setAttribute("aria-describedby", [describedBy, this.nativeDisplay.id].filter(Boolean).join(" "));
-    this.nativeDisplay.addEventListener("pointerdown", (event) => {
-      if (event.button !== 0) return;
-      input.focus();
-    });
+    this.shell.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || event.target !== input || !this.isNativeValue()) return;
+      this.editingBlank = true;
+      this.update();
+    }, true);
+    this.shell.addEventListener("wheel", (event) => this.handleWheel(event), { passive: false });
     [input, this.nativeDisplay].forEach((viewport) => {
       viewport.addEventListener("scroll", () => this.scheduleUpdate());
-      viewport.addEventListener("wheel", (event) => this.handleWheel(event), { passive: false });
     });
-    ["input", "keydown", "keyup", "click", "select"].forEach((eventName) => {
+    input.addEventListener("focus", () => {
+      this.editingBlank = this.isNativeValue();
+      this.update();
+    });
+    input.addEventListener("blur", () => {
+      this.editingBlank = false;
+      this.update();
+    });
+    input.addEventListener("input", () => {
+      this.editingBlank = false;
+      this.update();
+    });
+    ["keydown", "keyup", "click", "select"].forEach((eventName) => {
       input.addEventListener(eventName, () => this.scheduleUpdate());
     });
     this.track.addEventListener("pointerdown", (event) => this.startTrackDrag(event));
@@ -2225,12 +2250,16 @@ class ScrollableSingleLineTextField {
     this.scheduleUpdate();
   }
 
-  isNativeDisplay() {
-    return !hasActiveValue(this.input.value) && !!this.displayValue;
+  state() {
+    return singleLineScrollState(this.input.value, this.displayValue, this.editingBlank);
+  }
+
+  isNativeValue() {
+    return this.state().native;
   }
 
   viewport() {
-    return this.isNativeDisplay() ? this.nativeDisplay : this.input;
+    return this.state().target === "native" ? this.nativeDisplay : this.input;
   }
 
   scheduleUpdate() {
@@ -2242,9 +2271,10 @@ class ScrollableSingleLineTextField {
   }
 
   update() {
-    const native = this.isNativeDisplay();
-    this.shell.toggleClass("is-native", native);
-    this.nativeDisplay.toggleAttribute("aria-hidden", !native);
+    const state = this.state();
+    this.shell.toggleClass("is-native", state.native);
+    this.shell.toggleClass("is-editing-native", state.native && !state.nativeVisible);
+    this.nativeDisplay.toggleAttribute("aria-hidden", !state.nativeVisible);
     const viewport = this.viewport();
     const geometry = singleLineScrollGeometry(
       viewport.scrollWidth,
@@ -4204,5 +4234,6 @@ export {
   setCodeBackgroundCustomEnabled,
   setCodeBackgroundCustomInput,
   setCodeBackgroundCustomValue,
-  singleLineScrollGeometry
+  singleLineScrollGeometry,
+  singleLineScrollState
 };

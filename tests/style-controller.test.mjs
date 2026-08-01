@@ -113,7 +113,8 @@ const {
   setCodeBackgroundCustomEnabled,
   setCodeBackgroundCustomInput,
   setCodeBackgroundCustomValue,
-  singleLineScrollGeometry
+  singleLineScrollGeometry,
+  singleLineScrollState
 } = pluginModule;
 
 class FakeClassList {
@@ -880,12 +881,40 @@ test("long single-line text fields use content-sized scrolling and short values 
     thumbWidth: 200,
     thumbOffset: 0
   });
+
+  const proportional = singleLineScrollGeometry(1000, 250, 200, 750);
+  assert.equal(proportional.thumbWidth, 50);
+  assert.equal(proportional.thumbOffset, 150);
+
+  const narrowerThanMinimum = singleLineScrollGeometry(1000, 10, 10, 500);
+  assert.equal(narrowerThanMinimum.thumbWidth, 10);
+  assert.ok(narrowerThanMinimum.thumbOffset >= 0);
+  assert.ok(narrowerThanMinimum.thumbOffset + narrowerThanMinimum.thumbWidth <= 10);
 });
 
 test("active and Off text values share a scoped single-line field without persisting native display text", () => {
   assert.match(source, /class ScrollableSingleLineTextField/);
   assert.match(source, /this\.nativeDisplay\.textContent = this\.displayValue/);
-  assert.match(source, /return !hasActiveValue\(this\.input\.value\) && !!this\.displayValue/);
+  assert.deepEqual({ ...singleLineScrollState("", "native stack", false) }, {
+    native: true,
+    nativeVisible: true,
+    target: "native"
+  });
+  assert.deepEqual({ ...singleLineScrollState("", "native stack", true) }, {
+    native: true,
+    nativeVisible: false,
+    target: "input"
+  });
+  assert.deepEqual({ ...singleLineScrollState("custom stack", "native stack", false) }, {
+    native: false,
+    nativeVisible: false,
+    target: "input"
+  });
+  assert.deepEqual({ ...singleLineScrollState("", "", false) }, {
+    native: false,
+    nativeVisible: false,
+    target: "input"
+  });
   assert.match(source, /this\.viewport\(\)\.scrollLeft/);
   assert.match(source, /event\.deltaX[\s\S]*event\.shiftKey \? event\.deltaY/);
   assert.match(source, /setPointerCapture[\s\S]*releasePointerCapture/);
@@ -895,17 +924,34 @@ test("active and Off text values share a scoped single-line field without persis
   assert.match(css, /\.osc-scroll-text-field > input\[type="text"\],[\s\S]*\.osc-scroll-text-native\s*\{[\s\S]*overflow-x:\s*auto[\s\S]*overflow-y:\s*hidden[\s\S]*white-space:\s*pre/);
   assert.match(css, /\.osc-scroll-text-field\.has-overflow \.osc-scroll-text-track\s*\{[\s\S]*visibility:\s*visible/);
   assert.match(css, /\.osc-scroll-text-native\s*\{[\s\S]*color:\s*var\(--text-muted\)/);
+  assert.match(css, /\.osc-scroll-text-native\s*\{[\s\S]*display:\s*flex[\s\S]*opacity:\s*0/);
+  assert.match(css, /\.osc-scroll-text-native\s*\{[\s\S]*pointer-events:\s*none/);
+  assert.match(css, /> input\[type="text"\]::-webkit-scrollbar\s*\{\s*display:\s*none/);
+  assert.match(css, /\.osc-scroll-text-field\.is-native:not\(\.is-editing-native\) \.osc-scroll-text-native/);
+  assert.doesNotMatch(css, /\.osc-scroll-text-field\.is-native[^{}]*\.osc-scroll-text-native\s*\{[^}]*pointer-events:\s*auto/);
   assert.doesNotMatch(css.match(/\.osc-scroll-text-field[\s\S]*?\.osc-scroll-text-thumb\s*\{[\s\S]*?\}/)?.[0] || "", /!important|#[0-9a-f]{3,8}|rgba?\(/i);
 });
 
-test("scrollable text enhancement preserves editing and accessibility while excluding specialized controls", () => {
+test("Off viewport click-through and synchronous input state preserve first-character editing", () => {
+  assert.match(source, /this\.shell\.addEventListener\("pointerdown"[\s\S]*event\.target !== input[\s\S]*this\.editingBlank = true[\s\S]*this\.update\(\)/);
+  assert.match(source, /input\.addEventListener\("focus"[\s\S]*this\.editingBlank = this\.isNativeValue\(\)[\s\S]*this\.update\(\)/);
+  assert.match(source, /input\.addEventListener\("input"[\s\S]*this\.editingBlank = false[\s\S]*this\.update\(\)/);
+  assert.match(source, /input\.addEventListener\("blur"[\s\S]*this\.editingBlank = false[\s\S]*this\.update\(\)/);
+  assert.match(source, /this\.shell\.addEventListener\("wheel"/);
+  assert.doesNotMatch(source, /this\.nativeDisplay\.addEventListener\("pointerdown"/);
+});
+
+test("scrollable text enhancement preserves editing, layout, and accessibility while excluding specialized controls", () => {
   assert.match(source, /input\.setAttribute\("aria-describedby"/);
-  assert.match(source, /\["input", "keydown", "keyup", "click", "select"\]/);
+  assert.match(source, /\["keydown", "keyup", "click", "select"\]/);
   assert.doesNotMatch(source, /input\.addEventListener\("keydown"[\s\S]{0,200}preventDefault/);
   assert.match(source, /addFontControl[\s\S]*addScrollableTextField\(input, resolvedDefault \|\| placeholder\)/);
   assert.match(source, /addDirectFontControl[\s\S]*addScrollableTextField\(input, resolvedDefault \|\| placeholder\)/);
+  assert.match(source, /const status = wrapper\.createEl\("span", \{ cls: "osc-font-status"[\s\S]*addScrollableTextField\(input/);
 
   const scrollCss = css.match(/\.osc-scroll-text-field\s*\{[\s\S]*?\.osc-scroll-text-field:has\(input:disabled\)[\s\S]*?\}/)?.[0] || "";
+  assert.match(scrollCss, /min-width:\s*0/);
+  assert.match(scrollCss, /overflow:\s*hidden/);
   assert.doesNotMatch(scrollCss, /input\[type="(?:number|color)"\]|select|textarea|checkbox/);
   assert.match(source, /addSizeControl[\s\S]*type: "number"/);
   assert.match(source, /addColorControl[\s\S]*type: "color"/);
