@@ -11,9 +11,10 @@ import {
   Modal
 } from "obsidian";
 
-const SETTINGS_SCHEMA_VERSION = 3;
+const SETTINGS_SCHEMA_VERSION = 4;
 const DEFAULT_CODE_BACKGROUND = "#fafafa";
 const SIZE_UNITS = ["px", "rem", "em", "%", "pt"];
+const LINE_HEIGHT_UNITS = ["unitless", ...SIZE_UNITS];
 const HEADING_SPACE_ABOVE_UNITS = [...SIZE_UNITS];
 const BOTTOM_LEFT_CONTROLS_POSITION_NATIVE = "native";
 const BOTTOM_LEFT_CONTROLS_POSITION_LEFT = "left";
@@ -47,6 +48,8 @@ const DEFAULT_PROFILE = {
   italicWeight: "",
   italicColor: "",
   lineHeight: "",
+  lineHeightValue: "",
+  lineHeightUnit: "unitless",
   textColor: "",
   backgroundColor: "",
   accentColor: "",
@@ -227,8 +230,6 @@ function fieldDefinition(type, group, variable, selectors, property = null, opti
 }
 
 const STYLE_FIELD_REGISTRY = {
-  fontFamily: fieldDefinition("font", "baseText", "--osc-font-family", BASE_TEXT_SELECTORS, "font-family"),
-  textSize: fieldDefinition("size", "baseText", "--osc-text-size", BASE_TEXT_SELECTORS, "font-size"),
   textWeight: fieldDefinition("weight", "baseText", "--osc-text-weight", BASE_TEXT_SELECTORS, "font-weight"),
   boldFontFamily: fieldDefinition("font", "boldItalic", "--osc-bold-font-family", [".markdown-preview-view strong", ".markdown-preview-view b", EMPHASIS_SOURCE_SELECTORS.bold], "font-family"),
   boldWeight: fieldDefinition("weight", "boldItalic", "--osc-bold-weight", [".markdown-preview-view strong", ".markdown-preview-view b", EMPHASIS_SOURCE_SELECTORS.bold], "font-weight"),
@@ -237,7 +238,7 @@ const STYLE_FIELD_REGISTRY = {
   italicSize: fieldDefinition("size", "boldItalic", "--osc-italic-size", [".markdown-preview-view em", ".markdown-preview-view i", EMPHASIS_SOURCE_SELECTORS.italic], "font-size"),
   italicWeight: fieldDefinition("weight", "boldItalic", "--osc-italic-weight", [".markdown-preview-view em", ".markdown-preview-view i", EMPHASIS_SOURCE_SELECTORS.italic], "font-weight"),
   italicColor: fieldDefinition("color", "boldItalic", "--osc-italic-color", [".markdown-preview-view em", ".markdown-preview-view i", EMPHASIS_SOURCE_SELECTORS.italic], "color"),
-  lineHeight: fieldDefinition("text", "baseText", "--osc-line-height", BASE_TEXT_SELECTORS, "line-height"),
+  lineHeight: fieldDefinition("size", "baseText", "--osc-line-height", BASE_TEXT_SELECTORS, "line-height"),
   textColor: fieldDefinition("color", "baseText", "--osc-text-color", BASE_TEXT_SELECTORS, "color"),
   backgroundColor: fieldDefinition("color", "baseText", "--osc-background-color", NOTE_BACKGROUND_SELECTORS, "background-color"),
   accentColor: fieldDefinition("color", "baseText", "--interactive-accent", [], null, { selectors: [], emitsCss: false }),
@@ -311,6 +312,7 @@ const HEADING_SPACE_ABOVE_FIELDS = Array.from({ length: 6 }, (_, index) => {
   ];
 }).flat();
 PROFILE_GROUP_FIELDS.headings.push(...HEADING_SPACE_ABOVE_FIELDS);
+PROFILE_GROUP_FIELDS.baseText.push("lineHeightValue", "lineHeightUnit");
 PROFILE_GROUP_FIELDS.tablesCodeQuotes.push(
   "codeBackgroundCustomEnabled",
   "codeBackgroundCustomValue",
@@ -320,7 +322,7 @@ PROFILE_GROUP_FIELDS.tablesCodeQuotes.push(
 
 const PROFILE_SECTION_FIELDS = {
   baseText: [
-    "fontFamily", "textSize", "textWeight", "lineHeight", "textColor", "backgroundColor", "accentColor"
+    "textWeight", "lineHeight", "lineHeightValue", "lineHeightUnit", "textColor", "backgroundColor", "accentColor"
   ],
   boldItalic: [
     "boldFontFamily", "boldWeight", "boldColor", "italicFontFamily", "italicSize", "italicWeight", "italicColor"
@@ -422,6 +424,10 @@ class SectionDraftManager {
 
 function validateProfileSection(profile, fields) {
   const errors = [];
+  if (fields.includes("lineHeightValue") && hasActiveValue(profile.lineHeightValue)) {
+    if (!isValidLineHeightValue(profile.lineHeightValue)) errors.push("Line height must be a finite number greater than zero");
+    if (!LINE_HEIGHT_UNITS.includes(profile.lineHeightUnit)) errors.push(`Line height unit must be ${LINE_HEIGHT_UNITS.join(", ")}`);
+  }
   fields.forEach((field) => {
     const value = profile[field];
     const meta = STYLE_FIELD_REGISTRY[field];
@@ -1074,21 +1080,21 @@ function isBuiltinConfigurationId(id) {
 
 function normalizeProfile(profile) {
   const source = profile && typeof profile === "object" ? profile : DEFAULT_PROFILE;
-  const normalized = normalizeCodeBackgroundStates(
+  const normalized = normalizeLineHeightState(normalizeCodeBackgroundStates(
     sanitizeProfile({ ...DEFAULT_PROFILE, ...source }, source),
     source,
     false
-  );
+  ), source, false);
   return normalizeHeadingSpaceAboveStates(normalized, source, false);
 }
 
 function normalizeOptionalProfile(profile) {
   const source = profile && typeof profile === "object" ? profile : {};
-  const normalized = normalizeHeadingSpaceAboveStates(normalizeCodeBackgroundStates(
+  const normalized = normalizeHeadingSpaceAboveStates(normalizeLineHeightState(normalizeCodeBackgroundStates(
     sanitizeProfile({ ...blankProfileData(), ...source }, source),
     source,
     true
-  ), source, true);
+  ), source, true), source, true);
   delete normalized.settingsIconPosition;
   delete normalized.bottomLeftControlsPosition;
   return normalized;
@@ -1130,6 +1136,44 @@ function normalizeCodeBackgroundStates(profile, source, optional) {
       ? effectiveCodeBackground(profile, field)
       : DEFAULT_CODE_BACKGROUND;
   });
+  return profile;
+}
+
+function parseLineHeight(value) {
+  const match = String(value ?? "").trim().match(/^(\d+(?:\.\d+)?)(px|rem|em|%|pt)?$/i);
+  if (!match) return { value: "", unit: "unitless" };
+  return { value: match[1], unit: match[2]?.toLowerCase() || "unitless" };
+}
+
+function lineHeightCssValue(profile) {
+  const value = String(profile?.lineHeightValue ?? "").trim();
+  const unit = String(profile?.lineHeightUnit ?? "").trim();
+  if (!isValidLineHeightValue(value) || !LINE_HEIGHT_UNITS.includes(unit)) return "";
+  return `${value}${unit === "unitless" ? "" : unit}`;
+}
+
+function isValidLineHeightValue(value) {
+  const text = String(value ?? "").trim();
+  return /^\d+(?:\.\d+)?$/.test(text) && Number.isFinite(Number(text)) && Number(text) > 0;
+}
+
+function normalizeLineHeightState(profile, source, optional) {
+  const hasStructuredValue = Object.prototype.hasOwnProperty.call(source, "lineHeightValue")
+    || Object.prototype.hasOwnProperty.call(source, "lineHeightUnit");
+  const parsed = parseLineHeight(hasStructuredValue
+    ? `${source.lineHeightValue ?? ""}${source.lineHeightUnit === "unitless" ? "" : source.lineHeightUnit ?? ""}`
+    : source.lineHeight);
+
+  if (optional && !hasStructuredValue && !hasActiveValue(source.lineHeight)) {
+    profile.lineHeight = "";
+    profile.lineHeightValue = "";
+    profile.lineHeightUnit = "";
+    return profile;
+  }
+
+  profile.lineHeightValue = parsed.value;
+  profile.lineHeightUnit = parsed.value ? parsed.unit : optional ? "" : "unitless";
+  profile.lineHeight = lineHeightCssValue(profile);
   return profile;
 }
 
@@ -1421,6 +1465,10 @@ function setCssVariable(element, variable, value) {
 
 function normalizedCssVariableValue(field, variable, rawValue) {
   if (rawValue === undefined || rawValue === null || String(rawValue).trim() === "") return "";
+  if (field === "lineHeight") return lineHeightCssValue({
+    lineHeightValue: parseLineHeight(rawValue).value,
+    lineHeightUnit: parseLineHeight(rawValue).unit
+  });
   if (FONT_VARIABLES.has(variable)) {
     const meta = STYLE_FIELD_REGISTRY[field];
     return validateFont(rawValue, meta).valid ? cssFontValue(rawValue, meta) : "";
@@ -2079,6 +2127,17 @@ function hasActiveValue(value) {
   return value !== undefined && value !== null && String(value).trim() !== "";
 }
 
+function updateControlInactiveState(settingEl, active) {
+  settingEl.toggleClass("osc-control-off", !active);
+}
+
+function bindControlInactiveState(setting, isActive) {
+  const update = () => updateControlInactiveState(setting.settingEl, isActive());
+  setting.controlEl.addEventListener("input", update);
+  setting.controlEl.addEventListener("change", update);
+  update();
+}
+
 function createValueStatus(parent, active, inactiveLabel = "Off") {
   const status = parent.createSpan({ cls: "osc-value-status" });
   updateValueStatus(status, active, inactiveLabel);
@@ -2155,26 +2214,6 @@ function clearDisplayedDefaultOnFocus(input) {
 
 let scrollTextFieldId = 0;
 
-function singleLineScrollGeometry(scrollWidth, clientWidth, trackWidth, scrollLeft = 0) {
-  const contentWidth = Math.max(0, Number(scrollWidth) || 0);
-  const viewportWidth = Math.max(0, Number(clientWidth) || 0);
-  const availableTrackWidth = Math.max(0, Number(trackWidth) || 0);
-  const maxScroll = Math.max(0, contentWidth - viewportWidth);
-  if (maxScroll <= 1 || availableTrackWidth <= 0) {
-    return { overflows: false, maxScroll: 0, thumbWidth: availableTrackWidth, thumbOffset: 0 };
-  }
-  const proportionalThumbWidth = availableTrackWidth * viewportWidth / contentWidth;
-  const thumbWidth = Math.min(availableTrackWidth, Math.max(18, proportionalThumbWidth));
-  const thumbTravel = Math.max(0, availableTrackWidth - thumbWidth);
-  const clampedScroll = Math.max(0, Math.min(maxScroll, Number(scrollLeft) || 0));
-  return {
-    overflows: true,
-    maxScroll,
-    thumbWidth,
-    thumbOffset: maxScroll > 0 ? thumbTravel * clampedScroll / maxScroll : 0
-  };
-}
-
 function singleLineScrollState(inputValue, displayValue, editingBlank = false) {
   const native = !hasActiveValue(inputValue) && !!String(displayValue || "");
   const nativeVisible = native && !editingBlank;
@@ -2188,41 +2227,30 @@ function singleLineScrollState(inputValue, displayValue, editingBlank = false) {
 class ScrollableSingleLineTextField {
   constructor(input, displayValue = "") {
     this.input = input;
-    this.ownerWindow = input.ownerDocument?.defaultView || window;
     this.displayValue = String(displayValue || "");
-    this.updateTimer = null;
-    this.drag = null;
     this.editingBlank = false;
-    this.shell = document.createElement("div");
+    this.shell = input.ownerDocument.createElement("div");
     this.shell.className = "osc-scroll-text-field";
     input.parentElement?.insertBefore(this.shell, input);
-    this.shell.appendChild(input);
+    this.viewport = input.ownerDocument.createElement("div");
+    this.viewport.className = "osc-scroll-text-viewport";
+    this.shell.appendChild(this.viewport);
+    this.viewport.appendChild(input);
     input.addClass("osc-scroll-text-input");
 
-    this.nativeDisplay = document.createElement("div");
+    this.nativeDisplay = input.ownerDocument.createElement("div");
     this.nativeDisplay.className = "osc-scroll-text-native";
     this.nativeDisplay.textContent = this.displayValue;
     this.nativeDisplay.id = `osc-scroll-text-native-${scrollTextFieldId += 1}`;
-    this.shell.appendChild(this.nativeDisplay);
-
-    this.track = document.createElement("div");
-    this.track.className = "osc-scroll-text-track";
-    this.track.setAttribute("aria-hidden", "true");
-    this.thumb = document.createElement("div");
-    this.thumb.className = "osc-scroll-text-thumb";
-    this.track.appendChild(this.thumb);
-    this.shell.appendChild(this.track);
+    this.viewport.appendChild(this.nativeDisplay);
 
     const describedBy = input.getAttribute("aria-describedby");
     input.setAttribute("aria-describedby", [describedBy, this.nativeDisplay.id].filter(Boolean).join(" "));
-    this.shell.addEventListener("pointerdown", (event) => {
-      if (event.button !== 0 || event.target !== input || !this.isNativeValue()) return;
+    this.nativeDisplay.addEventListener("click", () => {
+      if (!this.isNativeValue()) return;
       this.editingBlank = true;
       this.update();
-    }, true);
-    this.shell.addEventListener("wheel", (event) => this.handleWheel(event), { passive: false });
-    [input, this.nativeDisplay].forEach((viewport) => {
-      viewport.addEventListener("scroll", () => this.scheduleUpdate());
+      input.focus({ preventScroll: true });
     });
     input.addEventListener("focus", () => {
       this.editingBlank = this.isNativeValue();
@@ -2236,22 +2264,7 @@ class ScrollableSingleLineTextField {
       this.editingBlank = false;
       this.update();
     });
-    ["keydown", "keyup", "click", "select"].forEach((eventName) => {
-      input.addEventListener(eventName, () => this.scheduleUpdate());
-    });
-    this.track.addEventListener("pointerdown", (event) => this.startTrackDrag(event));
-    this.track.addEventListener("pointermove", (event) => this.moveTrackDrag(event));
-    this.track.addEventListener("pointerup", (event) => this.endTrackDrag(event));
-    this.track.addEventListener("pointercancel", (event) => this.endTrackDrag(event));
-
-    const OwnerResizeObserver = this.ownerWindow.ResizeObserver || globalThis.ResizeObserver;
-    this.handleOwnerResize = () => this.scheduleUpdate();
-    this.ownerWindow.addEventListener("resize", this.handleOwnerResize);
-    this.resizeObserver = typeof OwnerResizeObserver === "undefined"
-      ? null
-      : new OwnerResizeObserver(() => this.scheduleUpdate());
-    this.resizeObserver?.observe(this.shell);
-    this.scheduleUpdate();
+    this.update();
   }
 
   state() {
@@ -2262,89 +2275,15 @@ class ScrollableSingleLineTextField {
     return this.state().native;
   }
 
-  viewport() {
-    return this.state().target === "native" ? this.nativeDisplay : this.input;
-  }
-
-  scheduleUpdate() {
-    if (this.updateTimer !== null) return;
-    this.updateTimer = this.ownerWindow.setTimeout(() => {
-      this.updateTimer = null;
-      this.update();
-    }, 0);
-  }
-
   update() {
     const state = this.state();
     this.shell.toggleClass("is-native", state.native);
     this.shell.toggleClass("is-editing-native", state.native && !state.nativeVisible);
     this.nativeDisplay.toggleAttribute("aria-hidden", !state.nativeVisible);
-    const viewport = this.viewport();
-    const geometry = singleLineScrollGeometry(
-      viewport.scrollWidth,
-      viewport.clientWidth,
-      this.track.clientWidth,
-      viewport.scrollLeft
-    );
-    this.shell.toggleClass("has-overflow", geometry.overflows);
-    this.thumb.style.width = `${geometry.thumbWidth}px`;
-    this.thumb.style.insetInlineStart = `${geometry.thumbOffset}px`;
-  }
-
-  handleWheel(event) {
-    const delta = Math.abs(event.deltaX) > 0 ? event.deltaX : event.shiftKey ? event.deltaY : 0;
-    if (!delta) return;
-    const viewport = this.viewport();
-    const before = viewport.scrollLeft;
-    viewport.scrollLeft += delta;
-    if (viewport.scrollLeft !== before) event.preventDefault();
-    this.scheduleUpdate();
-  }
-
-  startTrackDrag(event) {
-    if (event.button !== 0 || !this.shell.hasClass("has-overflow")) return;
-    const viewport = this.viewport();
-    const geometry = singleLineScrollGeometry(
-      viewport.scrollWidth,
-      viewport.clientWidth,
-      this.track.clientWidth,
-      viewport.scrollLeft
-    );
-    const thumbRect = this.thumb.getBoundingClientRect();
-    if (event.target !== this.thumb) {
-      const trackRect = this.track.getBoundingClientRect();
-      const ratio = Math.max(0, Math.min(1, (event.clientX - trackRect.left - geometry.thumbWidth / 2) / Math.max(1, trackRect.width - geometry.thumbWidth)));
-      viewport.scrollLeft = ratio * geometry.maxScroll;
-    }
-    this.drag = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startScroll: viewport.scrollLeft,
-      thumbTravel: Math.max(1, this.track.clientWidth - thumbRect.width),
-      maxScroll: geometry.maxScroll
-    };
-    this.track.setPointerCapture(event.pointerId);
-    event.preventDefault();
-    this.scheduleUpdate();
-  }
-
-  moveTrackDrag(event) {
-    if (!this.drag || event.pointerId !== this.drag.pointerId) return;
-    this.viewport().scrollLeft = this.drag.startScroll
-      + (event.clientX - this.drag.startX) * this.drag.maxScroll / this.drag.thumbTravel;
-    this.scheduleUpdate();
-  }
-
-  endTrackDrag(event) {
-    if (!this.drag || event.pointerId !== this.drag.pointerId) return;
-    if (this.track.hasPointerCapture(event.pointerId)) this.track.releasePointerCapture(event.pointerId);
-    this.drag = null;
   }
 
   destroy() {
-    if (this.updateTimer !== null) this.ownerWindow.clearTimeout(this.updateTimer);
-    this.ownerWindow.removeEventListener("resize", this.handleOwnerResize);
-    this.resizeObserver?.disconnect();
+    // All listeners are owned by elements removed with the settings view.
   }
 }
 
@@ -3490,9 +3429,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
 
   renderBaseTextControls(parent, profile) {
     const rows = [
-      [["fontFamily", "Font family", "Inter, Arial, sans-serif"]],
       [
-        ["textSize", "Text size", "16"],
         ["textWeight", "Text weight", "400"],
         ["lineHeight", "Line height", "1.65"]
       ],
@@ -3504,7 +3441,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
     ];
 
     const root = parent.createDiv({ cls: "osc-base-text-controls" });
-    const rowClasses = ["is-font-row", "is-metrics-row", "is-color-row"];
+    const rowClasses = ["is-metrics-row", "is-color-row"];
     rows.forEach((row, index) => {
       const rowEl = root.createDiv({
         cls: `osc-base-text-row ${rowClasses[index]}`
@@ -3581,6 +3518,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
     const select = setting.controlEl.querySelector("select");
     select?.addClass("osc-select-wide", "osc-image-alignment-select");
     select?.addEventListener("change", () => updateValueStatus(status, hasActiveValue(select.value)));
+    bindControlInactiveState(setting, () => hasActiveValue(normalizeImageAlignment(profile.imageAlignment)));
   }
 
   addImageRespectExplicitSizeControl(parent, profile) {
@@ -3822,7 +3760,9 @@ class StyleControllerSettingTab extends PluginSettingTab {
     setting.settingEl.setAttribute("data-osc-field", key);
     setting.settingEl.setAttribute("data-osc-native-value", nativeValue);
     setting.settingEl.toggleClass("osc-font-setting", FONT_FIELDS.has(key));
-    if (SIZE_FIELDS.has(key)) {
+    if (key === "lineHeight") {
+      this.addLineHeightControl(setting, profile, resolvedPlaceholder);
+    } else if (SIZE_FIELDS.has(key)) {
       this.addSizeControl(setting, profile, key, resolvedPlaceholder);
     } else if (COLOR_FIELDS.has(key)) {
       this.addColorControl(setting, profile, key, resolvedPlaceholder);
@@ -3845,6 +3785,10 @@ class StyleControllerSettingTab extends PluginSettingTab {
       const input = setting.controlEl.querySelector("input");
       input?.addEventListener("input", () => updateValueStatus(status, hasActiveValue(input.value)));
     }
+    const codeStateFields = CODE_BACKGROUND_CUSTOM_FIELDS[key];
+    bindControlInactiveState(setting, () => codeStateFields
+      ? profile[codeStateFields.enabled] === true && hasActiveValue(profile[key])
+      : hasActiveValue(profile[key]));
   }
 
   addSizeControl(setting, profile, key, placeholder) {
@@ -3863,6 +3807,36 @@ class StyleControllerSettingTab extends PluginSettingTab {
     const save = () => {
       profile[key] = input.value ? `${input.value}${select.value}` : "";
       updateValueStatus(status, hasActiveValue(profile[key]));
+      this.noteDraftMutation(profile);
+      this.updateDraftPreview(profile);
+    };
+    input.addEventListener("input", save);
+    select.addEventListener("change", save);
+  }
+
+  addLineHeightControl(setting, profile, placeholder) {
+    const hasValue = hasActiveValue(profile.lineHeightValue);
+    const native = parseLineHeight(placeholder);
+    const wrapper = setting.controlEl.createDiv({ cls: "osc-size-control osc-line-height-control" });
+    const input = wrapper.createEl("input", {
+      attr: { type: "number", min: "0.1", step: "0.1", inputmode: "decimal", placeholder: native.value }
+    });
+    input.value = hasValue ? profile.lineHeightValue : "";
+    const select = wrapper.createEl("select", { attr: { "aria-label": "Line height unit" } });
+    LINE_HEIGHT_UNITS.forEach((unit) => select.createEl("option", { text: unit, value: unit }));
+    select.value = hasValue && LINE_HEIGHT_UNITS.includes(profile.lineHeightUnit)
+      ? profile.lineHeightUnit
+      : native.unit;
+    const status = createValueStatus(wrapper, hasValue);
+
+    const save = () => {
+      profile.lineHeightValue = input.value;
+      profile.lineHeightUnit = select.value;
+      profile.lineHeight = lineHeightCssValue(profile);
+      const valid = !input.value || isValidLineHeightValue(input.value);
+      input.setCustomValidity(valid ? "" : "Enter a finite value greater than zero.");
+      updateValueStatus(status, hasActiveValue(profile.lineHeight));
+      updateControlInactiveState(setting.settingEl, hasActiveValue(profile.lineHeight));
       this.noteDraftMutation(profile);
       this.updateDraftPreview(profile);
     };
@@ -3911,6 +3885,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
       input.setCustomValidity(enabled && !isValidHeadingSpaceAboveValue(input.value)
         ? "Enter a finite non-negative value."
         : "");
+      updateControlInactiveState(setting.settingEl, enabled);
     };
     const saveValue = () => {
       profile[valueField] = input.value;
@@ -4070,6 +4045,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
       const input = setting.controlEl.querySelector("input");
       input?.addEventListener("input", () => updateValueStatus(status, hasActiveValue(input.value)));
     }
+    bindControlInactiveState(setting, () => hasActiveValue(object[key]));
     return setting;
   }
 
@@ -4181,6 +4157,7 @@ export {
   DEFAULT_SETTINGS,
   HEADING_SPACE_ABOVE_FIELDS,
   HEADING_SPACE_ABOVE_UNITS,
+  LINE_HEIGHT_UNITS,
   INLINE_CODE_SELECTORS,
   NATIVE_DEFAULT_CONFIGURATION,
   PROFILE_SECTION_FIELDS,
@@ -4231,6 +4208,7 @@ export {
   hasActiveValue,
   headingSpaceAboveCssValue,
   isValidHeadingSpaceAboveValue,
+  lineHeightCssValue,
   normalizeHexColor,
   normalizeInterfaceSettings,
   normalizeNativeFontFamilyStack,
@@ -4241,6 +4219,5 @@ export {
   setCodeBackgroundCustomEnabled,
   setCodeBackgroundCustomInput,
   setCodeBackgroundCustomValue,
-  singleLineScrollGeometry,
   singleLineScrollState
 };

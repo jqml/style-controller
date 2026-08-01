@@ -650,12 +650,9 @@
 }
 
 .osc-scroll-text-field {
-  display: grid;
+  --osc-native-scrollbar-space: var(--size-4-3);
   flex: 1 1 72px;
-  grid-template-areas:
-    "field"
-    "scroll";
-  grid-template-rows: var(--osc-control-height) 6px;
+  height: calc(var(--osc-control-height) + var(--osc-native-scrollbar-space));
   min-width: 0;
   overflow: hidden;
   width: 100%;
@@ -666,30 +663,41 @@
   width: auto;
 }
 
-.osc-scroll-text-field > input[type="text"],
-.osc-scroll-text-native {
+.osc-scroll-text-viewport {
   box-sizing: border-box;
-  grid-area: field;
+  display: grid;
+  grid-template-areas: "field";
+  height: 100%;
+  max-width: 100%;
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
-  white-space: pre;
+  overscroll-behavior-inline: contain;
+  padding-bottom: var(--osc-native-scrollbar-space);
   width: 100%;
 }
 
-.osc-scroll-text-field > input[type="text"] {
-  scrollbar-width: none;
+.osc-scroll-text-viewport > input[type="text"],
+.osc-scroll-text-native {
+  box-sizing: border-box;
+  grid-area: field;
+  height: var(--osc-control-height);
+  white-space: pre;
 }
 
-.osc-scroll-text-field > input[type="text"]::-webkit-scrollbar {
-  display: none;
+.osc-scroll-text-viewport > input[type="text"] {
+  field-sizing: content;
+  min-width: 100%;
+  width: max-content;
 }
 
 .osc-scroll-text-native {
-  align-items: center;
   color: var(--text-muted);
   cursor: text;
-  display: flex;
+  display: none;
+  min-width: 100%;
+  width: max-content;
+  line-height: var(--osc-control-height);
   opacity: 0;
   padding-inline: var(--size-4-2);
   pointer-events: none;
@@ -698,49 +706,19 @@
 }
 
 .osc-scroll-text-field.is-native:not(.is-editing-native) .osc-scroll-text-native {
-  opacity: 1;
-  visibility: visible;
-}
-
-.osc-scroll-text-field.is-native > input[type="text"]::placeholder {
-  color: transparent;
-}
-
-.osc-scroll-text-track {
-  align-self: end;
-  background: var(--background-modifier-border);
-  border-radius: var(--radius-s);
-  cursor: pointer;
-  grid-area: scroll;
-  height: 3px;
-  opacity: 0;
-  overflow: hidden;
-  pointer-events: none;
-  position: relative;
-  transition: opacity 120ms ease;
-  visibility: hidden;
-  width: 100%;
-}
-
-.osc-scroll-text-field.has-overflow .osc-scroll-text-track {
+  display: block;
   opacity: 1;
   pointer-events: auto;
   visibility: visible;
 }
 
-.osc-scroll-text-thumb {
-  background: var(--scrollbar-thumb-bg, var(--background-modifier-border-hover));
-  border-radius: inherit;
-  height: 100%;
-  inset-inline-start: 0;
-  min-width: 18px;
-  position: absolute;
-  top: 0;
+.osc-scroll-text-field.is-native input[type="text"]::placeholder {
+  color: transparent;
 }
 
-.osc-scroll-text-field:has(input:disabled) .osc-scroll-text-track,
 .osc-scroll-text-field:has(input:disabled) .osc-scroll-text-native {
-  opacity: var(--disabled-opacity);
+  color: var(--text-faint);
+  opacity: var(--icon-opacity);
 }
 
 .osc-color-control input[type="text"] {
@@ -753,6 +731,21 @@
 }
 
 .osc-color-control input[type="text"].osc-default-color-value {
+  color: var(--text-muted);
+}
+
+.osc-settings .setting-item.osc-control-off .setting-item-control input:not([type="checkbox"]):not([type="color"]),
+.osc-settings .setting-item.osc-control-off .setting-item-control select,
+.osc-settings .setting-item.osc-control-off .osc-scroll-text-native {
+  color: var(--text-faint);
+  opacity: var(--icon-opacity);
+}
+
+.osc-settings .setting-item.osc-control-off .setting-item-control input[type="color"] {
+  opacity: var(--icon-opacity);
+}
+
+.osc-settings .setting-item.osc-control-off .setting-item-control input:not(.osc-scroll-text-input)::placeholder {
   color: var(--text-muted);
 }
 
@@ -1203,8 +1196,6 @@
 .osc-style-scope .markdown-preview-view,
 .osc-style-scope .markdown-source-view.mod-cm6 .cm-content {
   color: var(--osc-text-color);
-  font-family: var(--osc-font-family);
-  font-size: var(--osc-text-size);
   font-weight: var(--osc-text-weight);
   line-height: var(--osc-line-height);
 }
@@ -1580,8 +1571,8 @@ body.style-controller-bottom-left-controls-left .workspace-split.mod-left-split 
 
 .osc-style-scope.style-controller-matched-document-layout .markdown-preview-view,
 .osc-style-scope.style-controller-matched-document-layout .markdown-source-view.mod-cm6 {
-  font-family: var(--osc-font-family, var(--font-text));
-  font-size: var(--osc-text-size, var(--font-text-size));
+  font-family: var(--font-text);
+  font-size: var(--font-text-size);
   font-weight: var(--osc-text-weight, var(--font-normal));
   line-height: var(--osc-line-height, var(--line-height-normal));
 }

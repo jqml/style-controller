@@ -55,6 +55,7 @@ const {
   DEFAULT_PROFILE,
   HEADING_SPACE_ABOVE_FIELDS,
   HEADING_SPACE_ABOVE_UNITS,
+  LINE_HEIGHT_UNITS,
   INLINE_CODE_SELECTORS,
   NATIVE_DEFAULT_CONFIGURATION,
   PROFILE_SECTION_FIELDS,
@@ -103,6 +104,7 @@ const {
   effectiveCodeBackground,
   headingSpaceAboveCssValue,
   isValidHeadingSpaceAboveValue,
+  lineHeightCssValue,
   normalizeHexColor,
   normalizeInterfaceSettings,
   normalizeNativeFontFamilyStack,
@@ -113,7 +115,6 @@ const {
   setCodeBackgroundCustomEnabled,
   setCodeBackgroundCustomInput,
   setCodeBackgroundCustomValue,
-  singleLineScrollGeometry,
   singleLineScrollState
 } = pluginModule;
 
@@ -694,7 +695,7 @@ test("Matched body and title metrics use native fallbacks while Native remains u
   const bodyRule = matchedRules.find((rule) =>
     rule.selectors.includes(".markdown-preview-view")
     && rule.selectors.includes(".markdown-source-view.mod-cm6")
-    && rule.declarations.includes("--osc-text-size")
+    && rule.declarations.includes("--font-text-size")
   );
   const titleRule = matchedRules.find((rule) =>
     rule.selectors.includes(".inline-title:not([data-level])")
@@ -702,8 +703,8 @@ test("Matched body and title metrics use native fallbacks while Native remains u
   );
 
   assert.ok(bodyRule);
-  assert.match(bodyRule.declarations, /font-family:\s*var\(--osc-font-family,\s*var\(--font-text\)\)/);
-  assert.match(bodyRule.declarations, /font-size:\s*var\(--osc-text-size,\s*var\(--font-text-size\)\)/);
+  assert.match(bodyRule.declarations, /font-family:\s*var\(--font-text\)/);
+  assert.match(bodyRule.declarations, /font-size:\s*var\(--font-text-size\)/);
   assert.match(bodyRule.declarations, /font-weight:\s*var\(--osc-text-weight,\s*var\(--font-normal\)\)/);
   assert.match(bodyRule.declarations, /line-height:\s*var\(--osc-line-height,\s*var\(--line-height-normal\)\)/);
   assert.ok(titleRule);
@@ -889,14 +890,69 @@ test("settings UI exposes section Apply/Revert actions and navigation guard", ()
 
 test("Base text owns only base controls and its preview contains regular text only", () => {
   assert.deepEqual(Array.from(PROFILE_SECTION_FIELDS.baseText), [
-    "fontFamily", "textSize", "textWeight", "lineHeight", "textColor", "backgroundColor", "accentColor"
+    "textWeight", "lineHeight", "lineHeightValue", "lineHeightUnit", "textColor", "backgroundColor", "accentColor"
   ]);
   const baseControls = source.slice(source.indexOf("  renderBaseTextControls(parent"), source.indexOf("  renderHeadingGroup(parent"));
   assert.doesNotMatch(baseControls, /bold|italic/i);
+  assert.doesNotMatch(baseControls, /fontFamily|textSize|Font family|Text size/);
+  assert.equal(STYLE_FIELD_REGISTRY.fontFamily, undefined);
+  assert.equal(STYLE_FIELD_REGISTRY.textSize, undefined);
+  assert.match(baseControls, /\["lineHeight", "Line height", "1\.65"\]/);
+  assert.match(source, /addLineHeightControl[\s\S]*type: "number"[\s\S]*LINE_HEIGHT_UNITS\.forEach/);
+  assert.doesNotMatch(css, /var\(--osc-font-family/);
+  assert.doesNotMatch(css, /var\(--osc-text-size/);
+  assert.match(css, /font-family:\s*var\(--font-text\)/);
+  assert.match(css, /font-size:\s*var\(--font-text-size\)/);
   const previewMethod = source.slice(source.indexOf("  renderSectionPreview(parent"), source.indexOf("  renderHeadingPreview(parent"));
   const baseBranch = previewMethod.slice(previewMethod.indexOf('title === "Base text"'), previewMethod.indexOf('title === "Bold and italic"'));
   assert.match(baseBranch, /Regular body text preview/);
   assert.doesNotMatch(baseBranch, /createEl\("strong"|createEl\("em"|\*\*|\*italic/);
+});
+
+test("Appearance-owned legacy values are preserved but no longer applied", () => {
+  const profile = normalizeProfile({
+    fontFamily: "Legacy Font, serif",
+    textSize: "19px",
+    lineHeight: "1.7rem",
+    textColor: "#123456",
+    unrelatedFutureField: "preserved"
+  });
+  assert.equal(profile.fontFamily, "Legacy Font, serif");
+  assert.equal(profile.textSize, "19px");
+  assert.equal(profile.lineHeight, "1.7rem");
+  assert.equal(profile.lineHeightValue, "1.7");
+  assert.equal(profile.lineHeightUnit, "rem");
+  assert.equal(profile.textColor, "#123456");
+  assert.equal(profile.unrelatedFutureField, "preserved");
+
+  const element = fakeElement();
+  applyProfileCssVariables(element, profile);
+  assert.equal(element.css.has("--osc-font-family"), false);
+  assert.equal(element.css.has("--osc-text-size"), false);
+  assert.equal(element.css.get("--osc-line-height"), "1.7rem");
+});
+
+test("Line height migrates to explicit value and unit without changing legacy CSS semantics", () => {
+  assert.deepEqual(Array.from(LINE_HEIGHT_UNITS), ["unitless", "px", "rem", "em", "%", "pt"]);
+  const unitless = normalizeProfile({ lineHeight: "1.65" });
+  assert.equal(unitless.lineHeightValue, "1.65");
+  assert.equal(unitless.lineHeightUnit, "unitless");
+  assert.equal(lineHeightCssValue(unitless), "1.65");
+
+  const sized = normalizeProfile({ lineHeight: "24px" });
+  assert.equal(sized.lineHeightValue, "24");
+  assert.equal(sized.lineHeightUnit, "px");
+  assert.equal(lineHeightCssValue(sized), "24px");
+
+  const structured = normalizeProfile({ lineHeight: "9px", lineHeightValue: "1.8", lineHeightUnit: "em" });
+  assert.equal(structured.lineHeight, "1.8em");
+  assert.equal(lineHeightCssValue(structured), "1.8em");
+  const optional = normalizeOptionalProfile({ unrelatedFutureField: "preserved" });
+  assert.equal(optional.lineHeight, "");
+  assert.equal(optional.lineHeightValue, "");
+  assert.equal(optional.lineHeightUnit, "");
+  assert.equal(optional.unrelatedFutureField, "preserved");
+  assert.match(source, /fields\.includes\("lineHeightValue"\)[\s\S]*isValidLineHeightValue[\s\S]*LINE_HEIGHT_UNITS\.includes/);
 });
 
 test("Bold and italic owns exactly one complete control set and a real Markdown preview", () => {
@@ -975,32 +1031,7 @@ test("native font stacks remove corrupted tokens and duplicates without losing U
   assert.doesNotMatch(source, /profile\[key\]\s*=\s*resolvedNativeDisplayValueForField/);
 });
 
-test("long single-line text fields use content-sized scrolling and short values stay compact", () => {
-  const long = singleLineScrollGeometry(600, 200, 200, 150);
-  assert.equal(long.overflows, true);
-  assert.equal(long.maxScroll, 400);
-  assert.ok(long.thumbWidth > 18 && long.thumbWidth < 200);
-  assert.ok(long.thumbOffset > 0);
-
-  const short = singleLineScrollGeometry(120, 200, 200, 0);
-  assert.deepEqual({ ...short }, {
-    overflows: false,
-    maxScroll: 0,
-    thumbWidth: 200,
-    thumbOffset: 0
-  });
-
-  const proportional = singleLineScrollGeometry(1000, 250, 200, 750);
-  assert.equal(proportional.thumbWidth, 50);
-  assert.equal(proportional.thumbOffset, 150);
-
-  const narrowerThanMinimum = singleLineScrollGeometry(1000, 10, 10, 500);
-  assert.equal(narrowerThanMinimum.thumbWidth, 10);
-  assert.ok(narrowerThanMinimum.thumbOffset >= 0);
-  assert.ok(narrowerThanMinimum.thumbOffset + narrowerThanMinimum.thumbWidth <= 10);
-});
-
-test("active and Off text values share a scoped single-line field without persisting native display text", () => {
+test("active and Off text values use one native horizontal scrollbar without persisting native display text", () => {
   assert.match(source, /class ScrollableSingleLineTextField/);
   assert.match(source, /this\.nativeDisplay\.textContent = this\.displayValue/);
   assert.deepEqual({ ...singleLineScrollState("", "native stack", false) }, {
@@ -1023,35 +1054,37 @@ test("active and Off text values share a scoped single-line field without persis
     nativeVisible: false,
     target: "input"
   });
-  assert.match(source, /this\.viewport\(\)\.scrollLeft/);
-  assert.match(source, /event\.deltaX[\s\S]*event\.shiftKey \? event\.deltaY/);
-  assert.match(source, /setPointerCapture[\s\S]*releasePointerCapture/);
+  assert.doesNotMatch(source, /singleLineScrollGeometry|osc-scroll-text-track|osc-scroll-text-thumb/);
+  assert.doesNotMatch(source, /setPointerCapture|releasePointerCapture|handleWheel|startTrackDrag|moveTrackDrag/);
+  assert.doesNotMatch(source, /scrollLeft\s*=|scrollLeft\s*\+=/);
   assert.doesNotMatch(source, /profile\[[^\]]+\]\s*=\s*(?:displayValue|this\.displayValue|nativeDisplay\.textContent)/);
 
   assert.match(css, /\.osc-scroll-text-field\s*\{[\s\S]*min-width:\s*0[\s\S]*overflow:\s*hidden/);
-  assert.match(css, /\.osc-scroll-text-field > input\[type="text"\],[\s\S]*\.osc-scroll-text-native\s*\{[\s\S]*overflow-x:\s*auto[\s\S]*overflow-y:\s*hidden[\s\S]*white-space:\s*pre/);
-  assert.match(css, /\.osc-scroll-text-field\.has-overflow \.osc-scroll-text-track\s*\{[\s\S]*visibility:\s*visible/);
+  assert.match(source, /this\.viewport\.className = "osc-scroll-text-viewport"[\s\S]*this\.viewport\.appendChild\(input\)[\s\S]*this\.viewport\.appendChild\(this\.nativeDisplay\)/);
+  assert.match(css, /\.osc-scroll-text-viewport\s*\{[\s\S]*overflow-x:\s*auto[\s\S]*overflow-y:\s*hidden/);
+  assert.match(css, /\.osc-scroll-text-viewport > input\[type="text"\]\s*\{[\s\S]*field-sizing:\s*content[\s\S]*min-width:\s*100%[\s\S]*width:\s*max-content/);
+  assert.match(css, /\.osc-scroll-text-native\s*\{[\s\S]*min-width:\s*100%[\s\S]*width:\s*max-content/);
+  assert.match(css, /height:\s*calc\(var\(--osc-control-height\) \+ var\(--osc-native-scrollbar-space\)\)/);
+  assert.match(css, /--osc-native-scrollbar-space:\s*var\(--size-4-3\)/);
+  assert.match(css, /padding-bottom:\s*var\(--osc-native-scrollbar-space\)/);
   assert.match(css, /\.osc-scroll-text-native\s*\{[\s\S]*color:\s*var\(--text-muted\)/);
-  assert.match(css, /\.osc-scroll-text-native\s*\{[\s\S]*display:\s*flex[\s\S]*opacity:\s*0/);
+  assert.match(css, /\.osc-scroll-text-native\s*\{[\s\S]*display:\s*none[\s\S]*opacity:\s*0/);
   assert.match(css, /\.osc-scroll-text-native\s*\{[\s\S]*pointer-events:\s*none/);
-  assert.match(css, /> input\[type="text"\]::-webkit-scrollbar\s*\{\s*display:\s*none/);
   assert.match(css, /\.osc-scroll-text-field\.is-native:not\(\.is-editing-native\) \.osc-scroll-text-native/);
-  assert.doesNotMatch(css, /\.osc-scroll-text-field\.is-native[^{}]*\.osc-scroll-text-native\s*\{[^}]*pointer-events:\s*auto/);
-  assert.doesNotMatch(css.match(/\.osc-scroll-text-field[\s\S]*?\.osc-scroll-text-thumb\s*\{[\s\S]*?\}/)?.[0] || "", /!important|#[0-9a-f]{3,8}|rgba?\(/i);
+  assert.match(css, /\.osc-scroll-text-field\.is-native:not\(\.is-editing-native\) \.osc-scroll-text-native\s*\{[^}]*display:\s*block[^}]*pointer-events:\s*auto/s);
+  assert.doesNotMatch(css, /osc-scroll-text-(?:track|thumb)|scrollbar-width:\s*none|::-webkit-scrollbar/);
 });
 
-test("Off viewport click-through and synchronous input state preserve first-character editing", () => {
-  assert.match(source, /this\.shell\.addEventListener\("pointerdown"[\s\S]*event\.target !== input[\s\S]*this\.editingBlank = true[\s\S]*this\.update\(\)/);
+test("clicking the native Off viewport focuses the real empty input for immediate editing", () => {
+  assert.match(source, /this\.nativeDisplay\.addEventListener\("click"[\s\S]*this\.editingBlank = true[\s\S]*this\.update\(\)[\s\S]*input\.focus\(\{ preventScroll: true \}\)/);
   assert.match(source, /input\.addEventListener\("focus"[\s\S]*this\.editingBlank = this\.isNativeValue\(\)[\s\S]*this\.update\(\)/);
   assert.match(source, /input\.addEventListener\("input"[\s\S]*this\.editingBlank = false[\s\S]*this\.update\(\)/);
   assert.match(source, /input\.addEventListener\("blur"[\s\S]*this\.editingBlank = false[\s\S]*this\.update\(\)/);
-  assert.match(source, /this\.shell\.addEventListener\("wheel"/);
-  assert.doesNotMatch(source, /this\.nativeDisplay\.addEventListener\("pointerdown"/);
+  assert.doesNotMatch(source, /(?:wheel|keydown|keyup|select)"[^\n]*preventDefault/);
 });
 
 test("scrollable text enhancement preserves editing, layout, and accessibility while excluding specialized controls", () => {
   assert.match(source, /input\.setAttribute\("aria-describedby"/);
-  assert.match(source, /\["keydown", "keyup", "click", "select"\]/);
   assert.doesNotMatch(source, /input\.addEventListener\("keydown"[\s\S]{0,200}preventDefault/);
   assert.match(source, /addFontControl[\s\S]*addScrollableTextField\(input, resolvedDefault \|\| placeholder\)/);
   assert.match(source, /addDirectFontControl[\s\S]*addScrollableTextField\(input, resolvedDefault \|\| placeholder\)/);
@@ -1066,13 +1099,19 @@ test("scrollable text enhancement preserves editing, layout, and accessibility w
   assert.match(source, /new OverridePathSuggest\(this\.app, text\.inputEl/);
 });
 
-test("scrollable text fields remeasure in their owning Obsidian Settings window", () => {
-  assert.match(source, /this\.ownerWindow = input\.ownerDocument\?\.defaultView \|\| window/);
-  assert.match(source, /const OwnerResizeObserver = this\.ownerWindow\.ResizeObserver \|\| globalThis\.ResizeObserver/);
-  assert.match(source, /this\.ownerWindow\.addEventListener\("resize", this\.handleOwnerResize\)/);
-  assert.match(source, /new OwnerResizeObserver\(\(\) => this\.scheduleUpdate\(\)\)/);
-  assert.match(source, /this\.ownerWindow\.setTimeout/);
-  assert.match(source, /this\.ownerWindow\.removeEventListener\("resize", this\.handleOwnerResize\)/);
+test("all applicable Off controls share muted value styling without fading labels or status", () => {
+  assert.match(source, /function bindControlInactiveState\(setting, isActive\)/);
+  assert.match(source, /settingEl\.toggleClass\("osc-control-off", !active\)/);
+  assert.match(source, /addTextSetting[\s\S]*bindControlInactiveState\(setting/);
+  assert.match(source, /addDirectSetting[\s\S]*bindControlInactiveState\(setting/);
+  assert.match(source, /addImageAlignmentControl[\s\S]*bindControlInactiveState\(setting/);
+  assert.match(source, /addHeadingSpaceAboveControl[\s\S]*updateControlInactiveState\(setting\.settingEl, enabled\)/);
+  assert.match(css, /\.setting-item\.osc-control-off \.setting-item-control input:not\(\[type="checkbox"\]\):not\(\[type="color"\]\)/);
+  assert.match(css, /\.setting-item\.osc-control-off \.setting-item-control input\[type="color"\]\s*\{[^}]*opacity:\s*var\(--icon-opacity\)/s);
+  assert.match(css, /\.setting-item\.osc-control-off \.osc-scroll-text-native\s*\{[^}]*color:\s*var\(--text-faint\)[^}]*opacity:\s*var\(--icon-opacity\)/s);
+  assert.match(css, /\.setting-item\.osc-control-off \.setting-item-control input:not\(\.osc-scroll-text-input\)::placeholder/);
+  assert.match(css, /\.osc-scroll-text-field\.is-native input\[type="text"\]::placeholder\s*\{[^}]*color:\s*transparent/s);
+  assert.doesNotMatch(css, /\.osc-control-off[^{}]*(?:\.setting-item-name|\.setting-item-info|\.osc-value-status)/);
 });
 
 test("preview corrections introduce no important declarations", () => {

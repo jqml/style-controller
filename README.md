@@ -2,6 +2,8 @@
 
 Style Controller is an Obsidian plugin for managing reusable style profiles, path overrides, and visual settings through a native settings interface. It applies profile values as CSS custom properties consumed by the plugin's static stylesheet; it does not edit theme files, snippets, or notes.
 
+Obsidian Appearance owns the base text font family and font size. Style Controller preserves legacy stored values for compatibility but no longer applies or exposes those overlapping controls. Its Line height control uses an explicit numeric value and unit, including a unitless ratio option.
+
 ## Safety warning
 
 This plugin changes appearance by applying scoped CSS custom properties. Test profiles on a small set of notes before assigning broad path overrides. Most blank/default controls remove the corresponding property and allow native Obsidian or theme behavior to continue. Inline and block code backgrounds instead use the Style Controller built-in `#fafafa` background whenever their custom override is Off.
