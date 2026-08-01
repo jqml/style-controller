@@ -654,6 +654,98 @@
   width: auto;
 }
 
+.osc-scroll-text-field {
+  display: grid;
+  flex: 1 1 72px;
+  grid-template-areas:
+    "field"
+    "scroll";
+  grid-template-rows: var(--osc-control-height) 6px;
+  min-width: 0;
+  overflow: hidden;
+  width: 100%;
+}
+
+.osc-font-control .osc-scroll-text-field {
+  flex-basis: 120px;
+  width: auto;
+}
+
+.osc-scroll-text-field > input[type="text"],
+.osc-scroll-text-native {
+  box-sizing: border-box;
+  grid-area: field;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: pre;
+  width: 100%;
+}
+
+.osc-scroll-text-field > input[type="text"] {
+  scrollbar-width: none;
+}
+
+.osc-scroll-text-field > input[type="text"]::-webkit-scrollbar {
+  display: none;
+}
+
+.osc-scroll-text-native {
+  align-items: center;
+  color: var(--text-muted);
+  cursor: text;
+  display: none;
+  padding-inline: var(--size-4-2);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.osc-scroll-text-field.is-native .osc-scroll-text-native {
+  display: flex;
+  pointer-events: auto;
+}
+
+.osc-scroll-text-field.is-native > input[type="text"]::placeholder {
+  color: transparent;
+}
+
+.osc-scroll-text-track {
+  align-self: end;
+  background: var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  grid-area: scroll;
+  height: 3px;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+  position: relative;
+  transition: opacity 120ms ease;
+  visibility: hidden;
+  width: 100%;
+}
+
+.osc-scroll-text-field.has-overflow .osc-scroll-text-track {
+  opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
+}
+
+.osc-scroll-text-thumb {
+  background: var(--scrollbar-thumb-bg, var(--background-modifier-border-hover));
+  border-radius: inherit;
+  height: 100%;
+  inset-inline-start: 0;
+  min-width: 18px;
+  position: absolute;
+  top: 0;
+}
+
+.osc-scroll-text-field:has(input:disabled) .osc-scroll-text-track,
+.osc-scroll-text-field:has(input:disabled) .osc-scroll-text-native {
+  opacity: var(--disabled-opacity);
+}
+
 .osc-color-control input[type="text"] {
   min-width: 82px;
 }
@@ -1481,6 +1573,34 @@
 /* ThemePro's exact group-level order moves Help and Settings together before the vault profile/footer. */
 body.style-controller-bottom-left-controls-left .workspace-split.mod-left-split .workspace-sidedock-vault-profile .workspace-drawer-vault-actions {
   order: -1;
+}
+
+/* Share only native horizontal document geometry between Reading view and Live Preview. */
+.osc-style-scope.style-controller-matched-document-layout {
+  --osc-matched-document-line-width: var(--file-line-width);
+  --osc-matched-document-margin-x: var(--file-margins-x);
+}
+
+.osc-style-scope.style-controller-matched-document-layout .markdown-preview-view,
+.osc-style-scope.style-controller-matched-document-layout .markdown-source-view.mod-cm6 .cm-scroller {
+  padding-inline: var(--osc-matched-document-margin-x);
+}
+
+.osc-style-scope.style-controller-matched-document-layout .markdown-preview-view .markdown-preview-sizer,
+.osc-style-scope.style-controller-matched-document-layout .markdown-source-view.mod-cm6 .cm-sizer {
+  width: 100%;
+}
+
+.osc-style-scope.style-controller-matched-document-layout .markdown-preview-view.is-readable-line-width .markdown-preview-sizer,
+.osc-style-scope.style-controller-matched-document-layout .markdown-source-view.mod-cm6.is-readable-line-width .cm-sizer {
+  margin-inline: auto;
+  max-width: var(--osc-matched-document-line-width);
+}
+
+.osc-style-scope.style-controller-matched-document-layout .markdown-preview-view:not(.is-readable-line-width) .markdown-preview-sizer,
+.osc-style-scope.style-controller-matched-document-layout .markdown-source-view.mod-cm6:not(.is-readable-line-width) .cm-sizer {
+  margin-inline: 0;
+  max-width: none;
 }
 
 .osc-heading-preview-title {

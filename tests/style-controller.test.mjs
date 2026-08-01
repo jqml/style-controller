@@ -61,6 +61,8 @@ const {
   SectionDraftManager,
   BOTTOM_LEFT_CONTROLS_POSITION_NATIVE,
   BOTTOM_LEFT_CONTROLS_POSITION_LEFT,
+  READING_EDITING_LAYOUT_NATIVE,
+  READING_EDITING_LAYOUT_MATCHED,
   BOTTOM_LEFT_CONTROLS_LEFT_SELECTOR,
   THEMEPRO_ORIGINAL_ORDER,
   THEMEPRO_ORIGINAL_SELECTOR,
@@ -85,6 +87,8 @@ const {
   STYLE_TITLE_WEIGHT_ACTIVE_CLASS,
   STYLE_TITLE_ACTIVE_CLASSES,
   STYLE_BOTTOM_LEFT_CONTROLS_LEFT_CLASS,
+  STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS,
+  applyDocumentLayoutStateClass,
   applyProfileCssVariables,
   applyProfileStateClasses,
   applyDraftAtomically,
@@ -108,7 +112,8 @@ const {
   parseConfigurationImport,
   setCodeBackgroundCustomEnabled,
   setCodeBackgroundCustomInput,
-  setCodeBackgroundCustomValue
+  setCodeBackgroundCustomValue,
+  singleLineScrollGeometry
 } = pluginModule;
 
 class FakeClassList {
@@ -577,6 +582,58 @@ test("Native and Left interface states toggle only the bottom-left group class",
   assert.equal(root.classList.contains(STYLE_BOTTOM_LEFT_CONTROLS_LEFT_CLASS), false);
 });
 
+test("Reading/editing layout normalizes to Native and preserves only Matched", () => {
+  assert.equal(DEFAULT_INTERFACE_SETTINGS.readingEditingLayout, READING_EDITING_LAYOUT_NATIVE);
+  assert.equal(normalizeInterfaceSettings(null).readingEditingLayout, READING_EDITING_LAYOUT_NATIVE);
+  assert.equal(normalizeInterfaceSettings({ readingEditingLayout: "invalid" }).readingEditingLayout, READING_EDITING_LAYOUT_NATIVE);
+  assert.equal(
+    normalizeInterfaceSettings({ readingEditingLayout: READING_EDITING_LAYOUT_MATCHED }).readingEditingLayout,
+    READING_EDITING_LAYOUT_MATCHED
+  );
+  assert.equal(
+    normalizeSettings({ interface: { bottomLeftControlsPosition: BOTTOM_LEFT_CONTROLS_POSITION_LEFT } }).interface.readingEditingLayout,
+    READING_EDITING_LAYOUT_NATIVE
+  );
+});
+
+test("Matched layout class follows only the applied Interface state", () => {
+  const root = fakeElement();
+  const persisted = normalizeInterfaceSettings(null);
+  const drafts = new SectionDraftManager();
+  const entry = drafts.get("interface:root", persisted);
+
+  entry.value.readingEditingLayout = READING_EDITING_LAYOUT_MATCHED;
+  drafts.mark(entry.value);
+  applyDocumentLayoutStateClass(root, persisted);
+  assert.equal(root.classList.contains(STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS), false);
+
+  applyDocumentLayoutStateClass(root, entry.value);
+  assert.equal(root.classList.contains(STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS), true);
+
+  drafts.revert("interface:root", persisted);
+  applyDocumentLayoutStateClass(root, entry.value);
+  assert.equal(entry.value.readingEditingLayout, READING_EDITING_LAYOUT_NATIVE);
+  assert.equal(root.classList.contains(STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS), false);
+});
+
+test("Matched document layout CSS is horizontal, native-variable based, and Markdown-scoped", () => {
+  const matchedRules = cssRules(css).filter((rule) => rule.selectors.includes(STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS));
+  assert.ok(matchedRules.length >= 5);
+  matchedRules.forEach((rule) => {
+    const selectors = rule.selectors.replace(/\/\*[\s\S]*?\*\//g, "").trim();
+    assert.match(selectors, /^\.osc-style-scope\.style-controller-matched-document-layout/);
+    assert.doesNotMatch(selectors, /\bbody\b|\.workspace-split|\.workspace-leaf(?!-content)/);
+    assert.doesNotMatch(rule.declarations, /!important|transform|position|top|bottom|height/);
+  });
+  assert.match(css, /--osc-matched-document-line-width:\s*var\(--file-line-width\)/);
+  assert.match(css, /--osc-matched-document-margin-x:\s*var\(--file-margins-x\)/);
+  assert.match(css, /\.markdown-preview-view\.is-readable-line-width \.markdown-preview-sizer/);
+  assert.match(css, /\.markdown-source-view\.mod-cm6\.is-readable-line-width \.cm-sizer/);
+  assert.match(css, /padding-inline:\s*var\(--osc-matched-document-margin-x\)/);
+  assert.match(css, /max-width:\s*var\(--osc-matched-document-line-width\)/);
+  assert.doesNotMatch(matchedRules.map((rule) => rule.declarations).join("\n"), /\b\d+px\b/);
+});
+
 test("bottom-left controls selection survives settings normalization but is not profile- or path-controlled", () => {
   const loaded = normalizeSettings({
     interface: { settingsIconPosition: "themepro" },
@@ -607,6 +664,11 @@ test("Interface settings use the section Apply/Revert transaction", () => {
   assert.match(source, /setName\("Bottom-left controls position"\)/);
   assert.match(source, /addOption\(BOTTOM_LEFT_CONTROLS_POSITION_NATIVE, "Native"\)/);
   assert.match(source, /addOption\(BOTTOM_LEFT_CONTROLS_POSITION_LEFT, "Left"\)/);
+  assert.match(source, /setName\("Reading\/editing layout"\)/);
+  assert.match(source, /share the same horizontal document layout/);
+  assert.match(source, /addOption\(READING_EDITING_LAYOUT_NATIVE, "Native"\)/);
+  assert.match(source, /addOption\(READING_EDITING_LAYOUT_MATCHED, "Matched"\)/);
+  assert.match(source, /context\.value\.readingEditingLayout = value/);
   assert.match(source, /this\.noteDraftMutation\(context\.value\)/);
   assert.match(source, /new Notice\(`\$\{context\.label\} applied\.`\)/);
 });
@@ -802,6 +864,52 @@ test("native font stacks remove corrupted tokens and duplicates without losing U
   assert.match(source, /resolvedNativeDisplayValueForField[\s\S]*normalizeNativeFontFamilyStack/);
   assert.match(source, /data-osc-native-value", nativeValue/);
   assert.doesNotMatch(source, /profile\[key\]\s*=\s*resolvedNativeDisplayValueForField/);
+});
+
+test("long single-line text fields use content-sized scrolling and short values stay compact", () => {
+  const long = singleLineScrollGeometry(600, 200, 200, 150);
+  assert.equal(long.overflows, true);
+  assert.equal(long.maxScroll, 400);
+  assert.ok(long.thumbWidth > 18 && long.thumbWidth < 200);
+  assert.ok(long.thumbOffset > 0);
+
+  const short = singleLineScrollGeometry(120, 200, 200, 0);
+  assert.deepEqual({ ...short }, {
+    overflows: false,
+    maxScroll: 0,
+    thumbWidth: 200,
+    thumbOffset: 0
+  });
+});
+
+test("active and Off text values share a scoped single-line field without persisting native display text", () => {
+  assert.match(source, /class ScrollableSingleLineTextField/);
+  assert.match(source, /this\.nativeDisplay\.textContent = this\.displayValue/);
+  assert.match(source, /return !hasActiveValue\(this\.input\.value\) && !!this\.displayValue/);
+  assert.match(source, /this\.viewport\(\)\.scrollLeft/);
+  assert.match(source, /event\.deltaX[\s\S]*event\.shiftKey \? event\.deltaY/);
+  assert.match(source, /setPointerCapture[\s\S]*releasePointerCapture/);
+  assert.doesNotMatch(source, /profile\[[^\]]+\]\s*=\s*(?:displayValue|this\.displayValue|nativeDisplay\.textContent)/);
+
+  assert.match(css, /\.osc-scroll-text-field\s*\{[\s\S]*min-width:\s*0[\s\S]*overflow:\s*hidden/);
+  assert.match(css, /\.osc-scroll-text-field > input\[type="text"\],[\s\S]*\.osc-scroll-text-native\s*\{[\s\S]*overflow-x:\s*auto[\s\S]*overflow-y:\s*hidden[\s\S]*white-space:\s*pre/);
+  assert.match(css, /\.osc-scroll-text-field\.has-overflow \.osc-scroll-text-track\s*\{[\s\S]*visibility:\s*visible/);
+  assert.match(css, /\.osc-scroll-text-native\s*\{[\s\S]*color:\s*var\(--text-muted\)/);
+  assert.doesNotMatch(css.match(/\.osc-scroll-text-field[\s\S]*?\.osc-scroll-text-thumb\s*\{[\s\S]*?\}/)?.[0] || "", /!important|#[0-9a-f]{3,8}|rgba?\(/i);
+});
+
+test("scrollable text enhancement preserves editing and accessibility while excluding specialized controls", () => {
+  assert.match(source, /input\.setAttribute\("aria-describedby"/);
+  assert.match(source, /\["input", "keydown", "keyup", "click", "select"\]/);
+  assert.doesNotMatch(source, /input\.addEventListener\("keydown"[\s\S]{0,200}preventDefault/);
+  assert.match(source, /addFontControl[\s\S]*addScrollableTextField\(input, resolvedDefault \|\| placeholder\)/);
+  assert.match(source, /addDirectFontControl[\s\S]*addScrollableTextField\(input, resolvedDefault \|\| placeholder\)/);
+
+  const scrollCss = css.match(/\.osc-scroll-text-field\s*\{[\s\S]*?\.osc-scroll-text-field:has\(input:disabled\)[\s\S]*?\}/)?.[0] || "";
+  assert.doesNotMatch(scrollCss, /input\[type="(?:number|color)"\]|select|textarea|checkbox/);
+  assert.match(source, /addSizeControl[\s\S]*type: "number"/);
+  assert.match(source, /addColorControl[\s\S]*type: "color"/);
+  assert.match(source, /new OverridePathSuggest\(this\.app, text\.inputEl/);
 });
 
 test("preview corrections introduce no important declarations", () => {
@@ -1227,7 +1335,7 @@ test("unload cleanup removes plugin variables and scope classes", () => {
   const element = fakeElement();
   const interfaceRoot = fakeElement();
   applyInterfaceStateClasses(interfaceRoot, { bottomLeftControlsPosition: BOTTOM_LEFT_CONTROLS_POSITION_LEFT });
-  element.classList.add(STYLE_SCOPE_CLASS, "osc-scope-0", "style-controller-image-width", STYLE_HEADING_COLOR_ACTIVE_CLASS, STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS, ...STYLE_TITLE_ACTIVE_CLASSES);
+  element.classList.add(STYLE_SCOPE_CLASS, "osc-scope-0", "style-controller-image-width", STYLE_HEADING_COLOR_ACTIVE_CLASS, STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS, STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS, ...STYLE_TITLE_ACTIVE_CLASSES);
   element.classList.add(...STYLE_HEADING_COLOR_CLASSES);
   element.classList.add(...STYLE_HEADING_SPACE_ABOVE_CLASSES);
   applyProfileCssVariables(element, normalizeProfile({
@@ -1255,6 +1363,7 @@ test("unload cleanup removes plugin variables and scope classes", () => {
   assert.equal(element.classList.contains("style-controller-image-width"), false);
   assert.equal(element.classList.contains(STYLE_HEADING_COLOR_ACTIVE_CLASS), false);
   assert.equal(element.classList.contains(STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS), false);
+  assert.equal(element.classList.contains(STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS), false);
   STYLE_HEADING_COLOR_CLASSES.forEach((className) => assert.equal(element.classList.contains(className), false));
   STYLE_HEADING_SPACE_ABOVE_CLASSES.forEach((className) => assert.equal(element.classList.contains(className), false));
   STYLE_TITLE_ACTIVE_CLASSES.forEach((className) => assert.equal(element.classList.contains(className), false));

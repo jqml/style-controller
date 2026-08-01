@@ -17,9 +17,12 @@ const SIZE_UNITS = ["px", "rem", "em", "%", "pt"];
 const HEADING_SPACE_ABOVE_UNITS = [...SIZE_UNITS];
 const BOTTOM_LEFT_CONTROLS_POSITION_NATIVE = "native";
 const BOTTOM_LEFT_CONTROLS_POSITION_LEFT = "left";
+const READING_EDITING_LAYOUT_NATIVE = "native";
+const READING_EDITING_LAYOUT_MATCHED = "matched";
 const LEGACY_SETTINGS_ICON_POSITION_THEMEPRO = "themepro";
 const DEFAULT_INTERFACE_SETTINGS = {
-  bottomLeftControlsPosition: BOTTOM_LEFT_CONTROLS_POSITION_NATIVE
+  bottomLeftControlsPosition: BOTTOM_LEFT_CONTROLS_POSITION_NATIVE,
+  readingEditingLayout: READING_EDITING_LAYOUT_NATIVE
 };
 const CODE_BACKGROUND_CUSTOM_FIELDS = {
   codeBackground: {
@@ -669,6 +672,7 @@ const STYLE_EMPHASIS_ACTIVE_CLASSES = [
   STYLE_ITALIC_COLOR_ACTIVE_CLASS
 ];
 const STYLE_BOTTOM_LEFT_CONTROLS_LEFT_CLASS = "style-controller-bottom-left-controls-left";
+const STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS = "style-controller-matched-document-layout";
 const LEGACY_STYLE_SETTINGS_ICON_THEMEPRO_CLASS = "style-controller-settings-icon-themepro";
 const THEMEPRO_ORIGINAL_SELECTOR = ".workspace-drawer-vault-actions";
 const THEMEPRO_ORIGINAL_ORDER = -1;
@@ -711,6 +715,15 @@ function applyInterfaceStateClasses(element, interfaceSettings) {
 function clearInterfaceStateClasses(element) {
   toggleElementClass(element, STYLE_BOTTOM_LEFT_CONTROLS_LEFT_CLASS, false);
   toggleElementClass(element, LEGACY_STYLE_SETTINGS_ICON_THEMEPRO_CLASS, false);
+}
+
+function applyDocumentLayoutStateClass(element, interfaceSettings) {
+  const settings = normalizeInterfaceSettings(interfaceSettings);
+  toggleElementClass(
+    element,
+    STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS,
+    settings.readingEditingLayout === READING_EDITING_LAYOUT_MATCHED
+  );
 }
 const SIZE_FIELDS = new Set([
   ...Object.entries(STYLE_FIELD_REGISTRY)
@@ -852,7 +865,8 @@ export default class StyleControllerPlugin extends Plugin {
         ...STYLE_HEADING_SPACE_ABOVE_CLASSES,
         ...STYLE_TITLE_ACTIVE_CLASSES,
         STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS,
-        ...STYLE_EMPHASIS_ACTIVE_CLASSES
+        ...STYLE_EMPHASIS_ACTIVE_CLASSES,
+        STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS
       );
       clearProfileCssVariables(container);
       container.removeAttribute("data-osc-profile");
@@ -892,7 +906,8 @@ export default class StyleControllerPlugin extends Plugin {
         ...STYLE_HEADING_SPACE_ABOVE_CLASSES,
         ...STYLE_TITLE_ACTIVE_CLASSES,
         ...STYLE_EMPHASIS_ACTIVE_CLASSES,
-        STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS
+        STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS,
+        STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS
       );
       clearProfileCssVariables(container);
       container.removeAttribute("data-osc-profile");
@@ -900,6 +915,7 @@ export default class StyleControllerPlugin extends Plugin {
 
       const match = this.getProfileForPath(file.path);
       container.classList.add(STYLE_SCOPE_CLASS, scopeClass);
+      applyDocumentLayoutStateClass(container, this.settings?.interface);
       container.setAttribute("data-osc-profile", match.name);
       applyProfileCssVariables(container, match.profile);
       applyProfileStateClasses(container, match.profile);
@@ -1000,14 +1016,22 @@ function normalizeInterfaceSettings(interfaceSettings) {
     bottomLeftControlsPosition: configuredPosition === BOTTOM_LEFT_CONTROLS_POSITION_LEFT
       || configuredPosition === LEGACY_SETTINGS_ICON_POSITION_THEMEPRO
       ? BOTTOM_LEFT_CONTROLS_POSITION_LEFT
-      : BOTTOM_LEFT_CONTROLS_POSITION_NATIVE
+      : BOTTOM_LEFT_CONTROLS_POSITION_NATIVE,
+    readingEditingLayout: source.readingEditingLayout === READING_EDITING_LAYOUT_MATCHED
+      ? READING_EDITING_LAYOUT_MATCHED
+      : READING_EDITING_LAYOUT_NATIVE
   };
 }
 
 function validateInterfaceSection(interfaceSettings) {
-  return [BOTTOM_LEFT_CONTROLS_POSITION_NATIVE, BOTTOM_LEFT_CONTROLS_POSITION_LEFT].includes(interfaceSettings?.bottomLeftControlsPosition)
-    ? []
-    : ["bottomLeftControlsPosition must be Native or Left"];
+  const errors = [];
+  if (![BOTTOM_LEFT_CONTROLS_POSITION_NATIVE, BOTTOM_LEFT_CONTROLS_POSITION_LEFT].includes(interfaceSettings?.bottomLeftControlsPosition)) {
+    errors.push("bottomLeftControlsPosition must be Native or Left");
+  }
+  if (![READING_EDITING_LAYOUT_NATIVE, READING_EDITING_LAYOUT_MATCHED].includes(interfaceSettings?.readingEditingLayout)) {
+    errors.push("readingEditingLayout must be Native or Matched");
+  }
+  return errors;
 }
 
 function normalizeStoredConfigurations(configurations) {
@@ -2129,6 +2153,166 @@ function clearDisplayedDefaultOnFocus(input) {
   });
 }
 
+let scrollTextFieldId = 0;
+
+function singleLineScrollGeometry(scrollWidth, clientWidth, trackWidth, scrollLeft = 0) {
+  const contentWidth = Math.max(0, Number(scrollWidth) || 0);
+  const viewportWidth = Math.max(0, Number(clientWidth) || 0);
+  const availableTrackWidth = Math.max(0, Number(trackWidth) || 0);
+  const maxScroll = Math.max(0, contentWidth - viewportWidth);
+  if (maxScroll <= 1 || availableTrackWidth <= 0) {
+    return { overflows: false, maxScroll: 0, thumbWidth: availableTrackWidth, thumbOffset: 0 };
+  }
+  const thumbWidth = Math.max(18, Math.min(availableTrackWidth, availableTrackWidth * viewportWidth / contentWidth));
+  const thumbTravel = Math.max(0, availableTrackWidth - thumbWidth);
+  const clampedScroll = Math.max(0, Math.min(maxScroll, Number(scrollLeft) || 0));
+  return {
+    overflows: true,
+    maxScroll,
+    thumbWidth,
+    thumbOffset: maxScroll > 0 ? thumbTravel * clampedScroll / maxScroll : 0
+  };
+}
+
+class ScrollableSingleLineTextField {
+  constructor(input, displayValue = "") {
+    this.input = input;
+    this.displayValue = String(displayValue || "");
+    this.updateTimer = null;
+    this.drag = null;
+    this.shell = document.createElement("div");
+    this.shell.className = "osc-scroll-text-field";
+    input.parentElement?.insertBefore(this.shell, input);
+    this.shell.appendChild(input);
+    input.addClass("osc-scroll-text-input");
+
+    this.nativeDisplay = document.createElement("div");
+    this.nativeDisplay.className = "osc-scroll-text-native";
+    this.nativeDisplay.textContent = this.displayValue;
+    this.nativeDisplay.id = `osc-scroll-text-native-${scrollTextFieldId += 1}`;
+    this.shell.appendChild(this.nativeDisplay);
+
+    this.track = document.createElement("div");
+    this.track.className = "osc-scroll-text-track";
+    this.track.setAttribute("aria-hidden", "true");
+    this.thumb = document.createElement("div");
+    this.thumb.className = "osc-scroll-text-thumb";
+    this.track.appendChild(this.thumb);
+    this.shell.appendChild(this.track);
+
+    const describedBy = input.getAttribute("aria-describedby");
+    input.setAttribute("aria-describedby", [describedBy, this.nativeDisplay.id].filter(Boolean).join(" "));
+    this.nativeDisplay.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      input.focus();
+    });
+    [input, this.nativeDisplay].forEach((viewport) => {
+      viewport.addEventListener("scroll", () => this.scheduleUpdate());
+      viewport.addEventListener("wheel", (event) => this.handleWheel(event), { passive: false });
+    });
+    ["input", "keydown", "keyup", "click", "select"].forEach((eventName) => {
+      input.addEventListener(eventName, () => this.scheduleUpdate());
+    });
+    this.track.addEventListener("pointerdown", (event) => this.startTrackDrag(event));
+    this.track.addEventListener("pointermove", (event) => this.moveTrackDrag(event));
+    this.track.addEventListener("pointerup", (event) => this.endTrackDrag(event));
+    this.track.addEventListener("pointercancel", (event) => this.endTrackDrag(event));
+
+    this.resizeObserver = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(() => this.scheduleUpdate());
+    this.resizeObserver?.observe(this.shell);
+    this.scheduleUpdate();
+  }
+
+  isNativeDisplay() {
+    return !hasActiveValue(this.input.value) && !!this.displayValue;
+  }
+
+  viewport() {
+    return this.isNativeDisplay() ? this.nativeDisplay : this.input;
+  }
+
+  scheduleUpdate() {
+    if (this.updateTimer !== null) return;
+    this.updateTimer = window.setTimeout(() => {
+      this.updateTimer = null;
+      this.update();
+    }, 0);
+  }
+
+  update() {
+    const native = this.isNativeDisplay();
+    this.shell.toggleClass("is-native", native);
+    this.nativeDisplay.toggleAttribute("aria-hidden", !native);
+    const viewport = this.viewport();
+    const geometry = singleLineScrollGeometry(
+      viewport.scrollWidth,
+      viewport.clientWidth,
+      this.track.clientWidth,
+      viewport.scrollLeft
+    );
+    this.shell.toggleClass("has-overflow", geometry.overflows);
+    this.thumb.style.width = `${geometry.thumbWidth}px`;
+    this.thumb.style.insetInlineStart = `${geometry.thumbOffset}px`;
+  }
+
+  handleWheel(event) {
+    const delta = Math.abs(event.deltaX) > 0 ? event.deltaX : event.shiftKey ? event.deltaY : 0;
+    if (!delta) return;
+    const viewport = this.viewport();
+    const before = viewport.scrollLeft;
+    viewport.scrollLeft += delta;
+    if (viewport.scrollLeft !== before) event.preventDefault();
+    this.scheduleUpdate();
+  }
+
+  startTrackDrag(event) {
+    if (event.button !== 0 || !this.shell.hasClass("has-overflow")) return;
+    const viewport = this.viewport();
+    const geometry = singleLineScrollGeometry(
+      viewport.scrollWidth,
+      viewport.clientWidth,
+      this.track.clientWidth,
+      viewport.scrollLeft
+    );
+    const thumbRect = this.thumb.getBoundingClientRect();
+    if (event.target !== this.thumb) {
+      const trackRect = this.track.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (event.clientX - trackRect.left - geometry.thumbWidth / 2) / Math.max(1, trackRect.width - geometry.thumbWidth)));
+      viewport.scrollLeft = ratio * geometry.maxScroll;
+    }
+    this.drag = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startScroll: viewport.scrollLeft,
+      thumbTravel: Math.max(1, this.track.clientWidth - thumbRect.width),
+      maxScroll: geometry.maxScroll
+    };
+    this.track.setPointerCapture(event.pointerId);
+    event.preventDefault();
+    this.scheduleUpdate();
+  }
+
+  moveTrackDrag(event) {
+    if (!this.drag || event.pointerId !== this.drag.pointerId) return;
+    this.viewport().scrollLeft = this.drag.startScroll
+      + (event.clientX - this.drag.startX) * this.drag.maxScroll / this.drag.thumbTravel;
+    this.scheduleUpdate();
+  }
+
+  endTrackDrag(event) {
+    if (!this.drag || event.pointerId !== this.drag.pointerId) return;
+    if (this.track.hasPointerCapture(event.pointerId)) this.track.releasePointerCapture(event.pointerId);
+    this.drag = null;
+  }
+
+  destroy() {
+    if (this.updateTimer !== null) window.clearTimeout(this.updateTimer);
+    this.resizeObserver?.disconnect();
+  }
+}
+
 function normalizeUserPathPattern(path) {
   return normalizePath(String(path || "")).replace(/^\/+|\/+$/g, "");
 }
@@ -2407,6 +2591,18 @@ class StyleControllerSettingTab extends PluginSettingTab {
     super(app, plugin);
     this.plugin = plugin;
     this.drafts = new SectionDraftManager();
+    this.scrollTextFields = [];
+  }
+
+  addScrollableTextField(input, displayValue = input.placeholder) {
+    const field = new ScrollableSingleLineTextField(input, displayValue);
+    this.scrollTextFields.push(field);
+    return field;
+  }
+
+  clearScrollableTextFields() {
+    this.scrollTextFields.forEach((field) => field.destroy());
+    this.scrollTextFields = [];
   }
 
   getSectionContext(key, targetGetter, label, options = {}) {
@@ -2532,6 +2728,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
 
   display() {
     const { containerEl } = this;
+    this.clearScrollableTextFields();
     containerEl.empty();
     containerEl.addClass("osc-settings");
     this.renderTopNav(containerEl);
@@ -2567,6 +2764,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
       new Notice("Unsaved Style Controller changes were not applied.");
     }
     this.drafts = new SectionDraftManager();
+    this.clearScrollableTextFields();
     this.containerEl.empty();
   }
 
@@ -2625,6 +2823,17 @@ class StyleControllerSettingTab extends PluginSettingTab {
         .setValue(context.value.bottomLeftControlsPosition)
         .onChange((value) => {
           context.value.bottomLeftControlsPosition = value;
+          this.noteDraftMutation(context.value);
+        }));
+    new Setting(root)
+      .setName("Reading/editing layout")
+      .setDesc("Choose whether Reading view and Live Preview use their native layouts or share the same horizontal document layout.")
+      .addDropdown((dropdown) => dropdown
+        .addOption(READING_EDITING_LAYOUT_NATIVE, "Native")
+        .addOption(READING_EDITING_LAYOUT_MATCHED, "Matched")
+        .setValue(context.value.readingEditingLayout)
+        .onChange((value) => {
+          context.value.readingEditingLayout = value;
           this.noteDraftMutation(context.value);
         }));
   }
@@ -2725,6 +2934,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
       attr: { type: "text", "aria-label": "Configuration name", placeholder: "Configuration name" }
     });
     nameInput.value = config.name || "";
+    this.addScrollableTextField(nameInput, "Configuration name");
     const descriptionInput = editor.createEl("textarea", {
       attr: { "aria-label": "Configuration description", placeholder: "Description" }
     });
@@ -2825,13 +3035,15 @@ class StyleControllerSettingTab extends PluginSettingTab {
 
     new Setting(card)
       .setName("Name")
-      .addText((text) => text
-        .setPlaceholder("Projects style")
-        .setValue(draft.name)
-        .onChange((value) => {
+      .addText((text) => {
+        text.setPlaceholder("Projects style")
+          .setValue(draft.name)
+          .onChange((value) => {
           draft.name = value;
           this.noteDraftMutation(draft);
-        }));
+          });
+        this.addScrollableTextField(text.inputEl, "Projects style");
+      });
 
     new Setting(card)
       .setName("Match type")
@@ -3582,14 +3794,16 @@ class StyleControllerSettingTab extends PluginSettingTab {
     } else if (FONT_WEIGHT_FIELDS.has(key)) {
       this.addWeightControl(setting, profile, key, resolvedPlaceholder);
     } else {
-      setting.addText((text) => text
-        .setPlaceholder(resolvedPlaceholder)
-        .setValue(profile[key] || "")
-        .onChange((value) => {
+      setting.addText((text) => {
+        text.setPlaceholder(resolvedPlaceholder)
+          .setValue(profile[key] || "")
+          .onChange((value) => {
           profile[key] = value;
           this.noteDraftMutation(profile);
           this.updateDraftPreview(profile);
-        }));
+          });
+        this.addScrollableTextField(text.inputEl, resolvedPlaceholder);
+      });
       const status = createValueStatus(setting.controlEl, hasActiveValue(profile[key]));
       const input = setting.controlEl.querySelector("input");
       input?.addEventListener("input", () => updateValueStatus(status, hasActiveValue(input.value)));
@@ -3759,6 +3973,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
     input.value = profile[key] || "";
     const status = wrapper.createEl("span", { cls: "osc-font-status", text: "?" });
     ensureFontDatalist();
+    this.addScrollableTextField(input, resolvedDefault || placeholder);
 
     const updateStatus = () => {
       updateFontStatus(status, validateFont(input.value, STYLE_FIELD_REGISTRY[key]));
@@ -3804,14 +4019,16 @@ class StyleControllerSettingTab extends PluginSettingTab {
     } else if (FONT_WEIGHT_FIELDS.has(key)) {
       this.addDirectWeightControl(setting, object, key, placeholder, onChange);
     } else {
-      setting.addText((text) => text
-        .setPlaceholder(placeholder)
-        .setValue(object[key] || "")
-        .onChange((value) => {
+      setting.addText((text) => {
+        text.setPlaceholder(placeholder)
+          .setValue(object[key] || "")
+          .onChange((value) => {
           object[key] = value;
           this.noteDraftMutation(object);
           onChange?.();
-        }));
+          });
+        this.addScrollableTextField(text.inputEl, placeholder);
+      });
       const status = createValueStatus(setting.controlEl, hasActiveValue(object[key]));
       const input = setting.controlEl.querySelector("input");
       input?.addEventListener("input", () => updateValueStatus(status, hasActiveValue(input.value)));
@@ -3882,6 +4099,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
     input.value = object[key] || "";
     const status = wrapper.createEl("span", { cls: "osc-font-status", text: "?" });
     ensureFontDatalist();
+    this.addScrollableTextField(input, resolvedDefault || placeholder);
 
     const updateStatus = () => {
       updateFontStatus(status, validateFont(input.value, STYLE_FIELD_REGISTRY[key]));
@@ -3936,6 +4154,8 @@ export {
   BOTTOM_LEFT_CONTROLS_POSITION_NATIVE,
   BOTTOM_LEFT_CONTROLS_POSITION_LEFT,
   BOTTOM_LEFT_CONTROLS_LEFT_SELECTOR,
+  READING_EDITING_LAYOUT_NATIVE,
+  READING_EDITING_LAYOUT_MATCHED,
   SETTINGS_SCHEMA_VERSION,
   STYLE_FIELD_REGISTRY,
   STYLE_SCOPE_CLASS,
@@ -3957,6 +4177,8 @@ export {
   STYLE_ITALIC_WEIGHT_ACTIVE_CLASS,
   STYLE_ITALIC_COLOR_ACTIVE_CLASS,
   STYLE_BOTTOM_LEFT_CONTROLS_LEFT_CLASS,
+  STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS,
+  applyDocumentLayoutStateClass,
   applyDraftAtomically,
   applyInterfaceStateClasses,
   applyProfileCssVariables,
@@ -3981,5 +4203,6 @@ export {
   parseConfigurationImport,
   setCodeBackgroundCustomEnabled,
   setCodeBackgroundCustomInput,
-  setCodeBackgroundCustomValue
+  setCodeBackgroundCustomValue,
+  singleLineScrollGeometry
 };

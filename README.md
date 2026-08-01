@@ -14,6 +14,7 @@ This plugin changes appearance by applying scoped CSS custom properties. Test pr
 - Static CSS rules with custom properties scoped to active Markdown views and matching file paths.
 - Image controls for alignment, width, and whether explicit image sizes are respected.
 - Status indicators for style fields: On, Off, and Error.
+- Content-sized horizontal scrollers for long single-line text and resolved native font stacks.
 - Import/export workflows for stored configurations.
 
 ## Profiles and Default behavior
@@ -92,6 +93,23 @@ This checklist describes the manual equivalence checks; the release tests verify
 8. Disable Style Controller and confirm native placement returns.
 
 The authoritative Obsidian Pro snippet contains `.workspace-drawer-vault-actions { order: -1; }`. The plugin applies that exact group-level behavior within the left sidebar vault-profile/footer area. The current vault does not enable that snippet.
+
+## Reading/editing layout checklist
+
+1. In **Interface**, leave **Reading/editing layout** on **Native**, select **Apply**, and confirm Reading view and Live Preview retain their native horizontal layout.
+2. Select **Matched**, select **Apply**, and compare the left edge, centering, and available width of the inline title, Properties block, and note body in both views.
+3. Repeat with **Readable line length** enabled and disabled, and in narrow and split panes.
+4. Confirm draft changes do not affect open notes before **Apply**, and that **Revert** restores the applied choice.
+5. Return to **Native**, then disable Style Controller, and confirm no matched-layout class or override remains.
+6. Confirm vertical spacing, wrapping, cursor/selection behavior, scrolling, and LaTeX Suite behavior are unchanged. Visible Markdown syntax in Live Preview can occupy horizontal space while it is being edited; the underlying document container geometry should still match Reading view.
+
+## Long text field checklist
+
+1. At normal and narrow settings widths, enter a long font stack and confirm only its field scrolls horizontally.
+2. Drag the thin track, use horizontal trackpad or Shift-wheel scrolling, and use Home, End, and arrow keys to reach the complete value.
+3. Confirm short values have no track, text stays on one line, and the settings page has no horizontal overflow.
+4. Clear the field and confirm the grey resolved native stack remains scrollable while the input and saved profile stay blank.
+5. Confirm selection, copy, paste, Apply, Revert, focus styling, and theme-driven native-value refresh continue to work.
 
 ## Italic size equivalence checklist
 
