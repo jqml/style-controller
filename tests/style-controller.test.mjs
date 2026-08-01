@@ -442,7 +442,8 @@ test("title CSS is static, class-gated, and cannot target tabs, explorer, or bre
     assert.doesNotMatch(rule.selectors, /nav-|breadcrumb|tab-|\.workspace-tab-header|nav-file-title/);
   });
   assert.match(css, /\.osc-heading-preview-title/);
-  assert.match(css, /\.osc-heading-preview-title\.style-controller-title-(?:font|size|weight)-active/);
+  assert.doesNotMatch(css, /--osc-preview-title-/);
+  assert.match(source, /applyProfileToPreview\(preview, profile\)/);
 });
 
 test("heading preview uses a full-width title followed by two three-heading rows", () => {
@@ -451,7 +452,8 @@ test("heading preview uses a full-width title followed by two three-heading rows
     source.indexOf("  updatePreview(profile", source.indexOf("  renderHeadingPreview(parent, profile)"))
   );
   assert.match(headingPreview, /osc-heading-preview-grid/);
-  assert.match(headingPreview, /grid\.createDiv\(\{ text: "Note title", cls: "osc-heading-preview-title" \}\)/);
+  assert.match(headingPreview, /grid\.createDiv\(\{ text: "Note title", cls: "inline-title osc-heading-preview-title" \}\)/);
+  assert.match(headingPreview, /grid\.createEl\(`h\$\{level\}`/);
   assert.match(headingPreview, /for \(let level = 1; level <= 6; level \+= 1\)/);
 
   const gridRule = cssRules(css).find((rule) => rule.selectors === ".osc-heading-preview-grid"
@@ -468,15 +470,14 @@ test("heading preview narrows without overflow and preserves heading typography"
   assert.doesNotMatch(css, /\.osc-heading-preview(?:-grid)?[^{}]*\{[^}]*overflow-x\s*:/s);
   assert.doesNotMatch(css, /\.osc-heading-preview(?:-grid)?[^{}]*\{[^}]*width\s*:/s);
 
-  const headingStyle = cssRules(css).find((rule) => rule.selectors
-    === '.osc-heading-preview [class*="osc-heading-preview-h"]');
-  assert.ok(headingStyle);
-  assert.deepEqual(headingStyle.declarations.split("\n").map((declaration) => declaration.trim()), [
-    "color: var(--osc-preview-heading-color);",
-    "font-family: var(--osc-preview-heading-font-family);",
-    "font-size: var(--osc-preview-heading-font-size);",
-    "font-weight: var(--osc-preview-heading-font-weight);"
-  ]);
+  assert.doesNotMatch(css, /--osc-preview-heading-/);
+  assert.match(css, /\.osc-style-scope \.markdown-preview-view h1/);
+});
+
+test("narrow settings widths collapse fixed control grids without horizontal scrolling", () => {
+  assert.match(css, /@media \(max-width: 820px\)[\s\S]*?\.osc-base-text-row\.is-metrics-row,[\s\S]*?\.osc-base-text-row\.is-color-row[\s\S]*?grid-template-columns: 1fr/);
+  assert.match(css, /@media \(max-width: 820px\)[\s\S]*?\.osc-images-grid\s*\{\s*grid-template-columns: 1fr/);
+  assert.doesNotMatch(css, /\.osc-mini-preview[^{}]*\{[^}]*overflow-x:\s*(?:auto|scroll)/s);
 });
 
 test("content-facing rules stay scoped and emphasis does not style formatting markers", () => {
@@ -714,6 +715,73 @@ test("settings UI exposes section Apply/Revert actions and navigation guard", ()
   assert.deepEqual(PROFILE_SECTION_FIELDS.boldItalic.includes("boldColor"), true);
 });
 
+test("Base text owns only base controls and its preview contains regular text only", () => {
+  assert.deepEqual(Array.from(PROFILE_SECTION_FIELDS.baseText), [
+    "fontFamily", "textSize", "textWeight", "lineHeight", "textColor", "backgroundColor", "accentColor"
+  ]);
+  const baseControls = source.slice(source.indexOf("  renderBaseTextControls(parent"), source.indexOf("  renderHeadingGroup(parent"));
+  assert.doesNotMatch(baseControls, /bold|italic/i);
+  const previewMethod = source.slice(source.indexOf("  renderSectionPreview(parent"), source.indexOf("  renderHeadingPreview(parent"));
+  const baseBranch = previewMethod.slice(previewMethod.indexOf('title === "Base text"'), previewMethod.indexOf('title === "Bold and italic"'));
+  assert.match(baseBranch, /Regular body text preview/);
+  assert.doesNotMatch(baseBranch, /createEl\("strong"|createEl\("em"|\*\*|\*italic/);
+});
+
+test("Bold and italic owns exactly one complete control set and a real Markdown preview", () => {
+  assert.deepEqual(Array.from(PROFILE_SECTION_FIELDS.boldItalic), [
+    "boldFontFamily", "boldWeight", "boldColor", "italicFontFamily", "italicSize", "italicWeight", "italicColor"
+  ]);
+  PROFILE_SECTION_FIELDS.boldItalic.forEach((field) => assert.equal(STYLE_FIELD_REGISTRY[field].group, "boldItalic"));
+  const profileSection = source.slice(source.indexOf("  renderProfileSection(parent"), source.indexOf("  renderSettingGroup(parent"));
+  PROFILE_SECTION_FIELDS.boldItalic.forEach((field) => {
+    assert.equal((profileSection.match(new RegExp(`\\["${field}"`, "g")) || []).length, 1, field);
+  });
+  const previewMethod = source.slice(source.indexOf("  renderSectionPreview(parent"), source.indexOf("  renderHeadingPreview(parent"));
+  const emphasisBranch = previewMethod.slice(previewMethod.indexOf('title === "Bold and italic"'), previewMethod.indexOf('title === "Links"'));
+  assert.match(emphasisBranch, /MarkdownRenderer\.renderMarkdown/);
+  assert.match(emphasisBranch, /\*\*bold text\*\*/);
+  assert.match(emphasisBranch, /\*italic text\*/);
+  assert.match(emphasisBranch, /markdown-preview-view markdown-rendered/);
+});
+
+test("all section previews use the production profile pipeline and draft handlers update immediately", () => {
+  assert.match(source, /function applyProfileToPreview\(element, profile\)[\s\S]*applyProfileCssVariables\(element, profile\)[\s\S]*applyProfileStateClasses\(element, profile\)/);
+  for (const selector of ["osc-base-preview", "osc-emphasis-preview", "osc-links-preview", "osc-heading-preview", "osc-rich-preview"]) {
+    assert.match(source, new RegExp(selector));
+  }
+  for (const method of ["addTextSetting", "addSizeControl", "addColorControl", "addFontControl", "addWeightControl", "addImageAlignmentControl", "addImageRespectExplicitSizeControl"]) {
+    const start = source.indexOf(`  ${method}(`);
+    const next = source.indexOf("\n  }\n\n  ", start);
+    assert.ok(start >= 0, method);
+    assert.match(source.slice(start, next > start ? next : source.length), /updateDraftPreview/, method);
+  }
+  assert.doesNotMatch(css, /--osc-preview-(?:font|title|heading|link|table|blockquote)/);
+});
+
+test("native values are resolved semantically, displayed without persistence, and refreshed on theme changes", () => {
+  assert.match(source, /nativeSemanticElementForField/);
+  assert.match(source, /inline-title/);
+  assert.match(source, /probe\.ownerDocument\.defaultView/);
+  assert.match(source, /view\.getComputedStyle\(element\)/);
+  assert.match(source, /nativeSemanticProbeScope/);
+  assert.match(source, /profileWithNativeField/);
+  assert.match(source, /data-osc-native-value/);
+  assert.doesNotMatch(source, /"Title size", "40"|"Title weight", "400"/);
+  assert.match(source, /workspace\.on\("css-change"[\s\S]*refreshNativeDefaults/);
+  assert.match(source, /refreshNativeDefaults\(\)[\s\S]*refreshPreservingScroll/);
+  assert.doesNotMatch(source, /profile\[key\]\s*=\s*nativeValue/);
+});
+
+test("legacy Base text override modules retain emphasis through the new logical module", () => {
+  const settings = normalizeSettings({
+    overrides: [{ id: "legacy", modules: { baseText: true }, profile: { boldWeight: "650" } }]
+  });
+  assert.equal(settings.overrides[0].modules.baseText, true);
+  assert.equal(settings.overrides[0].modules.boldItalic, true);
+  assert.equal(settings.overrides[0].profile.boldWeight, "650");
+  assert.match(source, /renderOverrideModuleToggle\(card, draft, "boldItalic", "Bold and italic"\)/);
+});
+
 test("the real fenced code block has an auditable ownership fixture", () => {
   const notePath = "Metadata class/Untitled 1.md";
   const fixture = "```text\\nQMSE circuit\\n→ trainable quantum circuit\\n→ quantum measurements\\n→ classical regression\\n→ atomization energy\\n```";
@@ -731,7 +799,7 @@ test("the real fenced code block has an auditable ownership fixture", () => {
   assert.equal(STYLE_FIELD_REGISTRY.codeBlockColor.property, "color");
 });
 
-test("block background keeps #fafafa while block text stays native unless explicitly active", () => {
+test("block background and text stay native unless explicitly active", () => {
   const rules = cssRules(css);
   const backgroundRule = rules.find((rule) => rule.selectors.includes(".markdown-source-view.mod-cm6 .HyperMD-codeblock-bg")
     && rule.declarations.includes("background-color"));
@@ -748,7 +816,7 @@ test("block background keeps #fafafa while block text stays native unless explic
   const element = fakeElement();
   applyProfileCssVariables(element, normalizeProfile({}));
   applyProfileStateClasses(element, normalizeProfile({}));
-  assert.equal(element.css.get("--osc-code-block-background"), "#fafafa");
+  assert.equal(element.css.has("--osc-code-block-background"), false);
   assert.equal(element.classList.contains(STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS), false);
   applyProfileStateClasses(element, normalizeProfile({ codeBlockColor: "#123456" }));
   assert.equal(element.classList.contains(STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS), true);
@@ -776,7 +844,7 @@ test("inline and block code fields have independent authoritative registry entri
   assert.equal(CODE_BACKGROUND_CUSTOM_FIELDS.codeBlockBackground.value, "codeBlockBackgroundCustomValue");
 });
 
-test("real defaults render #fafafa while both custom overrides are Off", () => {
+test("stored code defaults remain compatible while Off emits no override", () => {
   assert.equal(DEFAULT_CODE_BACKGROUND, "#fafafa");
   assert.equal(DEFAULT_PROFILE.codeBackground, "#fafafa");
   assert.equal(DEFAULT_PROFILE.codeBlockBackground, "#fafafa");
@@ -794,18 +862,18 @@ test("real defaults render #fafafa while both custom overrides are Off", () => {
     assert.equal(profile.codeBackground, "#fafafa");
     assert.equal(profile.codeBlockBackground, "#fafafa");
     for (const field of ["codeBackground", "codeBlockBackground"]) {
-      const state = codeBackgroundUiState(profile, field);
+      const state = codeBackgroundUiState(profile, field, false, "#112233");
       assert.equal(state.enabled, false);
       assert.equal(state.status, "Off");
-      assert.equal(state.displayedValue, "#fafafa");
-      assert.equal(state.effectiveValue, "#fafafa");
+      assert.equal(state.displayedValue, "#112233");
+      assert.equal(state.effectiveValue, "");
     }
   }
 
   const element = fakeElement();
   applyProfileCssVariables(element, created);
-  assert.equal(element.css.get("--osc-code-background"), "#fafafa");
-  assert.equal(element.css.get("--osc-code-block-background"), "#fafafa");
+  assert.equal(element.css.has("--osc-code-background"), false);
+  assert.equal(element.css.has("--osc-code-block-background"), false);
 });
 
 test("custom values survive Off, save/load, export/import, and restore when On", () => {
@@ -839,22 +907,22 @@ test("custom values survive Off, save/load, export/import, and restore when On",
   assert.equal(imported.data.global.codeBackground, "#e8e8e8");
 });
 
-test("Off emits both built-in variables and custom On remains independent", () => {
+test("Off emits no code variables and custom On remains independent", () => {
   const element = fakeElement();
   const profile = createDefaultProfile();
   applyProfileCssVariables(element, profile);
-  assert.equal(element.css.get("--osc-code-background"), "#fafafa");
-  assert.equal(element.css.get("--osc-code-block-background"), "#fafafa");
+  assert.equal(element.css.has("--osc-code-background"), false);
+  assert.equal(element.css.has("--osc-code-block-background"), false);
 
   setCodeBackgroundCustomValue(profile, "codeBackground", "#123456");
   setCodeBackgroundCustomEnabled(profile, "codeBackground", true);
   applyProfileCssVariables(element, profile);
   assert.equal(element.css.get("--osc-code-background"), "#123456");
-  assert.equal(element.css.get("--osc-code-block-background"), "#fafafa");
+  assert.equal(element.css.has("--osc-code-block-background"), false);
 
   setCodeBackgroundCustomEnabled(profile, "codeBackground", false);
   applyProfileCssVariables(element, profile);
-  assert.equal(element.css.get("--osc-code-background"), "#fafafa");
+  assert.equal(element.css.has("--osc-code-background"), false);
   assert.equal(profile.codeBackgroundCustomValue, "#123456");
 
   clearProfileCssVariables(element);
@@ -953,16 +1021,16 @@ test("partial path overrides inherit unless an effective background is explicitl
   assert.equal(customOverride.codeBlockBackgroundCustomEnabled, true);
 });
 
-test("code background UI displays the real effective value without a Native label or placeholder", () => {
+test("code background UI displays a resolved native value without persisting it", () => {
   const profile = createDefaultProfile();
   for (const field of ["codeBackground", "codeBlockBackground"]) {
-    assert.equal(effectiveCodeBackground(profile, field), "#fafafa");
-    const state = codeBackgroundUiState(profile, field);
+    assert.equal(effectiveCodeBackground(profile, field), "");
+    const state = codeBackgroundUiState(profile, field, false, "#334455");
     assert.equal(state.enabled, false);
     assert.equal(state.inherited, false);
     assert.equal(state.customValue, "#fafafa");
-    assert.equal(state.displayedValue, "#fafafa");
-    assert.equal(state.effectiveValue, "#fafafa");
+    assert.equal(state.displayedValue, "#334455");
+    assert.equal(state.effectiveValue, "");
     assert.equal(state.status, "Off");
   }
 
@@ -984,7 +1052,7 @@ test("one compact control automatically maps typed custom values and clearing to
     codeBlockBackgroundCustomEnabled: false,
     codeBlockBackgroundCustomValue: "#fafafa"
   });
-  assert.equal(codeBackgroundUiState(profile, "codeBackground").displayedValue, "#fafafa");
+  assert.equal(codeBackgroundUiState(profile, "codeBackground", false, "#556677").displayedValue, "#556677");
   assert.equal(codeBackgroundUiState(profile, "codeBackground").status, "Off");
 
   setCodeBackgroundCustomInput(profile, "codeBackground", "#e8e8e8");
@@ -999,21 +1067,21 @@ test("one compact control automatically maps typed custom values and clearing to
   const applied = fakeElement();
   applyProfileCssVariables(applied, profile);
   assert.equal(applied.css.get("--osc-code-background"), "#e8e8e8");
-  assert.equal(applied.css.get("--osc-code-block-background"), "#fafafa");
+  assert.equal(applied.css.has("--osc-code-block-background"), false);
 
   setCodeBackgroundCustomInput(profile, "codeBackground", "");
-  const cleared = codeBackgroundUiState(profile, "codeBackground");
+  const cleared = codeBackgroundUiState(profile, "codeBackground", false, "#556677");
   assert.equal(profile.codeBackgroundCustomEnabled, false);
   assert.equal(cleared.status, "Off");
-  assert.equal(cleared.displayedValue, "#fafafa");
-  assert.equal(cleared.effectiveValue, "#fafafa");
+  assert.equal(cleared.displayedValue, "#556677");
+  assert.equal(cleared.effectiveValue, "");
   applyProfileCssVariables(applied, profile);
-  assert.equal(applied.css.get("--osc-code-background"), "#fafafa");
+  assert.equal(applied.css.has("--osc-code-background"), false);
   assert.notEqual(applied.css.get("--osc-code-background"), "#ffffff");
 
   setCodeBackgroundCustomInput(profile, "codeBlockBackground", "not-a-color");
   assert.equal(codeBackgroundUiState(profile, "codeBlockBackground").status, "Error");
-  assert.equal(codeBackgroundUiState(profile, "codeBlockBackground").effectiveValue, "#fafafa");
+  assert.equal(codeBackgroundUiState(profile, "codeBlockBackground").effectiveValue, "");
 });
 
 test("code backgrounds use the standard single-row color-control structure without a toggle", () => {
@@ -1053,7 +1121,7 @@ test("path overrides resolve and apply independently per Markdown leaf", () => {
   applyProfileCssVariables(workLeaf, work.profile);
   applyProfileCssVariables(personalLeaf, personal.profile);
   assert.equal(workLeaf.css.get("--osc-code-block-background"), "#123456");
-  assert.equal(personalLeaf.css.get("--osc-code-block-background"), "#fafafa");
+  assert.equal(personalLeaf.css.has("--osc-code-block-background"), false);
 });
 
 test("heading path overrides can control Title without changing H1", () => {
@@ -1118,16 +1186,16 @@ test("unload cleanup removes plugin variables and scope classes", () => {
 
 test("preview, reading view, and Live Preview use the same dedicated block variable", () => {
   const rules = cssRules(css);
-  const previewPre = rules.find((rule) => rule.selectors.includes(".osc-code-block-rendered-preview pre") && !rule.selectors.includes("pre code"));
   const readingBlock = rules.find((rule) => rule.selectors.includes(".osc-style-scope .markdown-rendered pre") && rule.declarations.includes("background-color"));
   const editorBlock = rules.find((rule) => rule.selectors.includes(".HyperMD-codeblock-bg") && rule.declarations.includes("background-color"));
   const inlineRule = rules.find((rule) => rule.selectors.includes(":not(pre) > code"));
 
-  assert.match(previewPre.declarations, /background-color:\s*var\(--osc-code-block-background\)/);
   assert.match(readingBlock.declarations, /background-color:\s*var\(--osc-code-block-background\)/);
   assert.match(editorBlock.declarations, /background-color:\s*var\(--osc-code-block-background\)/);
   assert.match(inlineRule.declarations, /background-color:\s*var\(--osc-code-background\)/);
   assert.doesNotMatch(inlineRule.declarations, /--osc-code-block-background/);
+  assert.match(source, /osc-code-block-rendered-preview markdown-rendered/);
+  assert.match(source, /applyProfileToPreview\(preview, profile\)/);
 
   const blockRules = rules.filter((rule) => (
     /code-block-rendered-preview|markdown-rendered pre|HyperMD-codeblock/.test(rule.selectors)
@@ -1140,8 +1208,8 @@ test("preview, reading view, and Live Preview use the same dedicated block varia
   const focusedFixture = normalizeProfile({ codeBackground: "#fafafa", codeBlockBackground: "#fafafa" });
   const element = fakeElement();
   applyProfileCssVariables(element, focusedFixture);
-  assert.equal(element.css.get("--osc-code-background"), "#fafafa");
-  assert.equal(element.css.get("--osc-code-block-background"), "#fafafa");
+  assert.equal(element.css.has("--osc-code-background"), false);
+  assert.equal(element.css.has("--osc-code-block-background"), false);
 });
 
 test("code preview has no hardcoded white fallback and source has no runtime stylesheet mutation", () => {
