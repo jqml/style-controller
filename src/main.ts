@@ -8,14 +8,44 @@ import {
   TFolder,
   prepareFuzzySearch,
   normalizePath,
-  Modal
+  Modal,
+  setIcon
 } from "obsidian";
 
-const SETTINGS_SCHEMA_VERSION = 4;
+const SETTINGS_SCHEMA_VERSION = 5;
 const DEFAULT_CODE_BACKGROUND = "#fafafa";
+const LEGACY_AUTOMATIC_LINK_DEFAULTS = {
+  linkColor: "#00ff33",
+  linkHoverColor: "#ff6b9f",
+  internalLinkColor: "#6eb47c",
+  externalLinkColor: "#66d9ef"
+};
+const LEGACY_AUTOMATIC_HEADING_DEFAULTS = {
+  h1Size: "32px",
+  h1Weight: "700",
+  h2Size: "24px",
+  h2Weight: "700",
+  h3Size: "20px",
+  h3Weight: "650",
+  h4Size: "18px",
+  h4Weight: "650",
+  h5Size: "16px",
+  h5Weight: "600",
+  h6Size: "14px",
+  h6Weight: "600"
+};
+const LEGACY_AUTOMATIC_CALLOUT_DEFAULTS = {
+  borderWidth: "2px",
+  radius: "8px",
+  titleSize: "18px",
+  multiColumnBorderColor: "#000000",
+  multiColumnBorderWidth: "1px",
+  multiColumnBorderStyle: "groove"
+};
 const SIZE_UNITS = ["px", "rem", "em", "%", "pt"];
 const LINE_HEIGHT_UNITS = ["unitless", ...SIZE_UNITS];
 const HEADING_SPACE_ABOVE_UNITS = [...SIZE_UNITS];
+const FONT_STYLE_VALUES = ["normal", "italic"];
 const BOTTOM_LEFT_CONTROLS_POSITION_NATIVE = "native";
 const BOTTOM_LEFT_CONTROLS_POSITION_LEFT = "left";
 const READING_EDITING_LAYOUT_NATIVE = "native";
@@ -41,9 +71,11 @@ const DEFAULT_PROFILE = {
   textSize: "",
   textWeight: "",
   boldFontFamily: "",
+  boldFontStyle: "",
   boldWeight: "",
   boldColor: "",
   italicFontFamily: "",
+  italicFontStyle: "",
   italicSize: "",
   italicWeight: "",
   italicColor: "",
@@ -53,48 +85,48 @@ const DEFAULT_PROFILE = {
   textColor: "",
   backgroundColor: "",
   accentColor: "",
-  linkColor: "#00ff33",
-  linkHoverColor: "#ff6b9f",
-  internalLinkColor: "#6eb47c",
-  externalLinkColor: "#66d9ef",
+  linkColor: "",
+  linkHoverColor: "",
+  internalLinkColor: "",
+  externalLinkColor: "",
   titleFontFamily: "",
   titleSize: "",
   titleWeight: "",
   h1FontFamily: "",
-  h1Size: "32px",
-  h1Weight: "700",
+  h1Size: "",
+  h1Weight: "",
   h1Color: "",
   h2FontFamily: "",
-  h2Size: "24px",
-  h2Weight: "700",
+  h2Size: "",
+  h2Weight: "",
   h2Color: "",
   h3FontFamily: "",
-  h3Size: "20px",
-  h3Weight: "650",
+  h3Size: "",
+  h3Weight: "",
   h3Color: "",
   h4FontFamily: "",
-  h4Size: "18px",
-  h4Weight: "650",
+  h4Size: "",
+  h4Weight: "",
   h4Color: "",
   h5FontFamily: "",
-  h5Size: "16px",
-  h5Weight: "600",
+  h5Size: "",
+  h5Weight: "",
   h5Color: "",
   h6FontFamily: "",
-  h6Size: "14px",
-  h6Weight: "600",
+  h6Size: "",
+  h6Weight: "",
   h6Color: "",
   tableHeaderBackground: "",
   tableHeaderColor: "",
   tableBorderColor: "",
   tableRowAltBackground: "",
   codeFontFamily: "",
-  codeBackground: DEFAULT_CODE_BACKGROUND,
+  codeBackground: "",
   codeBackgroundCustomEnabled: false,
   codeBackgroundCustomValue: DEFAULT_CODE_BACKGROUND,
   codeColor: "",
   codeBlockFontFamily: "",
-  codeBlockBackground: DEFAULT_CODE_BACKGROUND,
+  codeBlockBackground: "",
   codeBlockBackgroundCustomEnabled: false,
   codeBlockBackgroundCustomValue: DEFAULT_CODE_BACKGROUND,
   codeBlockColor: "",
@@ -232,9 +264,11 @@ function fieldDefinition(type, group, variable, selectors, property = null, opti
 const STYLE_FIELD_REGISTRY = {
   textWeight: fieldDefinition("weight", "baseText", "--osc-text-weight", BASE_TEXT_SELECTORS, "font-weight"),
   boldFontFamily: fieldDefinition("font", "boldItalic", "--osc-bold-font-family", [".markdown-preview-view strong", ".markdown-preview-view b", EMPHASIS_SOURCE_SELECTORS.bold], "font-family"),
+  boldFontStyle: fieldDefinition("style", "boldItalic", "--osc-bold-font-style", [".markdown-preview-view strong", ".markdown-preview-view b", EMPHASIS_SOURCE_SELECTORS.bold], "font-style"),
   boldWeight: fieldDefinition("weight", "boldItalic", "--osc-bold-weight", [".markdown-preview-view strong", ".markdown-preview-view b", EMPHASIS_SOURCE_SELECTORS.bold], "font-weight"),
   boldColor: fieldDefinition("color", "boldItalic", "--osc-bold-color", [".markdown-preview-view strong", ".markdown-preview-view b", EMPHASIS_SOURCE_SELECTORS.bold], "color"),
   italicFontFamily: fieldDefinition("font", "boldItalic", "--osc-italic-font-family", [".markdown-preview-view em", ".markdown-preview-view i", EMPHASIS_SOURCE_SELECTORS.italic], "font-family"),
+  italicFontStyle: fieldDefinition("style", "boldItalic", "--osc-italic-font-style", [".markdown-preview-view em", ".markdown-preview-view i", EMPHASIS_SOURCE_SELECTORS.italic], "font-style"),
   italicSize: fieldDefinition("size", "boldItalic", "--osc-italic-size", [".markdown-preview-view em", ".markdown-preview-view i", EMPHASIS_SOURCE_SELECTORS.italic], "font-size"),
   italicWeight: fieldDefinition("weight", "boldItalic", "--osc-italic-weight", [".markdown-preview-view em", ".markdown-preview-view i", EMPHASIS_SOURCE_SELECTORS.italic], "font-weight"),
   italicColor: fieldDefinition("color", "boldItalic", "--osc-italic-color", [".markdown-preview-view em", ".markdown-preview-view i", EMPHASIS_SOURCE_SELECTORS.italic], "color"),
@@ -325,7 +359,8 @@ const PROFILE_SECTION_FIELDS = {
     "textWeight", "lineHeight", "lineHeightValue", "lineHeightUnit", "textColor", "backgroundColor", "accentColor"
   ],
   boldItalic: [
-    "boldFontFamily", "boldWeight", "boldColor", "italicFontFamily", "italicSize", "italicWeight", "italicColor"
+    "boldFontFamily", "boldFontStyle", "boldWeight", "boldColor",
+    "italicFontFamily", "italicFontStyle", "italicSize", "italicWeight", "italicColor"
   ],
   headings: ["titleFontFamily", "titleSize", "titleWeight"].concat(Array.from({ length: 6 }, (_, index) => [
     `h${index + 1}FontFamily`, `h${index + 1}Size`, `h${index + 1}Weight`, `h${index + 1}Color`,
@@ -434,6 +469,7 @@ function validateProfileSection(profile, fields) {
     if (!meta || value === undefined || value === null || String(value).trim() === "") return;
     if (meta.type === "color" && !normalizeHexColor(value)) errors.push(`${field} must be a valid hex color`);
     if (meta.type === "font" && !validateFont(value, meta).valid) errors.push(`${field} must be a valid font family`);
+    if (meta.type === "style" && !normalizeFontStyle(value)) errors.push(`${field} must be normal or italic`);
     if (meta.type === "weight" && !validateFontWeight(value).valid) errors.push(`${field} must be a valid font weight`);
     if (meta.type === "size" && !normalizeCssSizeText(value)) errors.push(`${field} must be a valid CSS size`);
   });
@@ -508,15 +544,15 @@ const DEFAULT_SETTINGS = {
   interface: DEFAULT_INTERFACE_SETTINGS,
   global: DEFAULT_PROFILE,
   callouts: {
-    borderWidth: "2px",
-    radius: "8px",
-    titleSize: "18px",
+    borderWidth: "",
+    radius: "",
+    titleSize: "",
     titleFontFamily: "",
     previewTitle: "Global callout preview",
     previewBody: "ss",
-    multiColumnBorderColor: "#000000",
-    multiColumnBorderWidth: "1px",
-    multiColumnBorderStyle: "groove",
+    multiColumnBorderColor: "",
+    multiColumnBorderWidth: "",
+    multiColumnBorderStyle: "",
     presets: [
       { type: "email", color: "#008293", titleColor: "#008293", backgroundColor: "#ecf6f3", icon: "lucide-mail", hideIcon: false },
       { type: "smartphone-nfc", color: "#008293", titleColor: "", backgroundColor: "#ecf6f3", icon: "lucide-smartphone-nfc", hideIcon: false },
@@ -625,7 +661,7 @@ const OBSIDIAN_PRO_CONFIGURATION = {
 const NATIVE_DEFAULT_CONFIGURATION = {
   id: "builtin-native-default",
   name: "Default",
-  description: "Native Obsidian styling with built-in #fafafa inline-code and block-code backgrounds.",
+  description: "Native Obsidian styling with no Style Controller note-property overrides.",
   data: createNativeConfigurationData()
 };
 
@@ -634,6 +670,8 @@ const PROFILE_FIELDS = Object.entries(STYLE_FIELD_REGISTRY)
   .map(([key, meta]) => [key, meta.variable]);
 
 const STYLE_SCOPE_CLASS = "osc-style-scope";
+const STYLE_FIELD_ACTIVE_CLASS_PREFIX = "style-controller-field-";
+const STYLE_FIELD_ACTIVE_CLASS_SUFFIX = "-active";
 const STYLE_IMAGE_ALIGNMENT_CLASSES = [
   "style-controller-image-align-left",
   "style-controller-image-align-center",
@@ -662,21 +700,42 @@ const STYLE_TITLE_ACTIVE_CLASSES = [
 ];
 const STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS = "style-controller-code-block-color-active";
 const STYLE_BOLD_FONT_ACTIVE_CLASS = "style-controller-bold-font-active";
+const STYLE_BOLD_STYLE_ACTIVE_CLASS = "style-controller-bold-style-active";
 const STYLE_BOLD_WEIGHT_ACTIVE_CLASS = "style-controller-bold-weight-active";
 const STYLE_BOLD_COLOR_ACTIVE_CLASS = "style-controller-bold-color-active";
 const STYLE_ITALIC_FONT_ACTIVE_CLASS = "style-controller-italic-font-active";
+const STYLE_ITALIC_STYLE_ACTIVE_CLASS = "style-controller-italic-style-active";
 const STYLE_ITALIC_SIZE_ACTIVE_CLASS = "style-controller-italic-size-active";
 const STYLE_ITALIC_WEIGHT_ACTIVE_CLASS = "style-controller-italic-weight-active";
 const STYLE_ITALIC_COLOR_ACTIVE_CLASS = "style-controller-italic-color-active";
 const STYLE_EMPHASIS_ACTIVE_CLASSES = [
   STYLE_BOLD_FONT_ACTIVE_CLASS,
+  STYLE_BOLD_STYLE_ACTIVE_CLASS,
   STYLE_BOLD_WEIGHT_ACTIVE_CLASS,
   STYLE_BOLD_COLOR_ACTIVE_CLASS,
   STYLE_ITALIC_FONT_ACTIVE_CLASS,
+  STYLE_ITALIC_STYLE_ACTIVE_CLASS,
   STYLE_ITALIC_SIZE_ACTIVE_CLASS,
   STYLE_ITALIC_WEIGHT_ACTIVE_CLASS,
   STYLE_ITALIC_COLOR_ACTIVE_CLASS
 ];
+const STYLE_PROFILE_FIELD_ACTIVE_CLASSES = PROFILE_FIELDS
+  .filter(([field]) => STYLE_FIELD_REGISTRY[field]?.selectors?.length)
+  .map(([field]) => styleFieldActiveClass(field));
+const STYLE_CALLOUT_BORDER_WIDTH_ACTIVE_CLASS = "style-controller-callout-border-width-active";
+const STYLE_CALLOUT_RADIUS_ACTIVE_CLASS = "style-controller-callout-radius-active";
+const STYLE_CALLOUT_TITLE_SIZE_ACTIVE_CLASS = "style-controller-callout-title-size-active";
+const STYLE_CALLOUT_TITLE_FONT_ACTIVE_CLASS = "style-controller-callout-title-font-active";
+const STYLE_CALLOUT_MULTI_COLUMN_BORDER_ACTIVE_CLASS = "style-controller-callout-multi-column-border-active";
+const STYLE_CALLOUT_ACTIVE_CLASSES = [
+  STYLE_CALLOUT_BORDER_WIDTH_ACTIVE_CLASS,
+  STYLE_CALLOUT_RADIUS_ACTIVE_CLASS,
+  STYLE_CALLOUT_TITLE_SIZE_ACTIVE_CLASS,
+  STYLE_CALLOUT_TITLE_FONT_ACTIVE_CLASS,
+  STYLE_CALLOUT_MULTI_COLUMN_BORDER_ACTIVE_CLASS
+];
+const CALLOUT_PRESET_STYLE_ID = "style-controller-callout-presets";
+const CALLOUT_PREVIEW_HIDE_ICON_CLASS = "style-controller-preview-hide-callout-icon";
 const STYLE_BOTTOM_LEFT_CONTROLS_LEFT_CLASS = "style-controller-bottom-left-controls-left";
 const STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS = "style-controller-matched-document-layout";
 const LEGACY_STYLE_SETTINGS_ICON_THEMEPRO_CLASS = "style-controller-settings-icon-themepro";
@@ -686,19 +745,31 @@ const BOTTOM_LEFT_CONTROLS_LEFT_SELECTOR = THEMEPRO_ORIGINAL_SELECTOR;
 const FILE_EXPLORER_TARGET_CLASS = "style-controller-file-explorer-target";
 const FILE_EXPLORER_FOLDER_CLASS = "style-controller-file-explorer-folder";
 const FILE_EXPLORER_FILE_CLASS = "style-controller-file-explorer-file";
-const FILE_EXPLORER_CLASSES = [FILE_EXPLORER_TARGET_CLASS, FILE_EXPLORER_FOLDER_CLASS, FILE_EXPLORER_FILE_CLASS];
-const FILE_EXPLORER_VARIABLES = [
-  "--style-controller-file-explorer-font-family",
-  "--style-controller-file-explorer-font-weight",
-  "--style-controller-file-explorer-folder-color",
-  "--style-controller-file-explorer-file-color",
-  "--style-controller-file-explorer-hover-color",
-  "--style-controller-file-explorer-hover-background",
-  "--style-controller-file-explorer-active-background",
-  "--style-controller-file-explorer-indent-line-color",
-  "--style-controller-file-explorer-collapse-icon-color",
-  "--style-controller-file-explorer-focus-border-color"
+const FILE_EXPLORER_FIELD_VARIABLES = {
+  fontFamily: "--style-controller-file-explorer-font-family",
+  fontWeight: "--style-controller-file-explorer-font-weight",
+  folderColor: "--style-controller-file-explorer-folder-color",
+  fileColor: "--style-controller-file-explorer-file-color",
+  hoverColor: "--style-controller-file-explorer-hover-color",
+  hoverBackground: "--style-controller-file-explorer-hover-background",
+  activeBackground: "--style-controller-file-explorer-active-background",
+  indentLineColor: "--style-controller-file-explorer-indent-line-color",
+  collapseIconColor: "--style-controller-file-explorer-collapse-icon-color",
+  focusBorderColor: "--style-controller-file-explorer-focus-border-color"
+};
+const FILE_EXPLORER_FIELD_ACTIVE_CLASSES = Object.fromEntries(
+  Object.keys(FILE_EXPLORER_FIELD_VARIABLES).map((field) => [
+    field,
+    `style-controller-file-explorer-${field.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}-active`
+  ])
+);
+const FILE_EXPLORER_CLASSES = [
+  FILE_EXPLORER_TARGET_CLASS,
+  FILE_EXPLORER_FOLDER_CLASS,
+  FILE_EXPLORER_FILE_CLASS,
+  ...Object.values(FILE_EXPLORER_FIELD_ACTIVE_CLASSES)
 ];
+const FILE_EXPLORER_VARIABLES = Object.values(FILE_EXPLORER_FIELD_VARIABLES);
 function toggleElementClass(element, className, enabled) {
   if (!element) return;
   if (typeof element.toggleClass === "function") {
@@ -856,12 +927,19 @@ export default class StyleControllerPlugin extends Plugin {
   removeStyles() {
     nativeSemanticProbeScope = null;
     nativeSemanticProbeUsesReadingView = false;
+    const presetTypes = this.calloutPresetIconTypes || new Set();
+    this.calloutPresetStyleEls?.forEach((style) => style.remove());
+    this.calloutPresetStyleEls?.clear();
+    this.calloutPresetIconTypes = new Set();
+    refreshCalloutIcons(this.getMarkdownContainers(), presetTypes);
     const interfaceRoot = this.getInterfaceRoot();
     clearInterfaceStateClasses(interfaceRoot);
     this.getMarkdownContainers().forEach((container) => {
       cleanScopeClasses(container);
       container.classList.remove(
         STYLE_SCOPE_CLASS,
+        ...STYLE_PROFILE_FIELD_ACTIVE_CLASSES,
+        ...STYLE_CALLOUT_ACTIVE_CLASSES,
         ...STYLE_IMAGE_ALIGNMENT_CLASSES,
         STYLE_IMAGE_WIDTH_CLASS,
         STYLE_IMAGE_RESPECT_EXPLICIT_CLASS,
@@ -903,6 +981,8 @@ export default class StyleControllerPlugin extends Plugin {
       cleanScopeClasses(container);
       container.classList.remove(
         STYLE_SCOPE_CLASS,
+        ...STYLE_PROFILE_FIELD_ACTIVE_CLASSES,
+        ...STYLE_CALLOUT_ACTIVE_CLASSES,
         ...STYLE_IMAGE_ALIGNMENT_CLASSES,
         STYLE_IMAGE_WIDTH_CLASS,
         STYLE_IMAGE_RESPECT_EXPLICIT_CLASS,
@@ -927,7 +1007,43 @@ export default class StyleControllerPlugin extends Plugin {
       applyProfileStateClasses(container, match.profile);
       applyCalloutCssVariables(container, this.settings.callouts);
     });
+    this.syncCalloutPresetStyles(markdownViews);
     this.applyFileExplorerStyles();
+  }
+
+  syncCalloutPresetStyles(markdownViews) {
+    const mainDocument = this.app.workspace.containerEl?.ownerDocument
+      || (typeof document !== "undefined" ? document : null);
+    if (!mainDocument) return;
+    const presets = this.settings.callouts.presets;
+    const css = buildCalloutPresetCss(presets);
+    const oldTypes = this.calloutPresetIconTypes || new Set();
+    const nextTypes = calloutPresetIconTypes(presets);
+    const documents = new Set([mainDocument, ...markdownViews.map((view) => view.containerEl?.ownerDocument).filter(Boolean)]);
+    this.calloutPresetStyleEls ||= new Map();
+    let changed = false;
+    this.calloutPresetStyleEls.forEach((style, ownerDocument) => {
+      if (css && documents.has(ownerDocument)) return;
+      style.remove();
+      this.calloutPresetStyleEls.delete(ownerDocument);
+      changed = true;
+    });
+    if (css) for (const ownerDocument of documents) {
+      let style = this.calloutPresetStyleEls.get(ownerDocument);
+      if (!style?.isConnected) {
+        style = ownerDocument.createElement("style");
+        style.id = CALLOUT_PRESET_STYLE_ID;
+        ownerDocument.head.appendChild(style);
+        this.calloutPresetStyleEls.set(ownerDocument, style);
+        changed = true;
+      }
+      if (style.textContent !== css) {
+        style.textContent = css;
+        changed = true;
+      }
+    }
+    if (changed) refreshCalloutIcons(markdownViews.map((view) => view.containerEl), new Set([...oldTypes, ...nextTypes]));
+    this.calloutPresetIconTypes = nextTypes;
   }
 
   clearFileExplorerStyles() {
@@ -935,6 +1051,9 @@ export default class StyleControllerPlugin extends Plugin {
     root.querySelectorAll(`.${FILE_EXPLORER_TARGET_CLASS}`).forEach((element) => {
       FILE_EXPLORER_CLASSES.forEach((className) => element.removeClass(className));
       FILE_EXPLORER_VARIABLES.forEach((variable) => setCssVariable(element, variable, ""));
+      if (element.classList.contains("nav-folder-title")) {
+        applyFileExplorerIndentGuide(element, { indentLineColor: "" });
+      }
       element.removeAttribute("data-style-controller-prefix");
     });
   }
@@ -957,6 +1076,7 @@ export default class StyleControllerPlugin extends Plugin {
       element.toggleClass(FILE_EXPLORER_FOLDER_CLASS, element.hasClass("nav-folder-title"));
       element.toggleClass(FILE_EXPLORER_FILE_CLASS, element.hasClass("nav-file-title"));
       applyFileExplorerCssVariables(element, style);
+      if (element.hasClass("nav-folder-title")) applyFileExplorerIndentGuide(element, style);
       if (style.prefix) {
         element.setAttribute("data-style-controller-prefix", style.prefix);
       }
@@ -990,12 +1110,13 @@ export default class StyleControllerPlugin extends Plugin {
 
 function normalizeSettings(loaded) {
   const source = loaded && typeof loaded === "object" ? loaded : {};
+  const migrateLegacyAutomaticDefaults = Number(source.schemaVersion || 0) < 5;
   const settings = { ...DEFAULT_SETTINGS, ...source };
   settings.enabled = true;
   settings.activeSettingsTab = settings.activeSettingsTab || "global";
   settings.interface = normalizeInterfaceSettings(source.interface || settings.interface);
   settings.global = Object.prototype.hasOwnProperty.call(source, "global")
-    ? normalizeProfile(source.global)
+    ? normalizeProfile(migrateLegacyProfileDefaults(source.global, migrateLegacyAutomaticDefaults))
     : createDefaultProfile();
   if (Number(source.schemaVersion || 0) < 3
     && source.global?.italicFontFamily === "Times New Roman, Times, serif"
@@ -1006,12 +1127,38 @@ function normalizeSettings(loaded) {
     settings.global.italicWeight = "";
   }
   settings.schemaVersion = SETTINGS_SCHEMA_VERSION;
-  settings.callouts = normalizeCallouts(settings.callouts);
+  settings.callouts = normalizeCallouts(migrateLegacyCalloutDefaults(source.callouts, migrateLegacyAutomaticDefaults));
   settings.overrides = Array.isArray(settings.overrides)
     ? settings.overrides.map(normalizeOverride)
     : [];
-  settings.storedConfigurations = normalizeStoredConfigurations(settings.storedConfigurations);
+  settings.storedConfigurations = normalizeStoredConfigurations(settings.storedConfigurations, migrateLegacyAutomaticDefaults);
   return settings;
+}
+
+function clearExactLegacyDefaults(source, defaults) {
+  const value = source && typeof source === "object" ? source : {};
+  const entries = Object.entries(defaults);
+  if (!entries.every(([field, oldDefault]) => value[field] === oldDefault)) {
+    return value;
+  }
+  return {
+    ...value,
+    ...Object.fromEntries(entries.map(([field]) => [field, ""]))
+  };
+}
+
+function migrateLegacyProfileDefaults(profile, shouldMigrate) {
+  if (!shouldMigrate) return profile;
+  return clearExactLegacyDefaults(
+    clearExactLegacyDefaults(profile, LEGACY_AUTOMATIC_LINK_DEFAULTS),
+    LEGACY_AUTOMATIC_HEADING_DEFAULTS
+  );
+}
+
+function migrateLegacyCalloutDefaults(callouts, shouldMigrate) {
+  return shouldMigrate
+    ? clearExactLegacyDefaults(callouts, LEGACY_AUTOMATIC_CALLOUT_DEFAULTS)
+    : callouts;
 }
 
 function normalizeInterfaceSettings(interfaceSettings) {
@@ -1040,9 +1187,11 @@ function validateInterfaceSection(interfaceSettings) {
   return errors;
 }
 
-function normalizeStoredConfigurations(configurations) {
+function normalizeStoredConfigurations(configurations, migrateLegacyAutomaticDefaults = false) {
   const imported = Array.isArray(configurations)
-    ? configurations.map(normalizeStoredConfiguration).filter(Boolean)
+    ? configurations
+      .map((config) => normalizeStoredConfiguration(config, migrateLegacyAutomaticDefaults))
+      .filter(Boolean)
     : [];
   const userConfigurations = imported.filter((config) => !isBuiltinConfigurationId(config.id));
   return [
@@ -1052,9 +1201,9 @@ function normalizeStoredConfigurations(configurations) {
   ];
 }
 
-function normalizeStoredConfiguration(config) {
+function normalizeStoredConfiguration(config, migrateLegacyAutomaticDefaults = false) {
   if (!config || typeof config !== "object") return null;
-  const data = normalizeConfigurationData(config.data || config);
+  const data = normalizeConfigurationData(config.data || config, migrateLegacyAutomaticDefaults);
   return {
     id: String(config.id || `config-${Date.now()}`),
     name: String(config.name || "Imported configuration"),
@@ -1063,13 +1212,13 @@ function normalizeStoredConfiguration(config) {
   };
 }
 
-function normalizeConfigurationData(data) {
+function normalizeConfigurationData(data, migrateLegacyAutomaticDefaults = false) {
   return {
     enabled: true,
     global: data && Object.prototype.hasOwnProperty.call(data, "global")
-      ? normalizeProfile(data.global)
+      ? normalizeProfile(migrateLegacyProfileDefaults(data.global, migrateLegacyAutomaticDefaults))
       : createDefaultProfile(),
-    callouts: normalizeCallouts(data?.callouts),
+    callouts: normalizeCallouts(migrateLegacyCalloutDefaults(data?.callouts, migrateLegacyAutomaticDefaults)),
     overrides: Array.isArray(data?.overrides) ? data.overrides.map(normalizeOverride) : []
   };
 }
@@ -1134,7 +1283,7 @@ function normalizeCodeBackgroundStates(profile, source, optional) {
 
     profile[field] = profile[stateFields.enabled] === true
       ? effectiveCodeBackground(profile, field)
-      : DEFAULT_CODE_BACKGROUND;
+      : "";
   });
   return profile;
 }
@@ -1213,7 +1362,7 @@ function effectiveCodeBackground(profile, field) {
     : "";
 }
 
-function codeBackgroundUiState(profile, field, optional = false, nativeValue = "") {
+function codeBackgroundUiState(profile, field, optional = false) {
   const stateFields = CODE_BACKGROUND_CUSTOM_FIELDS[field];
   const inherited = optional && profile?.[stateFields.enabled] === "";
   const enabled = profile?.[stateFields.enabled] === true;
@@ -1223,7 +1372,7 @@ function codeBackgroundUiState(profile, field, optional = false, nativeValue = "
     enabled,
     inherited,
     customValue,
-    displayedValue: enabled ? customValue : nativeValue,
+    displayedValue: enabled ? customValue : DEFAULT_CODE_BACKGROUND,
     effectiveValue: inherited ? "" : enabled && valid ? customValue : "",
     status: inherited ? "Inherit" : enabled ? valid ? "On" : "Error" : "Off"
   };
@@ -1236,7 +1385,7 @@ function setCodeBackgroundCustomEnabled(profile, field, enabled, optional = fals
     profile[stateFields.value] = DEFAULT_CODE_BACKGROUND;
   }
   profile[stateFields.enabled] = optional && !enabled ? "" : enabled;
-  profile[field] = optional && !enabled ? "" : enabled ? effectiveCodeBackground(profile, field) : DEFAULT_CODE_BACKGROUND;
+  profile[field] = effectiveCodeBackground(profile, field);
   return codeBackgroundUiState(profile, field, optional);
 }
 
@@ -1246,7 +1395,7 @@ function setCodeBackgroundCustomValue(profile, field, value, optional = false) {
   profile[stateFields.value] = String(value ?? "").trim();
   profile[field] = optional && profile[stateFields.enabled] === ""
     ? ""
-    : profile[stateFields.enabled] === true ? effectiveCodeBackground(profile, field) : DEFAULT_CODE_BACKGROUND;
+    : effectiveCodeBackground(profile, field);
   return codeBackgroundUiState(profile, field, optional);
 }
 
@@ -1257,7 +1406,7 @@ function setCodeBackgroundCustomInput(profile, field, value, optional = false) {
   if (!customValue) {
     profile[stateFields.enabled] = optional ? "" : false;
     profile[stateFields.value] = optional ? "" : DEFAULT_CODE_BACKGROUND;
-    profile[field] = optional ? "" : DEFAULT_CODE_BACKGROUND;
+    profile[field] = "";
   } else {
     profile[stateFields.enabled] = true;
     profile[stateFields.value] = customValue;
@@ -1470,12 +1619,33 @@ function normalizedCssVariableValue(field, variable, rawValue) {
     lineHeightUnit: parseLineHeight(rawValue).unit
   });
   if (FONT_VARIABLES.has(variable)) {
+    if (String(rawValue).trim().toLowerCase() === "inherit") return "";
     const meta = STYLE_FIELD_REGISTRY[field];
     return validateFont(rawValue, meta).valid ? cssFontValue(rawValue, meta) : "";
   }
+  if (STYLE_FIELD_REGISTRY[field]?.type === "style") return normalizeFontStyle(rawValue);
   if (variable.includes("weight")) return validateFontWeight(rawValue).valid ? cssValue(rawValue) : "";
   if (COLOR_FIELDS.has(field)) return cssColorValue(rawValue);
   return cssValue(rawValue);
+}
+
+function styleFieldActiveClass(field) {
+  const name = String(field).replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+  return `${STYLE_FIELD_ACTIVE_CLASS_PREFIX}${name}${STYLE_FIELD_ACTIVE_CLASS_SUFFIX}`;
+}
+
+function profileFieldCssValue(profile, field, variable) {
+  const codeState = CODE_BACKGROUND_CUSTOM_FIELDS[field];
+  const legacyExplicitCodeValue = codeState
+    && profile[codeState.enabled] === undefined
+    && normalizeHexColor(profile[field])
+    && normalizeHexColor(profile[field]) !== DEFAULT_CODE_BACKGROUND;
+  const value = codeState
+    ? profile[codeState.enabled] === true
+      ? profile[codeState.value]
+      : legacyExplicitCodeValue ? profile[field] : ""
+    : profile[field];
+  return normalizedCssVariableValue(field, variable, value);
 }
 
 function clearProfileCssVariables(element) {
@@ -1498,17 +1668,7 @@ function clearProfileCssVariables(element) {
 function applyProfileCssVariables(element, profile) {
   const props = {};
   PROFILE_FIELDS.forEach(([field, variable]) => {
-    const codeState = CODE_BACKGROUND_CUSTOM_FIELDS[field];
-    const legacyExplicitCodeValue = codeState
-      && profile[codeState.enabled] === undefined
-      && normalizeHexColor(profile[field])
-      && normalizeHexColor(profile[field]) !== DEFAULT_CODE_BACKGROUND;
-    const value = codeState
-      ? profile[codeState.enabled] === true
-        ? profile[codeState.value]
-        : legacyExplicitCodeValue ? profile[field] : ""
-      : profile[field];
-    props[variable] = normalizedCssVariableValue(field, variable, value);
+    props[variable] = profileFieldCssValue(profile, field, variable);
   });
   props["--osc-image-width"] = normalizeCssSizeText(profile.imageWidth);
   props["--osc-title-line-height"] = "";
@@ -1534,15 +1694,16 @@ function applyProfileToPreview(element, profile) {
   nativeProps["--osc-native-inline-code-line-height"] = resolvedNativeLineHeightForField("codeFontFamily", profile);
   nativeProps["--osc-native-block-code-line-height"] = resolvedNativeLineHeightForField("codeBlockFontFamily", profile);
   element.setCssProps(nativeProps);
-  [
-    ...STYLE_TITLE_ACTIVE_CLASSES,
-    ...STYLE_EMPHASIS_ACTIVE_CLASSES,
-    ...STYLE_HEADING_COLOR_CLASSES,
-    STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS
-  ].forEach((className) => element.addClass(className));
 }
 
 function applyProfileStateClasses(element, profile) {
+  PROFILE_FIELDS.forEach(([field, variable]) => {
+    const hasRuntimeSelector = STYLE_FIELD_REGISTRY[field]?.selectors?.length > 0;
+    element.toggleClass(
+      styleFieldActiveClass(field),
+      hasRuntimeSelector && hasActiveValue(profileFieldCssValue(profile, field, variable))
+    );
+  });
   applyEmphasisStateClasses(element, profile);
   applyTitleStateClasses(element, profile);
   STYLE_IMAGE_ALIGNMENT_CLASSES.forEach((className) => element.removeClass(className));
@@ -1582,11 +1743,14 @@ function applyEmphasisStateClasses(element, profile) {
   };
   const explicitWeight = (value) => String(value || "").trim() !== "" && validateFontWeight(value).valid;
   const explicitSize = (value) => !!normalizeCssSizeText(value);
+  const explicitStyle = (value) => !!normalizeFontStyle(value);
   const states = {
     [STYLE_BOLD_FONT_ACTIVE_CLASS]: explicitFont(profile.boldFontFamily),
+    [STYLE_BOLD_STYLE_ACTIVE_CLASS]: explicitStyle(profile.boldFontStyle),
     [STYLE_BOLD_WEIGHT_ACTIVE_CLASS]: explicitWeight(profile.boldWeight),
     [STYLE_BOLD_COLOR_ACTIVE_CLASS]: !!cssColorValue(profile.boldColor),
     [STYLE_ITALIC_FONT_ACTIVE_CLASS]: explicitFont(profile.italicFontFamily),
+    [STYLE_ITALIC_STYLE_ACTIVE_CLASS]: explicitStyle(profile.italicFontStyle),
     [STYLE_ITALIC_SIZE_ACTIVE_CLASS]: explicitSize(profile.italicSize),
     [STYLE_ITALIC_WEIGHT_ACTIVE_CLASS]: explicitWeight(profile.italicWeight),
     [STYLE_ITALIC_COLOR_ACTIVE_CLASS]: !!cssColorValue(profile.italicColor)
@@ -1601,6 +1765,9 @@ function hasActiveHeadingColor(profile) {
 
 function applyCalloutCssVariables(element, callouts) {
   const settings = normalizeCallouts(callouts);
+  const titleFontFamily = String(settings.titleFontFamily || "").trim().toLowerCase() === "inherit"
+    ? ""
+    : cssFontValue(settings.titleFontFamily);
   const multiColumnBorder = settings.multiColumnBorderWidth && settings.multiColumnBorderStyle && settings.multiColumnBorderColor
     ? `${settings.multiColumnBorderWidth} ${settings.multiColumnBorderStyle} ${settings.multiColumnBorderColor}`
     : "";
@@ -1608,24 +1775,128 @@ function applyCalloutCssVariables(element, callouts) {
     "--style-controller-callout-border-width": cssValue(settings.borderWidth),
     "--style-controller-callout-radius": cssValue(settings.radius),
     "--style-controller-callout-title-size": cssValue(settings.titleSize),
-    "--style-controller-callout-title-font-family": cssFontValue(settings.titleFontFamily),
+    "--style-controller-callout-title-font-family": titleFontFamily,
     "--style-controller-callout-multi-column-border": multiColumnBorder
   });
+  element.toggleClass(STYLE_CALLOUT_BORDER_WIDTH_ACTIVE_CLASS, !!normalizeCssSizeText(settings.borderWidth));
+  element.toggleClass(STYLE_CALLOUT_RADIUS_ACTIVE_CLASS, !!normalizeCssSizeText(settings.radius));
+  element.toggleClass(STYLE_CALLOUT_TITLE_SIZE_ACTIVE_CLASS, !!normalizeCssSizeText(settings.titleSize));
+  element.toggleClass(STYLE_CALLOUT_TITLE_FONT_ACTIVE_CLASS, !!titleFontFamily);
+  element.toggleClass(STYLE_CALLOUT_MULTI_COLUMN_BORDER_ACTIVE_CLASS, !!multiColumnBorder);
+}
+
+function calloutTypeKey(type) {
+  return String(type || "").trim().toLowerCase();
+}
+
+function effectiveCalloutPresets(presets) {
+  const byType = new Map();
+  (presets || []).forEach((preset) => {
+    const type = calloutTypeKey(preset?.type);
+    if (type) byType.set(type, preset);
+  });
+  return byType;
+}
+
+function escapeCssAttributeValue(value) {
+  return Array.from(String(value), (character) => {
+    const code = character.codePointAt(0);
+    return code < 32 || code === 127 || character === '"' || character === "\\"
+      ? `\\${code.toString(16)} ` : character;
+  }).join("");
+}
+
+function calloutPresetIcon(preset) {
+  const icon = String(preset?.icon || "").trim();
+  return /^[a-z0-9-]+$/i.test(icon) && icon.toLowerCase() !== "none" ? icon : "";
+}
+
+function calloutPresetIconTypes(presets) {
+  return new Set([...effectiveCalloutPresets(presets)]
+    .filter(([, preset]) => preset.hideIcon !== true && calloutPresetIcon(preset))
+    .map(([type]) => type));
+}
+
+function buildCalloutPresetCss(presets) {
+  // Saved type names cannot be enumerated in the packaged stylesheet.
+  const rules = [];
+  effectiveCalloutPresets(presets).forEach((preset, type) => {
+    const selector = `.osc-style-scope:not(.osc-callout-preview) .callout[data-callout="${escapeCssAttributeValue(type)}" i]`;
+    const declarations = [
+      ["--callout-color", cssColorValue(preset.color)],
+      ["--callout-title-color", cssColorValue(preset.titleColor)],
+      ["background-color", cssColorValue(preset.backgroundColor)]
+    ].filter(([, value]) => value).map(([property, value]) => `${property}: ${value};`);
+    if (declarations.length) rules.push(`${selector} { ${declarations.join(" ")} }`);
+    if (preset.hideIcon === true || String(preset.icon || "").trim().toLowerCase() === "none") {
+      rules.push(`${selector}:not([data-callout-icon]) > .callout-title > .callout-icon { display: none; }`);
+    } else {
+      const icon = calloutPresetIcon(preset);
+      if (icon) rules.push(`${selector}:not([data-callout-icon]) { --callout-icon: ${icon}; }`);
+    }
+  });
+  return rules.join("\n");
+}
+
+function refreshCalloutIcons(scopes, types, renderIcon = setIcon) {
+  // Obsidian reads --callout-icon when it renders; existing SVGs need a refresh after rules change.
+  if (!types?.size) return;
+  scopes.forEach((scope) => scope?.querySelectorAll?.(".callout[data-callout]").forEach((callout) => {
+    if (!types.has(calloutTypeKey(callout.getAttribute("data-callout"))) || callout.hasAttribute("data-callout-icon")) return;
+    const iconEl = callout.querySelector(".callout-title > .callout-icon");
+    if (!iconEl) return;
+    const value = callout.getCssPropertyValue?.("--callout-icon")
+      || callout.ownerDocument?.defaultView?.getComputedStyle(callout).getPropertyValue("--callout-icon");
+    const icon = calloutPresetIcon({ icon: value });
+    if (icon) renderIcon(iconEl, icon);
+  }));
+}
+
+function applyCalloutPresetToPreview(preview, preset, renderIcon = setIcon) {
+  const callout = preview.querySelector(".callout[data-callout]");
+  if (!callout || !preset || calloutTypeKey(callout.getAttribute("data-callout")) !== calloutTypeKey(preset.type)) return;
+  const color = cssColorValue(preset.color);
+  const titleColor = cssColorValue(preset.titleColor);
+  const background = cssColorValue(preset.backgroundColor);
+  if (color) callout.style.setProperty("--callout-color", color);
+  if (titleColor) callout.style.setProperty("--callout-title-color", titleColor);
+  if (background) callout.style.setProperty("background-color", background);
+  if (callout.hasAttribute("data-callout-icon")) return;
+  const iconEl = callout.querySelector(".callout-title > .callout-icon");
+  if (!iconEl) return;
+  const hidden = preset.hideIcon === true || String(preset.icon || "").trim().toLowerCase() === "none";
+  callout.toggleClass(CALLOUT_PREVIEW_HIDE_ICON_CLASS, hidden);
+  const icon = calloutPresetIcon(preset);
+  if (!hidden && icon) renderIcon(iconEl, icon);
 }
 
 function applyFileExplorerCssVariables(element, style) {
-  element.setCssProps({
-    "--style-controller-file-explorer-font-family": cssFontValue(style.fontFamily),
-    "--style-controller-file-explorer-font-weight": validateFontWeight(style.fontWeight).valid ? style.fontWeight : "",
-    "--style-controller-file-explorer-folder-color": cssColorValue(style.folderColor),
-    "--style-controller-file-explorer-file-color": cssColorValue(style.fileColor),
-    "--style-controller-file-explorer-hover-color": cssColorValue(style.hoverColor),
-    "--style-controller-file-explorer-hover-background": cssColorValue(style.hoverBackground),
-    "--style-controller-file-explorer-active-background": cssColorValue(style.activeBackground),
-    "--style-controller-file-explorer-indent-line-color": cssColorValue(style.indentLineColor),
-    "--style-controller-file-explorer-collapse-icon-color": cssColorValue(style.collapseIconColor),
-    "--style-controller-file-explorer-focus-border-color": cssColorValue(style.focusBorderColor)
+  const values = {
+    fontFamily: String(style.fontFamily || "").trim().toLowerCase() === "inherit" ? "" : cssFontValue(style.fontFamily),
+    fontWeight: hasActiveValue(style.fontWeight) && validateFontWeight(style.fontWeight).valid ? style.fontWeight : "",
+    folderColor: cssColorValue(style.folderColor),
+    fileColor: cssColorValue(style.fileColor),
+    hoverColor: cssColorValue(style.hoverColor),
+    hoverBackground: cssColorValue(style.hoverBackground),
+    activeBackground: cssColorValue(style.activeBackground),
+    indentLineColor: cssColorValue(style.indentLineColor),
+    collapseIconColor: cssColorValue(style.collapseIconColor),
+    focusBorderColor: cssColorValue(style.focusBorderColor)
+  };
+  element.setCssProps(Object.fromEntries(
+    Object.entries(FILE_EXPLORER_FIELD_VARIABLES).map(([field, variable]) => [variable, values[field]])
+  ));
+  Object.entries(FILE_EXPLORER_FIELD_ACTIVE_CLASSES).forEach(([field, className]) => {
+    element.toggleClass(className, hasActiveValue(values[field]));
   });
+}
+
+function applyFileExplorerIndentGuide(folderTitle, style) {
+  const folder = folderTitle?.parentElement;
+  if (!folder?.classList.contains("nav-folder")) return;
+  const color = cssColorValue(style.indentLineColor);
+  setCssVariable(folder, FILE_EXPLORER_FIELD_VARIABLES.indentLineColor, color);
+  folder.toggleClass(FILE_EXPLORER_FIELD_ACTIVE_CLASSES.indentLineColor, !!color);
 }
 
 function cleanScopeClasses(element) {
@@ -2127,6 +2398,11 @@ function hasActiveValue(value) {
   return value !== undefined && value !== null && String(value).trim() !== "";
 }
 
+function normalizeFontStyle(value) {
+  const style = String(value || "").trim().toLowerCase();
+  return FONT_STYLE_VALUES.includes(style) ? style : "";
+}
+
 function updateControlInactiveState(settingEl, active) {
   settingEl.toggleClass("osc-control-off", !active);
 }
@@ -2172,7 +2448,7 @@ function updateCodeBackgroundStatus(status, state) {
   status.toggleClass("is-placeholder", state.status === "Off" || state.status === "Inherit");
   status.toggleClass("is-error", state.status === "Error");
   status.setAttribute("title", state.status === "Off"
-    ? `Using the built-in ${DEFAULT_CODE_BACKGROUND} code background.`
+    ? "Using Obsidian's resolved native code background."
     : state.status === "Inherit"
       ? "Inherits the resolved full profile background."
       : state.status === "Error"
@@ -2670,7 +2946,6 @@ class StyleControllerSettingTab extends PluginSettingTab {
       new Notice(`Could not apply ${context.label}: ${result.errors[0]}`);
       return;
     }
-    this.plugin.applyStyles();
     const current = context.target();
     context.value = cloneDraftValue(current);
     context.baseline = cloneDraftValue(current);
@@ -2945,7 +3220,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
       const confirmed = await confirmWithModal(
         this.app,
         "Apply Default configuration?",
-        "This restores native styling except for the active #fafafa inline-code and block-code backgrounds. Saved configurations will remain.",
+        "This restores native Obsidian styling. Saved configurations will remain.",
         "Apply Default"
       );
       if (!confirmed) return;
@@ -3074,9 +3349,11 @@ class StyleControllerSettingTab extends PluginSettingTab {
       this.renderOverrideModuleToggle(card, draft, "boldItalic", "Bold and italic");
       if (draft.modules.boldItalic) this.renderSettingGroup(card, "Bold and italic", draft.profile, [
         ["boldFontFamily", "Bold font", "Inter, Arial, sans-serif"],
+        ["boldFontStyle", "Bold style", "Native/default"],
         ["boldWeight", "Bold weight", "700"],
         ["boldColor", "Bold color", "Default"],
         ["italicFontFamily", "Italic font", "Inter, Arial, sans-serif"],
+        ["italicFontStyle", "Italic style", "Native/default"],
         ["italicSize", "Italic size", "16"],
         ["italicWeight", "Italic weight", "inherit"],
         ["italicColor", "Italic color", "Default"]
@@ -3246,6 +3523,11 @@ class StyleControllerSettingTab extends PluginSettingTab {
     });
     fileTitles.forEach((el, index) => {
       el.setAttribute("data-path", index === 0 ? `${normalized}/Brief.md` : `${normalized}/Current note.md`);
+      if (style.prefix) {
+        el.setAttribute("data-osc-file-preview-prefix", "");
+      } else {
+        el.removeAttribute("data-osc-file-preview-prefix");
+      }
       el.setCssStyles({
         fontFamily: cssFontValue(style.fontFamily),
         fontWeight: validateFontWeight(style.fontWeight).valid ? style.fontWeight : "",
@@ -3280,9 +3562,11 @@ class StyleControllerSettingTab extends PluginSettingTab {
     const boldItalicContext = this.getProfileSectionContext("global:boldItalic", "Bold and italic settings", target, PROFILE_SECTION_FIELDS.boldItalic);
     this.renderSettingGroup(profileRoot, "Bold and italic", boldItalicContext.value, [
       ["boldFontFamily", "Bold font", "Inter, Arial, sans-serif"],
+      ["boldFontStyle", "Bold style", "Native/default"],
       ["boldWeight", "Bold weight", "700"],
       ["boldColor", "Bold color", "Default"],
       ["italicFontFamily", "Italic font", "Inter, Arial, sans-serif"],
+      ["italicFontStyle", "Italic style", "Native/default"],
       ["italicSize", "Italic size", "16"],
       ["italicWeight", "Italic weight", "inherit"],
       ["italicColor", "Italic color", "Default"]
@@ -3484,7 +3768,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
     context && (context.previewRoot = content);
     const { content: previewContent } = this.createCompactPreview(content, "osc-rich-preview osc-image-preview");
     const embed = previewContent.createSpan({ cls: "image-embed" });
-    embed.createEl("img", {
+    embed.createSpan({ cls: "image-wrapper" }).createEl("img", {
       attr: {
         alt: "Image preview",
         src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='90' viewBox='0 0 160 90'%3E%3Crect width='160' height='90' rx='8' fill='%23808080'/%3E%3C/svg%3E"
@@ -3568,7 +3852,11 @@ class StyleControllerSettingTab extends PluginSettingTab {
           this.refreshPreservingScroll();
         }));
     const globalPreview = this.renderGlobalCalloutPreview(global, callouts);
-    const updateGlobalPreview = () => this.updateGlobalCalloutPreview(globalPreview, callouts);
+    const presetPreviews = [];
+    const updateGlobalPreview = () => {
+      this.updateGlobalCalloutPreview(globalPreview, callouts);
+      presetPreviews.forEach(({ preview, preset }) => this.updateCalloutPreview(preview, preset, callouts));
+    };
     const globalGrid = global.createDiv({ cls: "osc-setting-grid" });
     this.addDirectSetting(globalGrid, callouts, "borderWidth", "Border width", "2", "size", "", updateGlobalPreview);
     this.addDirectSetting(globalGrid, callouts, "radius", "Radius", "8", "size", "", updateGlobalPreview);
@@ -3589,10 +3877,12 @@ class StyleControllerSettingTab extends PluginSettingTab {
     callouts.presets.forEach((preset, index) => {
       const card = grid.createDiv({ cls: "osc-callout-card" });
       const title = card.createEl("div", { text: preset.type || `Callout ${index + 1}`, cls: "osc-callout-card-title" });
-      const preview = this.renderCalloutPreview(card, preset);
+      const preview = this.renderCalloutPreview(card, preset, callouts);
+      presetPreviews.push({ preview, preset });
       const updateCallout = () => {
         title.setText(preset.type || `Callout ${index + 1}`);
-        this.updateCalloutPreview(preview, preset);
+        presetPreviews.forEach(({ preview, preset }) => this.updateCalloutPreview(preview, preset, callouts));
+        this.updateGlobalCalloutPreview(globalPreview, callouts);
       };
       this.addDirectSetting(card, preset, "type", "Type", "email", "text", "", updateCallout);
       this.addDirectSetting(card, preset, "color", "Callout color", "#008293", "color", "", updateCallout);
@@ -3642,9 +3932,9 @@ class StyleControllerSettingTab extends PluginSettingTab {
         }));
   }
 
-  renderCalloutPreview(parent, preset) {
+  renderCalloutPreview(parent, preset, callouts = this.plugin.settings.callouts) {
     const preview = parent.createDiv({ cls: "osc-callout-preview osc-style-scope markdown-rendered" });
-    this.updateCalloutPreview(preview, preset);
+    this.updateCalloutPreview(preview, preset, callouts);
     return preview;
   }
 
@@ -3656,19 +3946,27 @@ class StyleControllerSettingTab extends PluginSettingTab {
 
   async updateGlobalCalloutPreview(preview, callouts = this.plugin.settings.callouts) {
     preview.empty();
+    const renderTarget = preview.createDiv();
     const title = String(callouts.previewTitle || "").trim() || "Global callout preview";
     const body = String(callouts.previewBody || "").trim() || "ss";
     const bodyLines = body.split(/\r?\n/).map((line) => `> ${line}`).join("\n");
-    await MarkdownRenderer.renderMarkdown(`> [!note] ${title}\n${bodyLines}`, preview, "", this.plugin);
+    await MarkdownRenderer.renderMarkdown(`> [!note] ${title}\n${bodyLines}`, renderTarget, "", this.plugin);
+    if (!preview.contains(renderTarget)) return;
+    applyCalloutCssVariables(preview, callouts);
+    applyCalloutPresetToPreview(preview, effectiveCalloutPresets(callouts.presets).get("note"));
   }
 
-  async updateCalloutPreview(preview, preset) {
+  async updateCalloutPreview(preview, preset, callouts = this.plugin.settings.callouts) {
     preview.empty();
+    const renderTarget = preview.createDiv();
     const type = String(preset.type || "note").trim() || "note";
     const title = String(preset.previewTitle || "").trim() || "Hello";
     const body = String(preset.previewBody || "").trim() || "ss";
     const bodyLines = body.split(/\r?\n/).map((line) => `> ${line}`).join("\n");
-    await MarkdownRenderer.renderMarkdown(`> [!${type}] ${title}\n${bodyLines}`, preview, "", this.plugin);
+    await MarkdownRenderer.renderMarkdown(`> [!${type}] ${title}\n${bodyLines}`, renderTarget, "", this.plugin);
+    if (!preview.contains(renderTarget)) return;
+    applyCalloutCssVariables(preview, callouts);
+    applyCalloutPresetToPreview(preview, effectiveCalloutPresets(callouts.presets).get(calloutTypeKey(type)) || preset);
   }
 
   renderSectionPreview(parent, title, profile) {
@@ -3770,6 +4068,8 @@ class StyleControllerSettingTab extends PluginSettingTab {
       this.addFontControl(setting, profile, key, resolvedPlaceholder);
     } else if (FONT_WEIGHT_FIELDS.has(key)) {
       this.addWeightControl(setting, profile, key, resolvedPlaceholder);
+    } else if (STYLE_FIELD_REGISTRY[key]?.type === "style") {
+      this.addFontStyleControl(setting, profile, key);
     } else {
       setting.addText((text) => {
         text.setPlaceholder(resolvedPlaceholder)
@@ -3925,7 +4225,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
       const status = wrapper.createSpan({ cls: "osc-value-status" });
 
       const updateControl = () => {
-        const state = codeBackgroundUiState(profile, key, optional, resolvedDefault);
+        const state = codeBackgroundUiState(profile, key, optional);
         input.value = state.displayedValue;
         input.toggleClass("osc-default-color-value", false);
         swatch.value = normalizeHexColor(state.displayedValue) || DEFAULT_CODE_BACKGROUND;
@@ -3939,7 +4239,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
       };
 
       input.addEventListener("focus", () => {
-        if (!codeBackgroundUiState(profile, key, optional, resolvedDefault).enabled) input.value = "";
+        if (!codeBackgroundUiState(profile, key, optional).enabled) input.value = "";
       });
       input.addEventListener("input", () => updateValue(input.value));
       input.addEventListener("blur", () => {
@@ -4017,6 +4317,22 @@ class StyleControllerSettingTab extends PluginSettingTab {
     };
     input?.addEventListener("input", updateStatus);
     updateStatus();
+  }
+
+  addFontStyleControl(setting, profile, key) {
+    let status;
+    setting.addDropdown((dropdown) => dropdown
+      .addOption("", "Native/default")
+      .addOption("normal", "Upright")
+      .addOption("italic", "Italic")
+      .setValue(normalizeFontStyle(profile[key]))
+      .onChange((value) => {
+        profile[key] = normalizeFontStyle(value);
+        updateValueStatus(status, hasActiveValue(profile[key]));
+        this.noteDraftMutation(profile);
+        this.updateDraftPreview(profile);
+      }));
+    status = createValueStatus(setting.controlEl, hasActiveValue(normalizeFontStyle(profile[key])));
   }
 
   addDirectSetting(parent, object, key, name, placeholder, type, description = "", onChange = null) {
@@ -4184,21 +4500,32 @@ export {
   STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS,
   STYLE_EMPHASIS_ACTIVE_CLASSES,
   STYLE_BOLD_FONT_ACTIVE_CLASS,
+  STYLE_BOLD_STYLE_ACTIVE_CLASS,
   STYLE_BOLD_WEIGHT_ACTIVE_CLASS,
   STYLE_BOLD_COLOR_ACTIVE_CLASS,
   STYLE_ITALIC_FONT_ACTIVE_CLASS,
+  STYLE_ITALIC_STYLE_ACTIVE_CLASS,
   STYLE_ITALIC_SIZE_ACTIVE_CLASS,
   STYLE_ITALIC_WEIGHT_ACTIVE_CLASS,
   STYLE_ITALIC_COLOR_ACTIVE_CLASS,
   STYLE_BOTTOM_LEFT_CONTROLS_LEFT_CLASS,
   STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS,
+  STYLE_PROFILE_FIELD_ACTIVE_CLASSES,
+  STYLE_CALLOUT_ACTIVE_CLASSES,
+  FILE_EXPLORER_FIELD_ACTIVE_CLASSES,
+  FILE_EXPLORER_FIELD_VARIABLES,
   applyDocumentLayoutStateClass,
+  applyCalloutCssVariables,
+  applyCalloutPresetToPreview,
   applyDraftAtomically,
+  applyFileExplorerCssVariables,
+  applyFileExplorerIndentGuide,
   applyInterfaceStateClasses,
   applyProfileCssVariables,
   applyProfileStateClasses,
   clearInterfaceStateClasses,
   clearProfileCssVariables,
+  buildCalloutPresetCss,
   codeBackgroundUiState,
   configurationToExport,
   createConfigurationSnapshot,
@@ -4210,14 +4537,17 @@ export {
   isValidHeadingSpaceAboveValue,
   lineHeightCssValue,
   normalizeHexColor,
+  normalizeFontStyle,
   normalizeInterfaceSettings,
   normalizeNativeFontFamilyStack,
   normalizeOptionalProfile,
   normalizeProfile,
   normalizeSettings,
   parseConfigurationImport,
+  refreshCalloutIcons,
   setCodeBackgroundCustomEnabled,
   setCodeBackgroundCustomInput,
   setCodeBackgroundCustomValue,
-  singleLineScrollState
+  singleLineScrollState,
+  styleFieldActiveClass
 };

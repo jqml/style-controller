@@ -365,6 +365,10 @@
   overflow-wrap: anywhere;
 }
 
+.osc-callout-preview .callout.style-controller-preview-hide-callout-icon:not([data-callout-icon]) > .callout-title > .callout-icon {
+  display: none;
+}
+
 .osc-heading-card-title,
 .osc-callout-card-title {
   color: var(--text-normal);
@@ -1163,7 +1167,7 @@
   white-space: nowrap;
 }
 
-.osc-file-explorer-preview .nav-file-title::before {
+.osc-file-explorer-preview .nav-file-title[data-osc-file-preview-prefix]::before {
   content: var(--osc-file-preview-prefix, "");
   flex: 0 0 auto;
   margin-right: 0.25em;
@@ -1193,15 +1197,23 @@
 
 
 /* Runtime note/view styling. Values are supplied per Markdown view with CSS variables. */
-.osc-style-scope .markdown-preview-view,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-content {
+.osc-style-scope.style-controller-field-text-color-active .markdown-preview-view,
+.osc-style-scope.style-controller-field-text-color-active .markdown-source-view.mod-cm6 .cm-content {
   color: var(--osc-text-color);
+}
+
+.osc-style-scope.style-controller-field-text-weight-active .markdown-preview-view,
+.osc-style-scope.style-controller-field-text-weight-active .markdown-source-view.mod-cm6 .cm-content {
   font-weight: var(--osc-text-weight);
+}
+
+.osc-style-scope.style-controller-field-line-height-active .markdown-preview-view,
+.osc-style-scope.style-controller-field-line-height-active .markdown-source-view.mod-cm6 .cm-content {
   line-height: var(--osc-line-height);
 }
 
-.osc-style-scope .markdown-preview-view,
-.osc-style-scope .markdown-source-view.mod-cm6 {
+.osc-style-scope.style-controller-field-background-color-active .markdown-preview-view,
+.osc-style-scope.style-controller-field-background-color-active .markdown-source-view.mod-cm6 {
   background-color: var(--osc-background-color);
 }
 
@@ -1215,6 +1227,12 @@
 .osc-style-scope.style-controller-bold-font-active .markdown-preview-view b,
 .osc-style-scope.style-controller-bold-font-active .markdown-source-view.mod-cm6 .cm-strong:not(.cm-formatting) {
   font-family: var(--osc-bold-font-family);
+}
+
+.osc-style-scope.style-controller-bold-style-active .markdown-preview-view strong,
+.osc-style-scope.style-controller-bold-style-active .markdown-preview-view b,
+.osc-style-scope.style-controller-bold-style-active .markdown-source-view.mod-cm6 .cm-strong:not(.cm-formatting) {
+  font-style: var(--osc-bold-font-style);
 }
 
 .osc-style-scope.style-controller-bold-weight-active .markdown-preview-view strong,
@@ -1235,6 +1253,12 @@
   font-family: var(--osc-italic-font-family);
 }
 
+.osc-style-scope.style-controller-italic-style-active .markdown-preview-view em,
+.osc-style-scope.style-controller-italic-style-active .markdown-preview-view i,
+.osc-style-scope.style-controller-italic-style-active .markdown-source-view.mod-cm6 .cm-em:not(.cm-formatting) {
+  font-style: var(--osc-italic-font-style);
+}
+
 .osc-style-scope.style-controller-italic-size-active .markdown-preview-view em,
 .osc-style-scope.style-controller-italic-size-active .markdown-preview-view i,
 .osc-style-scope.style-controller-italic-size-active .markdown-source-view.mod-cm6 .cm-em:not(.cm-formatting) {
@@ -1248,65 +1272,71 @@
 }
 
 .osc-style-scope.style-controller-title-font-active .markdown-preview-view .inline-title:not([data-level]),
-.osc-style-scope.style-controller-title-font-active .markdown-source-view.mod-cm6 .inline-title:not([data-level]) {
+.osc-style-scope.style-controller-title-font-active .markdown-source-view.mod-cm6 .inline-title:not([data-level]),
+.osc-style-scope.style-controller-field-title-font-family-active .markdown-preview-view .inline-title:not([data-level]),
+.osc-style-scope.style-controller-field-title-font-family-active .markdown-source-view.mod-cm6 .inline-title:not([data-level]) {
   font-family: var(--osc-title-font-family);
 }
 
 .osc-style-scope.style-controller-title-size-active .markdown-preview-view .inline-title:not([data-level]),
-.osc-style-scope.style-controller-title-size-active .markdown-source-view.mod-cm6 .inline-title:not([data-level]) {
+.osc-style-scope.style-controller-title-size-active .markdown-source-view.mod-cm6 .inline-title:not([data-level]),
+.osc-style-scope.style-controller-field-title-size-active .markdown-preview-view .inline-title:not([data-level]),
+.osc-style-scope.style-controller-field-title-size-active .markdown-source-view.mod-cm6 .inline-title:not([data-level]) {
   font-size: var(--osc-title-size);
 }
 
 .osc-style-scope.style-controller-title-weight-active .markdown-preview-view .inline-title:not([data-level]),
-.osc-style-scope.style-controller-title-weight-active .markdown-source-view.mod-cm6 .inline-title:not([data-level]) {
+.osc-style-scope.style-controller-title-weight-active .markdown-source-view.mod-cm6 .inline-title:not([data-level]),
+.osc-style-scope.style-controller-field-title-weight-active .markdown-preview-view .inline-title:not([data-level]),
+.osc-style-scope.style-controller-field-title-weight-active .markdown-source-view.mod-cm6 .inline-title:not([data-level]) {
   font-weight: var(--osc-title-weight);
 }
 
-.osc-style-scope .inline-title:not([data-level]) {
+.osc-style-scope.osc-compact-preview .inline-title:not([data-level]) {
   line-height: var(--osc-title-line-height);
 }
 
-.osc-style-scope .markdown-preview-view h1,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-1 > .cm-header-1:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
-  font-family: var(--osc-h1-font-family);
-  font-size: var(--osc-h1-size);
-  font-weight: var(--osc-h1-weight);
-}
+.osc-style-scope.style-controller-field-h1-font-family-active .markdown-preview-view h1,
+.osc-style-scope.style-controller-field-h1-font-family-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-1 > .cm-header-1:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-family: var(--osc-h1-font-family); }
+.osc-style-scope.style-controller-field-h1-size-active .markdown-preview-view h1,
+.osc-style-scope.style-controller-field-h1-size-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-1 > .cm-header-1:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-size: var(--osc-h1-size); }
+.osc-style-scope.style-controller-field-h1-weight-active .markdown-preview-view h1,
+.osc-style-scope.style-controller-field-h1-weight-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-1 > .cm-header-1:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-weight: var(--osc-h1-weight); }
 
-.osc-style-scope .markdown-preview-view h2,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-2 > .cm-header-2:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
-  font-family: var(--osc-h2-font-family);
-  font-size: var(--osc-h2-size);
-  font-weight: var(--osc-h2-weight);
-}
+.osc-style-scope.style-controller-field-h2-font-family-active .markdown-preview-view h2,
+.osc-style-scope.style-controller-field-h2-font-family-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-2 > .cm-header-2:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-family: var(--osc-h2-font-family); }
+.osc-style-scope.style-controller-field-h2-size-active .markdown-preview-view h2,
+.osc-style-scope.style-controller-field-h2-size-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-2 > .cm-header-2:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-size: var(--osc-h2-size); }
+.osc-style-scope.style-controller-field-h2-weight-active .markdown-preview-view h2,
+.osc-style-scope.style-controller-field-h2-weight-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-2 > .cm-header-2:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-weight: var(--osc-h2-weight); }
 
-.osc-style-scope .markdown-preview-view h3,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-3 > .cm-header-3:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
-  font-family: var(--osc-h3-font-family);
-  font-size: var(--osc-h3-size);
-  font-weight: var(--osc-h3-weight);
-}
+.osc-style-scope.style-controller-field-h3-font-family-active .markdown-preview-view h3,
+.osc-style-scope.style-controller-field-h3-font-family-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-3 > .cm-header-3:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-family: var(--osc-h3-font-family); }
+.osc-style-scope.style-controller-field-h3-size-active .markdown-preview-view h3,
+.osc-style-scope.style-controller-field-h3-size-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-3 > .cm-header-3:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-size: var(--osc-h3-size); }
+.osc-style-scope.style-controller-field-h3-weight-active .markdown-preview-view h3,
+.osc-style-scope.style-controller-field-h3-weight-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-3 > .cm-header-3:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-weight: var(--osc-h3-weight); }
 
-.osc-style-scope .markdown-preview-view h4,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-4 > .cm-header-4:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
-  font-family: var(--osc-h4-font-family);
-  font-size: var(--osc-h4-size);
-  font-weight: var(--osc-h4-weight);
-}
+.osc-style-scope.style-controller-field-h4-font-family-active .markdown-preview-view h4,
+.osc-style-scope.style-controller-field-h4-font-family-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-4 > .cm-header-4:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-family: var(--osc-h4-font-family); }
+.osc-style-scope.style-controller-field-h4-size-active .markdown-preview-view h4,
+.osc-style-scope.style-controller-field-h4-size-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-4 > .cm-header-4:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-size: var(--osc-h4-size); }
+.osc-style-scope.style-controller-field-h4-weight-active .markdown-preview-view h4,
+.osc-style-scope.style-controller-field-h4-weight-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-4 > .cm-header-4:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-weight: var(--osc-h4-weight); }
 
-.osc-style-scope .markdown-preview-view h5,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-5 > .cm-header-5:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
-  font-family: var(--osc-h5-font-family);
-  font-size: var(--osc-h5-size);
-  font-weight: var(--osc-h5-weight);
-}
+.osc-style-scope.style-controller-field-h5-font-family-active .markdown-preview-view h5,
+.osc-style-scope.style-controller-field-h5-font-family-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-5 > .cm-header-5:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-family: var(--osc-h5-font-family); }
+.osc-style-scope.style-controller-field-h5-size-active .markdown-preview-view h5,
+.osc-style-scope.style-controller-field-h5-size-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-5 > .cm-header-5:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-size: var(--osc-h5-size); }
+.osc-style-scope.style-controller-field-h5-weight-active .markdown-preview-view h5,
+.osc-style-scope.style-controller-field-h5-weight-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-5 > .cm-header-5:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-weight: var(--osc-h5-weight); }
 
-.osc-style-scope .markdown-preview-view h6,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-6 > .cm-header-6:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
-  font-family: var(--osc-h6-font-family);
-  font-size: var(--osc-h6-size);
-  font-weight: var(--osc-h6-weight);
-}
+.osc-style-scope.style-controller-field-h6-font-family-active .markdown-preview-view h6,
+.osc-style-scope.style-controller-field-h6-font-family-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-6 > .cm-header-6:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-family: var(--osc-h6-font-family); }
+.osc-style-scope.style-controller-field-h6-size-active .markdown-preview-view h6,
+.osc-style-scope.style-controller-field-h6-size-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-6 > .cm-header-6:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-size: var(--osc-h6-size); }
+.osc-style-scope.style-controller-field-h6-weight-active .markdown-preview-view h6,
+.osc-style-scope.style-controller-field-h6-weight-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-6 > .cm-header-6:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-weight: var(--osc-h6-weight); }
 
 .osc-style-scope.style-controller-h1-space-above-active .markdown-preview-view h1 {
   margin-block-start: var(--osc-h1-space-above);
@@ -1359,32 +1389,44 @@
 /* Color declarations are gated by per-level state classes so Off has no
    matching plugin color rule. The Live Preview arm is the semantic span only. */
 .osc-style-scope.style-controller-h1-color-active .markdown-preview-view h1,
-.osc-style-scope.style-controller-h1-color-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-1 > .cm-header-1:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
+.osc-style-scope.style-controller-h1-color-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-1 > .cm-header-1:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property),
+.osc-style-scope.style-controller-field-h1-color-active .markdown-preview-view h1,
+.osc-style-scope.style-controller-field-h1-color-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-1 > .cm-header-1:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
   color: var(--osc-h1-color);
 }
 
 .osc-style-scope.style-controller-h2-color-active .markdown-preview-view h2,
-.osc-style-scope.style-controller-h2-color-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-2 > .cm-header-2:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
+.osc-style-scope.style-controller-h2-color-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-2 > .cm-header-2:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property),
+.osc-style-scope.style-controller-field-h2-color-active .markdown-preview-view h2,
+.osc-style-scope.style-controller-field-h2-color-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-2 > .cm-header-2:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
   color: var(--osc-h2-color);
 }
 
 .osc-style-scope.style-controller-h3-color-active .markdown-preview-view h3,
-.osc-style-scope.style-controller-h3-color-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-3 > .cm-header-3:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
+.osc-style-scope.style-controller-h3-color-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-3 > .cm-header-3:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property),
+.osc-style-scope.style-controller-field-h3-color-active .markdown-preview-view h3,
+.osc-style-scope.style-controller-field-h3-color-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-3 > .cm-header-3:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
   color: var(--osc-h3-color);
 }
 
 .osc-style-scope.style-controller-h4-color-active .markdown-preview-view h4,
-.osc-style-scope.style-controller-h4-color-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-4 > .cm-header-4:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
+.osc-style-scope.style-controller-h4-color-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-4 > .cm-header-4:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property),
+.osc-style-scope.style-controller-field-h4-color-active .markdown-preview-view h4,
+.osc-style-scope.style-controller-field-h4-color-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-4 > .cm-header-4:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
   color: var(--osc-h4-color);
 }
 
 .osc-style-scope.style-controller-h5-color-active .markdown-preview-view h5,
-.osc-style-scope.style-controller-h5-color-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-5 > .cm-header-5:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
+.osc-style-scope.style-controller-h5-color-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-5 > .cm-header-5:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property),
+.osc-style-scope.style-controller-field-h5-color-active .markdown-preview-view h5,
+.osc-style-scope.style-controller-field-h5-color-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-5 > .cm-header-5:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
   color: var(--osc-h5-color);
 }
 
 .osc-style-scope.style-controller-h6-color-active .markdown-preview-view h6,
-.osc-style-scope.style-controller-h6-color-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-6 > .cm-header-6:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
+.osc-style-scope.style-controller-h6-color-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-6 > .cm-header-6:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property),
+.osc-style-scope.style-controller-field-h6-color-active .markdown-preview-view h6,
+.osc-style-scope.style-controller-field-h6-color-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-6 > .cm-header-6:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) {
   color: var(--osc-h6-color);
 }
 
@@ -1394,66 +1436,79 @@
   color: var(--text-normal);
 }
 
-.osc-style-scope .markdown-preview-view a,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-link,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-url {
+.osc-style-scope.style-controller-field-link-color-active .markdown-preview-view a,
+.osc-style-scope.style-controller-field-link-color-active .markdown-source-view.mod-cm6 .cm-link,
+.osc-style-scope.style-controller-field-link-color-active .markdown-source-view.mod-cm6 .cm-url {
   color: var(--osc-link-color);
 }
 
-.osc-style-scope .markdown-preview-view a:hover,
-.osc-style-scope .markdown-preview-view .internal-link:hover,
-.osc-style-scope .markdown-preview-view .external-link:hover,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-link:hover,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-hmd-internal-link:hover,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-hmd-internal-link:hover .cm-underline,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-link.cm-url:hover {
+.osc-style-scope.style-controller-field-link-hover-color-active .markdown-preview-view a:hover,
+.osc-style-scope.style-controller-field-link-hover-color-active .markdown-preview-view .internal-link:hover,
+.osc-style-scope.style-controller-field-link-hover-color-active .markdown-preview-view .external-link:hover,
+.osc-style-scope.style-controller-field-link-hover-color-active .markdown-source-view.mod-cm6 .cm-link:hover,
+.osc-style-scope.style-controller-field-link-hover-color-active .markdown-source-view.mod-cm6 .cm-hmd-internal-link:hover,
+.osc-style-scope.style-controller-field-link-hover-color-active .markdown-source-view.mod-cm6 .cm-hmd-internal-link:hover .cm-underline,
+.osc-style-scope.style-controller-field-link-hover-color-active .markdown-source-view.mod-cm6 .cm-link.cm-url:hover {
   color: var(--osc-link-hover-color);
 }
 
-.osc-style-scope .markdown-preview-view .internal-link,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-hmd-internal-link,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-hmd-internal-link .cm-underline {
+.osc-style-scope.style-controller-field-internal-link-color-active .markdown-preview-view .internal-link,
+.osc-style-scope.style-controller-field-internal-link-color-active .markdown-source-view.mod-cm6 .cm-hmd-internal-link,
+.osc-style-scope.style-controller-field-internal-link-color-active .markdown-source-view.mod-cm6 .cm-hmd-internal-link .cm-underline {
   color: var(--osc-internal-link-color);
 }
 
-.osc-style-scope .markdown-preview-view .external-link,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-link.cm-url {
+.osc-style-scope.style-controller-field-external-link-color-active .markdown-preview-view .external-link,
+.osc-style-scope.style-controller-field-external-link-color-active .markdown-source-view.mod-cm6 .cm-link.cm-url {
   color: var(--osc-external-link-color);
 }
 
-.osc-style-scope .markdown-preview-view table,
-.osc-style-scope .markdown-preview-view th,
-.osc-style-scope .markdown-preview-view td,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-table-widget table,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-table-widget th,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-table-widget td {
+.osc-style-scope.style-controller-field-table-border-color-active .markdown-preview-view table,
+.osc-style-scope.style-controller-field-table-border-color-active .markdown-preview-view th,
+.osc-style-scope.style-controller-field-table-border-color-active .markdown-preview-view td,
+.osc-style-scope.style-controller-field-table-border-color-active .markdown-source-view.mod-cm6 .cm-table-widget table,
+.osc-style-scope.style-controller-field-table-border-color-active .markdown-source-view.mod-cm6 .cm-table-widget th,
+.osc-style-scope.style-controller-field-table-border-color-active .markdown-source-view.mod-cm6 .cm-table-widget td {
   border-color: var(--osc-table-border-color);
 }
 
-.osc-style-scope .markdown-preview-view th,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-table-widget th {
+.osc-style-scope.style-controller-field-table-header-background-active .markdown-preview-view th,
+.osc-style-scope.style-controller-field-table-header-background-active .markdown-source-view.mod-cm6 .cm-table-widget th {
   background: var(--osc-table-header-background);
+}
+
+.osc-style-scope.style-controller-field-table-header-color-active .markdown-preview-view th,
+.osc-style-scope.style-controller-field-table-header-color-active .markdown-source-view.mod-cm6 .cm-table-widget th {
   color: var(--osc-table-header-color);
 }
 
-.osc-style-scope .markdown-preview-view tbody tr:nth-child(even) {
+.osc-style-scope.style-controller-field-table-row-alt-background-active .markdown-preview-view tbody tr:nth-child(even),
+.osc-style-scope.style-controller-field-table-row-alt-background-active .markdown-source-view.mod-cm6 .cm-table-widget tbody tr:nth-child(even) {
   background: var(--osc-table-row-alt-background);
 }
 
-.osc-style-scope .markdown-preview-view :not(pre) > code,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-line:not(.HyperMD-codeblock) .cm-inline-code {
+.osc-style-scope.style-controller-field-code-background-active .markdown-preview-view :not(pre) > code,
+.osc-style-scope.style-controller-field-code-background-active .markdown-source-view.mod-cm6 .cm-line:not(.HyperMD-codeblock) .cm-inline-code {
   background-color: var(--osc-code-background);
+}
+
+.osc-style-scope.style-controller-field-code-color-active .markdown-preview-view :not(pre) > code,
+.osc-style-scope.style-controller-field-code-color-active .markdown-source-view.mod-cm6 .cm-line:not(.HyperMD-codeblock) .cm-inline-code {
   color: var(--osc-code-color);
+}
+
+.osc-style-scope.style-controller-field-code-font-family-active .markdown-preview-view :not(pre) > code,
+.osc-style-scope.style-controller-field-code-font-family-active .markdown-source-view.mod-cm6 .cm-line:not(.HyperMD-codeblock) .cm-inline-code {
   font-family: var(--osc-code-font-family);
 }
 
-.osc-style-scope .markdown-rendered pre,
-.osc-style-scope .markdown-source-view.mod-cm6 .HyperMD-codeblock-bg {
+.osc-style-scope.style-controller-field-code-block-background-active .markdown-rendered pre,
+.osc-style-scope.style-controller-field-code-block-background-active .markdown-source-view.mod-cm6 .HyperMD-codeblock-bg {
   background-color: var(--osc-code-block-background);
 }
 
-.osc-style-scope .markdown-rendered pre,
-.osc-style-scope .markdown-source-view.mod-cm6 .cm-line.HyperMD-codeblock {
+.osc-style-scope.style-controller-field-code-block-font-family-active .markdown-rendered pre,
+.osc-style-scope.style-controller-field-code-block-font-family-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-codeblock {
   font-family: var(--osc-code-block-font-family);
 }
 
@@ -1462,104 +1517,145 @@
   color: var(--osc-code-block-color);
 }
 
-.osc-style-scope .markdown-preview-view blockquote,
-.osc-style-scope .markdown-source-view.mod-cm6 .HyperMD-quote {
+.osc-style-scope.style-controller-field-blockquote-background-active .markdown-preview-view blockquote,
+.osc-style-scope.style-controller-field-blockquote-background-active .markdown-source-view.mod-cm6 .HyperMD-quote {
   background: var(--osc-blockquote-background);
+}
+
+.osc-style-scope.style-controller-field-blockquote-border-color-active .markdown-preview-view blockquote,
+.osc-style-scope.style-controller-field-blockquote-border-color-active .markdown-source-view.mod-cm6 .HyperMD-quote {
   border-color: var(--osc-blockquote-border-color);
 }
 
 .osc-style-scope.style-controller-image-align-left .markdown-preview-view .image-embed,
 .osc-style-scope.style-controller-image-align-left .markdown-source-view.mod-cm6 .image-embed {
-  display: block;
-  text-align: left;
+  display: flex;
+  justify-content: flex-start;
+  width: 100%;
 }
 
 .osc-style-scope.style-controller-image-align-center .markdown-preview-view .image-embed,
 .osc-style-scope.style-controller-image-align-center .markdown-source-view.mod-cm6 .image-embed {
-  display: block;
-  text-align: center;
+  display: flex;
+  justify-content: center;
+  width: 100%;
 }
 
 .osc-style-scope.style-controller-image-align-right .markdown-preview-view .image-embed,
 .osc-style-scope.style-controller-image-align-right .markdown-source-view.mod-cm6 .image-embed {
-  display: block;
-  text-align: right;
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
 }
 
-.osc-style-scope.style-controller-image-align-left .markdown-preview-view .image-embed > img,
-.osc-style-scope.style-controller-image-align-left .markdown-source-view.mod-cm6 .image-embed > img,
-.osc-style-scope.style-controller-image-align-center .markdown-preview-view .image-embed > img,
-.osc-style-scope.style-controller-image-align-center .markdown-source-view.mod-cm6 .image-embed > img,
-.osc-style-scope.style-controller-image-align-right .markdown-preview-view .image-embed > img,
-.osc-style-scope.style-controller-image-align-right .markdown-source-view.mod-cm6 .image-embed > img {
+.osc-style-scope.style-controller-image-align-left .markdown-preview-view :is(p, li, td, th) > img,
+.osc-style-scope.style-controller-image-align-center .markdown-preview-view :is(p, li, td, th) > img,
+.osc-style-scope.style-controller-image-align-right .markdown-preview-view :is(p, li, td, th) > img {
   display: block;
 }
 
-.osc-style-scope.style-controller-image-align-left .markdown-preview-view .image-embed > img,
-.osc-style-scope.style-controller-image-align-left .markdown-source-view.mod-cm6 .image-embed > img {
+.osc-style-scope.style-controller-image-align-left .markdown-preview-view :is(p, li, td, th) > img {
   margin-left: 0;
   margin-right: auto;
 }
 
-.osc-style-scope.style-controller-image-align-center .markdown-preview-view .image-embed > img,
-.osc-style-scope.style-controller-image-align-center .markdown-source-view.mod-cm6 .image-embed > img {
+.osc-style-scope.style-controller-image-align-center .markdown-preview-view :is(p, li, td, th) > img {
   margin-left: auto;
   margin-right: auto;
 }
 
-.osc-style-scope.style-controller-image-align-right .markdown-preview-view .image-embed > img,
-.osc-style-scope.style-controller-image-align-right .markdown-source-view.mod-cm6 .image-embed > img {
+.osc-style-scope.style-controller-image-align-right .markdown-preview-view :is(p, li, td, th) > img {
   margin-left: auto;
   margin-right: 0;
 }
 
-.osc-style-scope.style-controller-image-width.style-controller-respect-explicit-image-size .markdown-preview-view .image-embed > img:not([width]):not([height]):not([style*="width"]):not([style*="height"]),
-.osc-style-scope.style-controller-image-width.style-controller-respect-explicit-image-size .markdown-source-view.mod-cm6 .image-embed > img:not([width]):not([height]):not([style*="width"]):not([style*="height"]),
-.osc-style-scope.style-controller-image-width.style-controller-ignore-explicit-size .markdown-preview-view .image-embed > img,
-.osc-style-scope.style-controller-image-width.style-controller-ignore-explicit-size .markdown-source-view.mod-cm6 .image-embed > img {
+.osc-style-scope.style-controller-image-width.style-controller-respect-explicit-image-size .markdown-preview-view .image-embed:not([width]):not([height]):not([style*="width" i]):not([style*="height" i]):has(> .image-wrapper > img:not([width]):not([height]):not([style*="width" i]):not([style*="height" i])),
+.osc-style-scope.style-controller-image-width.style-controller-respect-explicit-image-size .markdown-source-view.mod-cm6 .image-embed:not([width]):not([height]):not([style*="width" i]):not([style*="height" i]):has(> .image-wrapper > img:not([width]):not([height]):not([style*="width" i]):not([style*="height" i])) {
+  max-width: 100%;
+}
+
+.osc-style-scope.style-controller-image-width.style-controller-respect-explicit-image-size .markdown-preview-view .image-embed:not([width]):not([height]):not([style*="width" i]):not([style*="height" i]) .image-wrapper:has(> img:not([width]):not([height]):not([style*="width" i]):not([style*="height" i])),
+.osc-style-scope.style-controller-image-width.style-controller-respect-explicit-image-size .markdown-source-view.mod-cm6 .image-embed:not([width]):not([height]):not([style*="width" i]):not([style*="height" i]) .image-wrapper:has(> img:not([width]):not([height]):not([style*="width" i]):not([style*="height" i])) {
+  width: var(--osc-image-width);
+  max-width: 100%;
+}
+
+.osc-style-scope.style-controller-image-width.style-controller-respect-explicit-image-size .markdown-preview-view .image-embed:not([width]):not([height]):not([style*="width" i]):not([style*="height" i]) img:not([width]):not([height]):not([style*="width" i]):not([style*="height" i]),
+.osc-style-scope.style-controller-image-width.style-controller-respect-explicit-image-size .markdown-source-view.mod-cm6 .image-embed:not([width]):not([height]):not([style*="width" i]):not([style*="height" i]) img:not([width]):not([height]):not([style*="width" i]):not([style*="height" i]),
+.osc-style-scope.style-controller-image-width.style-controller-respect-explicit-image-size .markdown-preview-view :is(p, li, td, th) > img:not([width]):not([height]):not([style*="width" i]):not([style*="height" i]),
+.osc-style-scope.style-controller-image-width.style-controller-ignore-explicit-size .markdown-preview-view .image-embed img,
+.osc-style-scope.style-controller-image-width.style-controller-ignore-explicit-size .markdown-source-view.mod-cm6 .image-embed img,
+.osc-style-scope.style-controller-image-width.style-controller-ignore-explicit-size .markdown-preview-view :is(p, li, td, th) > img {
   width: var(--osc-image-width);
 }
 
-.osc-style-scope .callout {
+.osc-style-scope.style-controller-callout-border-width-active .callout {
   --callout-border-width: var(--style-controller-callout-border-width);
+}
+
+.osc-style-scope.style-controller-callout-radius-active .callout {
   --callout-radius: var(--style-controller-callout-radius);
+}
+
+.osc-style-scope.style-controller-callout-title-size-active .callout {
   --callout-title-size: var(--style-controller-callout-title-size);
 }
 
-.osc-style-scope .callout-title-inner {
+.osc-style-scope.style-controller-callout-title-font-active .callout-title-inner {
   font-family: var(--style-controller-callout-title-font-family);
 }
 
-.osc-style-scope div[data-callout="multi-column"].callout > .callout-content > *:is(div, ul, blockquote, p) {
+.osc-style-scope.style-controller-callout-multi-column-border-active div[data-callout="multi-column"].callout > .callout-content > *:is(div, ul, blockquote, p) {
   border: var(--style-controller-callout-multi-column-border);
 }
 
-.style-controller-file-explorer-target {
+.style-controller-file-explorer-target.style-controller-file-explorer-font-family-active {
   font-family: var(--style-controller-file-explorer-font-family);
+}
+
+.style-controller-file-explorer-target.style-controller-file-explorer-font-weight-active {
   font-weight: var(--style-controller-file-explorer-font-weight);
+}
+
+.style-controller-file-explorer-target.style-controller-file-explorer-hover-color-active {
   --nav-item-color-hover: var(--style-controller-file-explorer-hover-color);
+}
+
+.style-controller-file-explorer-target.style-controller-file-explorer-hover-background-active {
   --nav-item-background-hover: var(--style-controller-file-explorer-hover-background);
+}
+
+.style-controller-file-explorer-target.style-controller-file-explorer-active-background-active {
   --nav-item-background-active: var(--style-controller-file-explorer-active-background);
+}
+
+.style-controller-file-explorer-target.style-controller-file-explorer-focus-border-color-active {
   --background-modifier-border-focus: var(--style-controller-file-explorer-focus-border-color);
 }
 
-.style-controller-file-explorer-folder {
+.style-controller-file-explorer-folder.style-controller-file-explorer-folder-color-active {
   color: var(--style-controller-file-explorer-folder-color);
+}
+
+.style-controller-file-explorer-folder.style-controller-file-explorer-collapse-icon-color-active {
   --nav-collapse-icon-color: var(--style-controller-file-explorer-collapse-icon-color);
+}
+
+.nav-folder.style-controller-file-explorer-indent-line-color-active {
   --nav-indentation-guide-color: var(--style-controller-file-explorer-indent-line-color);
 }
 
-.style-controller-file-explorer-file {
+.style-controller-file-explorer-file.style-controller-file-explorer-file-color-active {
   color: var(--style-controller-file-explorer-file-color);
 }
 
-.style-controller-file-explorer-file::before {
+.style-controller-file-explorer-file[data-style-controller-prefix]::before {
   content: attr(data-style-controller-prefix);
   margin-right: 0.25em;
 }
 
-/* ThemePro's exact group-level order moves Help and Settings together before the vault profile/footer. */
-body.style-controller-bottom-left-controls-left .workspace-split.mod-left-split .workspace-sidedock-vault-profile .workspace-drawer-vault-actions {
+/* Move Obsidian's Help and Settings group before the vault switcher in the primary sidebar footer. */
+body.style-controller-bottom-left-controls-left .workspace-split.mod-primary-split .workspace-sidedock-vault-profile .workspace-drawer-vault-actions {
   order: -1;
 }
 

@@ -20,6 +20,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - run: npm test
       - run: npm run lint
       - run: npm run check
       - run: npm run build
@@ -45,4 +46,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             main.js manifest.json styles.css \
             --title "Style Controller $GITHUB_REF_NAME" \
-            --notes "Style Controller $GITHUB_REF_NAME updates Community review compatibility, keeps reusable profiles and path overrides, uses static plugin styles, and remains local-only with no remote assets."
+            --notes "Since 0.1.22: native defaults remain in control when settings are Off; bold and italic font-style controls were added; image sizing and Obsidian 1.14.4 table, File Explorer, and footer selectors were corrected; named callout presets now style both note views and previews while respecting explicit icons."

@@ -33,6 +33,7 @@ const bundle = await build({
           export const MarkdownRenderer = {};
           export const prepareFuzzySearch = () => () => null;
           export const normalizePath = (value) => value;
+          export const setIcon = () => {};
         `,
         loader: "js"
       }));
@@ -72,9 +73,11 @@ const {
   STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS,
   STYLE_EMPHASIS_ACTIVE_CLASSES,
   STYLE_BOLD_FONT_ACTIVE_CLASS,
+  STYLE_BOLD_STYLE_ACTIVE_CLASS,
   STYLE_BOLD_WEIGHT_ACTIVE_CLASS,
   STYLE_BOLD_COLOR_ACTIVE_CLASS,
   STYLE_ITALIC_FONT_ACTIVE_CLASS,
+  STYLE_ITALIC_STYLE_ACTIVE_CLASS,
   STYLE_ITALIC_SIZE_ACTIVE_CLASS,
   STYLE_ITALIC_WEIGHT_ACTIVE_CLASS,
   STYLE_ITALIC_COLOR_ACTIVE_CLASS,
@@ -89,12 +92,21 @@ const {
   STYLE_TITLE_ACTIVE_CLASSES,
   STYLE_BOTTOM_LEFT_CONTROLS_LEFT_CLASS,
   STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS,
+  STYLE_PROFILE_FIELD_ACTIVE_CLASSES,
+  STYLE_CALLOUT_ACTIVE_CLASSES,
+  FILE_EXPLORER_FIELD_ACTIVE_CLASSES,
+  FILE_EXPLORER_FIELD_VARIABLES,
   applyDocumentLayoutStateClass,
+  applyCalloutCssVariables,
+  applyCalloutPresetToPreview,
+  applyFileExplorerCssVariables,
+  applyFileExplorerIndentGuide,
   applyProfileCssVariables,
   applyProfileStateClasses,
   applyDraftAtomically,
   applyInterfaceStateClasses,
   clearProfileCssVariables,
+  buildCalloutPresetCss,
   clearInterfaceStateClasses,
   codeBackgroundUiState,
   configurationToExport,
@@ -106,16 +118,19 @@ const {
   isValidHeadingSpaceAboveValue,
   lineHeightCssValue,
   normalizeHexColor,
+  normalizeFontStyle,
   normalizeInterfaceSettings,
   normalizeNativeFontFamilyStack,
   normalizeOptionalProfile,
   normalizeProfile,
   normalizeSettings,
   parseConfigurationImport,
+  refreshCalloutIcons,
   setCodeBackgroundCustomEnabled,
   setCodeBackgroundCustomInput,
   setCodeBackgroundCustomValue,
-  singleLineScrollState
+  singleLineScrollState,
+  styleFieldActiveClass
 } = pluginModule;
 
 class FakeClassList {
@@ -533,7 +548,7 @@ test("heading preview narrows without overflow and preserves heading typography"
   assert.doesNotMatch(css, /\.osc-heading-preview(?:-grid)?[^{}]*\{[^}]*width\s*:/s);
 
   assert.doesNotMatch(css, /--osc-preview-heading-/);
-  assert.match(css, /\.osc-style-scope \.markdown-preview-view h1/);
+  assert.match(css, /\.osc-style-scope\.style-controller-field-h1-size-active \.markdown-preview-view h1/);
 });
 
 test("narrow settings widths collapse fixed control grids without horizontal scrolling", () => {
@@ -583,6 +598,72 @@ test("italic geometry is opt-in and semantic tokens stay separate from formattin
   assert.equal(element.css.has("--osc-italic-weight"), false);
 });
 
+test("bold and italic font styles are independent, opt-in, and scoped to semantic emphasis", () => {
+  assert.equal(DEFAULT_PROFILE.boldFontStyle, "");
+  assert.equal(DEFAULT_PROFILE.italicFontStyle, "");
+  assert.equal(normalizeFontStyle("NORMAL"), "normal");
+  assert.equal(normalizeFontStyle(" italic "), "italic");
+  assert.equal(normalizeFontStyle("oblique"), "");
+
+  const boldMeta = STYLE_FIELD_REGISTRY.boldFontStyle;
+  const italicMeta = STYLE_FIELD_REGISTRY.italicFontStyle;
+  assert.equal(boldMeta.type, "style");
+  assert.equal(boldMeta.property, "font-style");
+  assert.equal(boldMeta.variable, "--osc-bold-font-style");
+  assert.equal(italicMeta.type, "style");
+  assert.equal(italicMeta.property, "font-style");
+  assert.equal(italicMeta.variable, "--osc-italic-font-style");
+  assert.deepEqual(Array.from(boldMeta.selectors), [
+    ".markdown-preview-view strong",
+    ".markdown-preview-view b",
+    ".markdown-source-view.mod-cm6 .cm-strong:not(.cm-formatting)"
+  ]);
+  assert.deepEqual(Array.from(italicMeta.selectors), [
+    ".markdown-preview-view em",
+    ".markdown-preview-view i",
+    ".markdown-source-view.mod-cm6 .cm-em:not(.cm-formatting)"
+  ]);
+
+  const rules = cssRules(css);
+  const boldRule = rules.find((rule) => rule.declarations.includes("font-style: var(--osc-bold-font-style)"));
+  const italicRule = rules.find((rule) => rule.declarations.includes("font-style: var(--osc-italic-font-style)"));
+  assert.ok(boldRule);
+  assert.ok(italicRule);
+  assert.match(boldRule.selectors, new RegExp(STYLE_BOLD_STYLE_ACTIVE_CLASS));
+  assert.match(italicRule.selectors, new RegExp(STYLE_ITALIC_STYLE_ACTIVE_CLASS));
+  assert.match(boldRule.selectors, /:not\(\.cm-formatting\)/);
+  assert.match(italicRule.selectors, /:not\(\.cm-formatting\)/);
+  assert.doesNotMatch(boldRule.declarations + italicRule.declarations, /!important/);
+
+  const element = fakeElement();
+  const configured = normalizeProfile({
+    boldFontFamily: "serif, Times New Roman, Georgia",
+    boldFontStyle: "italic",
+    boldWeight: "700",
+    italicFontFamily: "serif, Times New Roman, Georgia",
+    italicFontStyle: "normal",
+    italicWeight: "400"
+  });
+  applyProfileCssVariables(element, configured);
+  applyProfileStateClasses(element, configured);
+  assert.equal(element.css.get("--osc-bold-font-family"), "serif, Times New Roman, Georgia");
+  assert.equal(element.css.get("--osc-bold-font-style"), "italic");
+  assert.equal(element.css.get("--osc-bold-weight"), "700");
+  assert.equal(element.css.get("--osc-italic-font-family"), "serif, Times New Roman, Georgia");
+  assert.equal(element.css.get("--osc-italic-font-style"), "normal");
+  assert.equal(element.css.get("--osc-italic-weight"), "400");
+  assert.equal(element.classList.contains(STYLE_BOLD_STYLE_ACTIVE_CLASS), true);
+  assert.equal(element.classList.contains(STYLE_ITALIC_STYLE_ACTIVE_CLASS), true);
+
+  const native = normalizeProfile({ boldFontStyle: "", italicFontStyle: "" });
+  applyProfileCssVariables(element, native);
+  applyProfileStateClasses(element, native);
+  assert.equal(element.css.has("--osc-bold-font-style"), false);
+  assert.equal(element.css.has("--osc-italic-font-style"), false);
+  assert.equal(element.classList.contains(STYLE_BOLD_STYLE_ACTIVE_CLASS), false);
+  assert.equal(element.classList.contains(STYLE_ITALIC_STYLE_ACTIVE_CLASS), false);
+});
+
 test("explicit italic font and size apply independently and clear on profile switching", () => {
   const element = fakeElement();
   const configured = normalizeProfile({
@@ -606,14 +687,15 @@ test("explicit italic font and size apply independently and clear on profile swi
   assert.equal(element.classList.contains(STYLE_ITALIC_SIZE_ACTIVE_CLASS), false);
 });
 
-test("Bottom-left controls position uses the exact ThemePro group rule and never broad sidebar selectors", () => {
+test("Bottom-left controls position targets the current primary sidebar footer group", () => {
   assert.equal(DEFAULT_INTERFACE_SETTINGS.bottomLeftControlsPosition, BOTTOM_LEFT_CONTROLS_POSITION_NATIVE);
   assert.equal(THEMEPRO_ORIGINAL_SELECTOR, ".workspace-drawer-vault-actions");
   assert.equal(THEMEPRO_ORIGINAL_ORDER, -1);
   assert.equal(BOTTOM_LEFT_CONTROLS_LEFT_SELECTOR, ".workspace-drawer-vault-actions");
   const rule = cssRules(css).find((candidate) => candidate.selectors.includes(STYLE_BOTTOM_LEFT_CONTROLS_LEFT_CLASS));
   assert.ok(rule);
-  assert.match(rule.selectors, /\.workspace-split\.mod-left-split/);
+  assert.match(rule.selectors, /\.workspace-split\.mod-primary-split/);
+  assert.doesNotMatch(rule.selectors, /\.workspace-split\.mod-left-split/);
   assert.match(rule.selectors, /\.workspace-sidedock-vault-profile/);
   assert.match(rule.selectors, /\.workspace-drawer-vault-actions\b/);
   assert.match(rule.declarations, /order:\s*-1/);
@@ -801,6 +883,60 @@ test("section drafts stay independent until their own Apply", () => {
   assert.equal(persisted.links, "native");
 });
 
+test("bold and italic style drafts apply, revert, and persist with profiles and overrides", async () => {
+  const persisted = normalizeProfile({ boldFontStyle: "normal", italicFontStyle: "italic" });
+  const drafts = new SectionDraftManager();
+  const entry = drafts.get("global:boldItalic", persisted);
+  entry.value.boldFontStyle = "italic";
+  entry.value.italicFontStyle = "normal";
+  drafts.mark(entry.value);
+  assert.equal(persisted.boldFontStyle, "normal");
+  assert.equal(persisted.italicFontStyle, "italic");
+
+  await applyDraftAtomically({
+    draft: entry.value,
+    normalize: normalizeProfile,
+    validate: () => [],
+    commit: (candidate) => {
+      persisted.boldFontStyle = candidate.boldFontStyle;
+      persisted.italicFontStyle = candidate.italicFontStyle;
+    },
+    persist: async () => {}
+  });
+  assert.equal(persisted.boldFontStyle, "italic");
+  assert.equal(persisted.italicFontStyle, "normal");
+
+  entry.value.boldFontStyle = "normal";
+  drafts.mark(entry.value);
+  drafts.revert("global:boldItalic", persisted);
+  assert.equal(entry.value.boldFontStyle, "italic");
+  assert.equal(entry.value.italicFontStyle, "normal");
+
+  const restored = normalizeSettings({
+    schemaVersion: SETTINGS_SCHEMA_VERSION,
+    global: persisted,
+    overrides: [{
+      id: "emphasis",
+      name: "Emphasis",
+      pattern: "Notes",
+      modules: { boldItalic: true },
+      profile: { boldFontStyle: "normal", italicFontStyle: "italic" }
+    }],
+    storedConfigurations: [{
+      id: "saved-emphasis",
+      name: "Saved emphasis",
+      data: { global: { boldFontStyle: "italic", italicFontStyle: "normal" } }
+    }]
+  });
+  assert.equal(restored.global.boldFontStyle, "italic");
+  assert.equal(restored.global.italicFontStyle, "normal");
+  assert.equal(restored.overrides[0].profile.boldFontStyle, "normal");
+  assert.equal(restored.overrides[0].profile.italicFontStyle, "italic");
+  const saved = restored.storedConfigurations.find((config) => config.id === "saved-emphasis");
+  assert.equal(saved.data.global.boldFontStyle, "italic");
+  assert.equal(saved.data.global.italicFontStyle, "normal");
+});
+
 test("Revert restores the last applied section baseline without persistence", () => {
   const drafts = new SectionDraftManager();
   const source = { value: "applied" };
@@ -957,7 +1093,8 @@ test("Line height migrates to explicit value and unit without changing legacy CS
 
 test("Bold and italic owns exactly one complete control set and a real Markdown preview", () => {
   assert.deepEqual(Array.from(PROFILE_SECTION_FIELDS.boldItalic), [
-    "boldFontFamily", "boldWeight", "boldColor", "italicFontFamily", "italicSize", "italicWeight", "italicColor"
+    "boldFontFamily", "boldFontStyle", "boldWeight", "boldColor",
+    "italicFontFamily", "italicFontStyle", "italicSize", "italicWeight", "italicColor"
   ]);
   PROFILE_SECTION_FIELDS.boldItalic.forEach((field) => assert.equal(STYLE_FIELD_REGISTRY[field].group, "boldItalic"));
   const profileSection = source.slice(source.indexOf("  renderProfileSection(parent"), source.indexOf("  renderSettingGroup(parent"));
@@ -970,6 +1107,7 @@ test("Bold and italic owns exactly one complete control set and a real Markdown 
   assert.match(emphasisBranch, /\*\*bold text\*\*/);
   assert.match(emphasisBranch, /\*italic text\*/);
   assert.match(emphasisBranch, /createCompactPreview\(parent, "osc-emphasis-preview"\)/);
+  assert.match(source, /addFontStyleControl[\s\S]*addOption\("", "Native\/default"\)[\s\S]*addOption\("normal", "Upright"\)[\s\S]*addOption\("italic", "Italic"\)/);
 });
 
 test("every first-tab preview uses one compact semantic shell without pane layout classes", () => {
@@ -1124,7 +1262,7 @@ test("all section previews use the production profile pipeline and draft handler
   for (const selector of ["osc-base-preview", "osc-emphasis-preview", "osc-links-preview", "osc-heading-preview", "osc-rich-preview"]) {
     assert.match(source, new RegExp(selector));
   }
-  for (const method of ["addTextSetting", "addSizeControl", "addColorControl", "addFontControl", "addWeightControl", "addImageAlignmentControl", "addImageRespectExplicitSizeControl"]) {
+  for (const method of ["addTextSetting", "addSizeControl", "addColorControl", "addFontControl", "addWeightControl", "addFontStyleControl", "addImageAlignmentControl", "addImageRespectExplicitSizeControl"]) {
     const start = source.indexOf(`  ${method}(`);
     const next = source.indexOf("\n  }\n\n  ", start);
     assert.ok(start >= 0, method);
@@ -1231,10 +1369,10 @@ test("inline and block code fields have independent authoritative registry entri
   assert.equal(CODE_BACKGROUND_CUSTOM_FIELDS.codeBlockBackground.value, "codeBlockBackgroundCustomValue");
 });
 
-test("stored code defaults remain compatible while Off emits no override", () => {
+test("stored code controls retain their editable default while Off emits no override", () => {
   assert.equal(DEFAULT_CODE_BACKGROUND, "#fafafa");
-  assert.equal(DEFAULT_PROFILE.codeBackground, "#fafafa");
-  assert.equal(DEFAULT_PROFILE.codeBlockBackground, "#fafafa");
+  assert.equal(DEFAULT_PROFILE.codeBackground, "");
+  assert.equal(DEFAULT_PROFILE.codeBlockBackground, "");
   assert.equal(DEFAULT_PROFILE.codeBackgroundCustomEnabled, false);
   assert.equal(DEFAULT_PROFILE.codeBlockBackgroundCustomEnabled, false);
   assert.equal(DEFAULT_PROFILE.codeBackgroundCustomValue, "#fafafa");
@@ -1246,13 +1384,13 @@ test("stored code defaults remain compatible while Off emits no override", () =>
   const bundledDefault = NATIVE_DEFAULT_CONFIGURATION.data.global;
 
   for (const profile of [created, newSettings.global, reset.global, bundledDefault]) {
-    assert.equal(profile.codeBackground, "#fafafa");
-    assert.equal(profile.codeBlockBackground, "#fafafa");
+    assert.equal(profile.codeBackground, "");
+    assert.equal(profile.codeBlockBackground, "");
     for (const field of ["codeBackground", "codeBlockBackground"]) {
-      const state = codeBackgroundUiState(profile, field, false, "#112233");
+      const state = codeBackgroundUiState(profile, field);
       assert.equal(state.enabled, false);
       assert.equal(state.status, "Off");
-      assert.equal(state.displayedValue, "#112233");
+      assert.equal(state.displayedValue, "#fafafa");
       assert.equal(state.effectiveValue, "");
     }
   }
@@ -1274,7 +1412,7 @@ test("custom values survive Off, save/load, export/import, and restore when On",
   assert.equal(profile.codeBackground, "#e8e8e8");
   assert.equal(profile.codeBlockBackground, "#eeeeee");
   setCodeBackgroundCustomEnabled(profile, "codeBackground", false);
-  assert.equal(profile.codeBackground, "#fafafa");
+  assert.equal(profile.codeBackground, "");
   assert.equal(profile.codeBackgroundCustomValue, "#e8e8e8");
   assert.equal(profile.codeBlockBackground, "#eeeeee");
 
@@ -1284,7 +1422,7 @@ test("custom values survive Off, save/load, export/import, and restore when On",
   const snapshot = createConfigurationSnapshot(loaded);
   const exported = configurationToExport({ name: "Code fixture", description: "", data: snapshot });
   const imported = parseConfigurationImport(exported);
-  assert.equal(imported.data.global.codeBackground, "#fafafa");
+  assert.equal(imported.data.global.codeBackground, "");
   assert.equal(imported.data.global.codeBackgroundCustomEnabled, false);
   assert.equal(imported.data.global.codeBackgroundCustomValue, "#e8e8e8");
   assert.equal(imported.data.global.codeBlockBackground, "#eeeeee");
@@ -1327,8 +1465,8 @@ test("legacy blank and #fafafa migrate Off while custom colors migrate On", () =
     ]
   });
   assert.equal(migrated.schemaVersion, SETTINGS_SCHEMA_VERSION);
-  assert.equal(migrated.global.codeBackground, "#fafafa");
-  assert.equal(migrated.global.codeBlockBackground, "#fafafa");
+  assert.equal(migrated.global.codeBackground, "");
+  assert.equal(migrated.global.codeBlockBackground, "");
   assert.equal(migrated.global.codeBackgroundCustomEnabled, false);
   assert.equal(migrated.global.codeBlockBackgroundCustomEnabled, false);
   assert.equal(migrated.global.codeBackgroundCustomValue, "#fafafa");
@@ -1360,10 +1498,249 @@ test("legacy blank and #fafafa migrate Off while custom colors migrate On", () =
   });
   assert.equal(explicitlyOff.global.codeBackgroundCustomEnabled, false);
   assert.equal(explicitlyOff.global.codeBackgroundCustomValue, "#abcdef");
-  assert.equal(explicitlyOff.global.codeBackground, "#fafafa");
+  assert.equal(explicitlyOff.global.codeBackground, "");
   assert.equal(explicitlyOff.global.codeBlockBackgroundCustomEnabled, false);
   assert.equal(explicitlyOff.global.codeBlockBackgroundCustomValue, "#fedcba");
-  assert.equal(explicitlyOff.global.codeBlockBackground, "#fafafa");
+  assert.equal(explicitlyOff.global.codeBlockBackground, "");
+});
+
+test("untouched 0.1.22 automatic defaults migrate to native for global and stored profiles", () => {
+  const legacyAutomaticProfile = {
+    linkColor: "#00ff33",
+    linkHoverColor: "#ff6b9f",
+    internalLinkColor: "#6eb47c",
+    externalLinkColor: "#66d9ef",
+    h1Size: "32px",
+    h1Weight: "700",
+    h2Size: "24px",
+    h2Weight: "700",
+    h3Size: "20px",
+    h3Weight: "650",
+    h4Size: "18px",
+    h4Weight: "650",
+    h5Size: "16px",
+    h5Weight: "600",
+    h6Size: "14px",
+    h6Weight: "600",
+    codeBackground: "#fafafa",
+    codeBackgroundCustomEnabled: false,
+    codeBackgroundCustomValue: "#fafafa",
+    codeBlockBackground: "#fafafa",
+    codeBlockBackgroundCustomEnabled: false,
+    codeBlockBackgroundCustomValue: "#fafafa"
+  };
+  const legacyAutomaticCallouts = {
+    borderWidth: "2px",
+    radius: "8px",
+    titleSize: "18px",
+    multiColumnBorderColor: "#000000",
+    multiColumnBorderWidth: "1px",
+    multiColumnBorderStyle: "groove"
+  };
+  const migrated = normalizeSettings({
+    schemaVersion: 4,
+    global: legacyAutomaticProfile,
+    callouts: legacyAutomaticCallouts,
+    storedConfigurations: [{
+      id: "legacy-default",
+      name: "Legacy default",
+      data: { global: legacyAutomaticProfile, callouts: legacyAutomaticCallouts }
+    }]
+  });
+
+  for (const field of [
+    "linkColor", "linkHoverColor", "internalLinkColor", "externalLinkColor",
+    ...Array.from({ length: 6 }, (_, index) => [`h${index + 1}Size`, `h${index + 1}Weight`]).flat()
+  ]) {
+    assert.equal(migrated.global[field], "", `${field} should migrate to native`);
+  }
+  for (const field of [
+    "borderWidth", "radius", "titleSize",
+    "multiColumnBorderColor", "multiColumnBorderWidth", "multiColumnBorderStyle"
+  ]) {
+    assert.equal(migrated.callouts[field], "", `${field} should migrate to native`);
+  }
+  assert.equal(migrated.global.codeBackground, "");
+  assert.equal(migrated.global.codeBlockBackground, "");
+  assert.equal(migrated.global.codeBackgroundCustomEnabled, false);
+  assert.equal(migrated.global.codeBlockBackgroundCustomEnabled, false);
+
+  const applied = fakeElement();
+  applyProfileCssVariables(applied, migrated.global);
+  applyProfileStateClasses(applied, migrated.global);
+  assert.equal(applied.css.has(STYLE_FIELD_REGISTRY.linkColor.variable), false);
+  assert.equal(applied.css.has(STYLE_FIELD_REGISTRY.h1Size.variable), false);
+  assert.equal(applied.classList.contains(styleFieldActiveClass("linkColor")), false);
+  assert.equal(applied.classList.contains(styleFieldActiveClass("h1Size")), false);
+  applyCalloutCssVariables(applied, migrated.callouts);
+  STYLE_CALLOUT_ACTIVE_CLASSES.forEach((className) => {
+    assert.equal(applied.classList.contains(className), false);
+  });
+
+  const stored = migrated.storedConfigurations.find((config) => config.id === "legacy-default").data;
+  assert.equal(stored.global.linkColor, "");
+  assert.equal(stored.global.h1Size, "");
+  assert.equal(stored.global.h6Weight, "");
+  assert.equal(stored.callouts.borderWidth, "");
+  assert.equal(stored.callouts.multiColumnBorderStyle, "");
+  assert.deepEqual(normalizeSettings(migrated), migrated);
+});
+
+test("0.1.22 customized groups and shipped state remain exact through migration", () => {
+  const migrated = normalizeSettings({
+    schemaVersion: 4,
+    interface: { readingEditingLayout: READING_EDITING_LAYOUT_MATCHED },
+    global: {
+      linkColor: "#123456",
+      linkHoverColor: "#ff6b9f",
+      internalLinkColor: "#6eb47c",
+      externalLinkColor: "#66d9ef",
+      h1Size: "36px",
+      h1Weight: "700",
+      h2Size: "24px",
+      h2Weight: "700",
+      h3Size: "20px",
+      h3Weight: "650",
+      h4Size: "18px",
+      h4Weight: "650",
+      h5Size: "16px",
+      h5Weight: "600",
+      h6Size: "14px",
+      h6Weight: "600",
+      lineHeight: "1.8em",
+      lineHeightValue: "1.8",
+      lineHeightUnit: "em",
+      boldWeight: "650",
+      italicColor: "#abcdef",
+      codeBackground: "#135790",
+      codeBackgroundCustomEnabled: true,
+      codeBackgroundCustomValue: "#135790",
+      codeBlockBackground: "#246801",
+      codeBlockBackgroundCustomEnabled: true,
+      codeBlockBackgroundCustomValue: "#246801"
+    },
+    callouts: {
+      borderWidth: "3px",
+      radius: "8px",
+      titleSize: "18px",
+      multiColumnBorderColor: "#000000",
+      multiColumnBorderWidth: "1px",
+      multiColumnBorderStyle: "groove"
+    },
+    overrides: [{
+      id: "path-style",
+      name: "Path style",
+      enabled: true,
+      type: "folder",
+      pattern: "Notes",
+      modules: { baseText: true, boldItalic: true, headings: true },
+      profile: { boldWeight: "725", italicColor: "#fedcba", h2Size: "24px" }
+    }],
+    storedConfigurations: [{
+      id: "custom-profile",
+      name: "Custom profile",
+      data: {
+        global: {
+          linkColor: "#654321",
+          linkHoverColor: "#ff6b9f",
+          internalLinkColor: "#6eb47c",
+          externalLinkColor: "#66d9ef",
+          h1Size: "38px",
+          h1Weight: "700",
+          h2Size: "24px",
+          h2Weight: "700",
+          h3Size: "20px",
+          h3Weight: "650",
+          h4Size: "18px",
+          h4Weight: "650",
+          h5Size: "16px",
+          h5Weight: "600",
+          h6Size: "14px",
+          h6Weight: "600"
+        },
+        callouts: {
+          borderWidth: "4px",
+          radius: "8px",
+          titleSize: "18px",
+          multiColumnBorderColor: "#000000",
+          multiColumnBorderWidth: "1px",
+          multiColumnBorderStyle: "groove"
+        },
+        overrides: [{
+          id: "stored-path",
+          enabled: true,
+          type: "folder",
+          pattern: "Archive",
+          modules: { boldItalic: true },
+          profile: { italicWeight: "575" }
+        }]
+      }
+    }]
+  });
+
+  assert.equal(migrated.interface.readingEditingLayout, READING_EDITING_LAYOUT_MATCHED);
+  assert.equal(migrated.global.linkColor, "#123456");
+  assert.equal(migrated.global.linkHoverColor, "#ff6b9f");
+  assert.equal(migrated.global.h1Size, "36px");
+  assert.equal(migrated.global.h2Size, "24px");
+  assert.equal(migrated.global.lineHeight, "1.8em");
+  assert.equal(migrated.global.lineHeightValue, "1.8");
+  assert.equal(migrated.global.lineHeightUnit, "em");
+  assert.equal(migrated.global.boldWeight, "650");
+  assert.equal(migrated.global.italicColor, "#abcdef");
+  assert.equal(migrated.global.codeBackground, "#135790");
+  assert.equal(migrated.global.codeBlockBackground, "#246801");
+  assert.equal(migrated.callouts.borderWidth, "3px");
+  assert.equal(migrated.callouts.radius, "8px");
+  assert.equal(migrated.overrides[0].modules.boldItalic, true);
+  assert.equal(migrated.overrides[0].profile.boldWeight, "725");
+  assert.equal(migrated.overrides[0].profile.italicColor, "#fedcba");
+  assert.equal(migrated.overrides[0].profile.h2Size, "24px");
+  const stored = migrated.storedConfigurations.find((config) => config.id === "custom-profile").data;
+  assert.equal(stored.global.linkColor, "#654321");
+  assert.equal(stored.global.linkHoverColor, "#ff6b9f");
+  assert.equal(stored.global.h1Size, "38px");
+  assert.equal(stored.global.h2Size, "24px");
+  assert.equal(stored.callouts.borderWidth, "4px");
+  assert.equal(stored.callouts.radius, "8px");
+  assert.equal(stored.overrides[0].profile.italicWeight, "575");
+});
+
+test("current-schema values matching the legacy signature are treated as intentional", () => {
+  const current = normalizeSettings({
+    schemaVersion: SETTINGS_SCHEMA_VERSION,
+    global: {
+      linkColor: "#00ff33",
+      linkHoverColor: "#ff6b9f",
+      internalLinkColor: "#6eb47c",
+      externalLinkColor: "#66d9ef",
+      h1Size: "32px",
+      h1Weight: "700",
+      h2Size: "24px",
+      h2Weight: "700",
+      h3Size: "20px",
+      h3Weight: "650",
+      h4Size: "18px",
+      h4Weight: "650",
+      h5Size: "16px",
+      h5Weight: "600",
+      h6Size: "14px",
+      h6Weight: "600"
+    },
+    callouts: {
+      borderWidth: "2px",
+      radius: "8px",
+      titleSize: "18px",
+      multiColumnBorderColor: "#000000",
+      multiColumnBorderWidth: "1px",
+      multiColumnBorderStyle: "groove"
+    }
+  });
+  assert.equal(current.global.linkColor, "#00ff33");
+  assert.equal(current.global.h1Size, "32px");
+  assert.equal(current.global.h6Weight, "600");
+  assert.equal(current.callouts.borderWidth, "2px");
+  assert.equal(current.callouts.multiColumnBorderStyle, "groove");
 });
 
 test("legacy imported italic geometry is cleared only during schema migration", () => {
@@ -1408,15 +1785,15 @@ test("partial path overrides inherit unless an effective background is explicitl
   assert.equal(customOverride.codeBlockBackgroundCustomEnabled, true);
 });
 
-test("code background UI displays a resolved native value without persisting it", () => {
+test("code background UI retains its editable color without applying it while Off", () => {
   const profile = createDefaultProfile();
   for (const field of ["codeBackground", "codeBlockBackground"]) {
     assert.equal(effectiveCodeBackground(profile, field), "");
-    const state = codeBackgroundUiState(profile, field, false, "#334455");
+    const state = codeBackgroundUiState(profile, field);
     assert.equal(state.enabled, false);
     assert.equal(state.inherited, false);
     assert.equal(state.customValue, "#fafafa");
-    assert.equal(state.displayedValue, "#334455");
+    assert.equal(state.displayedValue, "#fafafa");
     assert.equal(state.effectiveValue, "");
     assert.equal(state.status, "Off");
   }
@@ -1439,7 +1816,7 @@ test("one compact control automatically maps typed custom values and clearing to
     codeBlockBackgroundCustomEnabled: false,
     codeBlockBackgroundCustomValue: "#fafafa"
   });
-  assert.equal(codeBackgroundUiState(profile, "codeBackground", false, "#556677").displayedValue, "#556677");
+  assert.equal(codeBackgroundUiState(profile, "codeBackground").displayedValue, "#fafafa");
   assert.equal(codeBackgroundUiState(profile, "codeBackground").status, "Off");
 
   setCodeBackgroundCustomInput(profile, "codeBackground", "#e8e8e8");
@@ -1448,7 +1825,7 @@ test("one compact control automatically maps typed custom values and clearing to
   assert.equal(codeBackgroundUiState(profile, "codeBackground").status, "On");
   assert.equal(codeBackgroundUiState(profile, "codeBackground").displayedValue, "#e8e8e8");
   assert.equal(codeBackgroundUiState(profile, "codeBackground").effectiveValue, "#e8e8e8");
-  assert.equal(profile.codeBlockBackground, "#fafafa");
+  assert.equal(profile.codeBlockBackground, "");
   assert.equal(profile.codeBlockBackgroundCustomEnabled, false);
 
   const applied = fakeElement();
@@ -1457,10 +1834,10 @@ test("one compact control automatically maps typed custom values and clearing to
   assert.equal(applied.css.has("--osc-code-block-background"), false);
 
   setCodeBackgroundCustomInput(profile, "codeBackground", "");
-  const cleared = codeBackgroundUiState(profile, "codeBackground", false, "#556677");
+  const cleared = codeBackgroundUiState(profile, "codeBackground");
   assert.equal(profile.codeBackgroundCustomEnabled, false);
   assert.equal(cleared.status, "Off");
-  assert.equal(cleared.displayedValue, "#556677");
+  assert.equal(cleared.displayedValue, "#fafafa");
   assert.equal(cleared.effectiveValue, "");
   applyProfileCssVariables(applied, profile);
   assert.equal(applied.css.has("--osc-code-background"), false);
@@ -1540,6 +1917,7 @@ test("unload cleanup removes plugin variables and scope classes", () => {
   element.classList.add(STYLE_SCOPE_CLASS, "osc-scope-0", "style-controller-image-width", STYLE_HEADING_COLOR_ACTIVE_CLASS, STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS, STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS, ...STYLE_TITLE_ACTIVE_CLASSES);
   element.classList.add(...STYLE_HEADING_COLOR_CLASSES);
   element.classList.add(...STYLE_HEADING_SPACE_ABOVE_CLASSES);
+  element.classList.add(...STYLE_PROFILE_FIELD_ACTIVE_CLASSES, ...STYLE_CALLOUT_ACTIVE_CLASSES);
   applyProfileCssVariables(element, normalizeProfile({
     codeBlockBackground: "#fafafa",
     h3Color: "#123456",
@@ -1548,8 +1926,12 @@ test("unload cleanup removes plugin variables and scope classes", () => {
     h5SpaceAboveUnit: "px"
   }));
   let explorerCleared = false;
+  let presetStyleRemoved = false;
+  const presetStyles = new Map([[{}, { remove: () => { presetStyleRemoved = true; } }]]);
 
   StyleControllerPlugin.prototype.removeStyles.call({
+    calloutPresetStyleEls: presetStyles,
+    calloutPresetIconTypes: new Set(["email"]),
     getInterfaceRoot: () => interfaceRoot,
     getMarkdownContainers: () => [element],
     clearFileExplorerStyles: () => {
@@ -1569,14 +1951,18 @@ test("unload cleanup removes plugin variables and scope classes", () => {
   STYLE_HEADING_COLOR_CLASSES.forEach((className) => assert.equal(element.classList.contains(className), false));
   STYLE_HEADING_SPACE_ABOVE_CLASSES.forEach((className) => assert.equal(element.classList.contains(className), false));
   STYLE_TITLE_ACTIVE_CLASSES.forEach((className) => assert.equal(element.classList.contains(className), false));
+  STYLE_PROFILE_FIELD_ACTIVE_CLASSES.forEach((className) => assert.equal(element.classList.contains(className), false));
+  STYLE_CALLOUT_ACTIVE_CLASSES.forEach((className) => assert.equal(element.classList.contains(className), false));
   assert.equal(explorerCleared, true);
+  assert.equal(presetStyleRemoved, true);
+  assert.equal(presetStyles.size, 0);
 });
 
 test("preview, reading view, and Live Preview use the same dedicated block variable", () => {
   const rules = cssRules(css);
-  const readingBlock = rules.find((rule) => rule.selectors.includes(".osc-style-scope .markdown-rendered pre") && rule.declarations.includes("background-color"));
+  const readingBlock = rules.find((rule) => rule.selectors.includes(".markdown-rendered pre") && rule.declarations.includes("background-color"));
   const editorBlock = rules.find((rule) => rule.selectors.includes(".HyperMD-codeblock-bg") && rule.declarations.includes("background-color"));
-  const inlineRule = rules.find((rule) => rule.selectors.includes(":not(pre) > code"));
+  const inlineRule = rules.find((rule) => rule.selectors.includes(":not(pre) > code") && rule.declarations.includes("background-color"));
 
   assert.match(readingBlock.declarations, /background-color:\s*var\(--osc-code-block-background\)/);
   assert.match(editorBlock.declarations, /background-color:\s*var\(--osc-code-block-background\)/);
@@ -1600,15 +1986,336 @@ test("preview, reading view, and Live Preview use the same dedicated block varia
   assert.equal(element.css.has("--osc-code-block-background"), false);
 });
 
-test("code preview has no hardcoded white fallback and source has no runtime stylesheet mutation", () => {
+test("code preview keeps native fallback and runtime CSS is limited to callout presets", () => {
   const codeRules = cssRules(css).filter((rule) => /osc-(?:inline-code-preview|code-block-rendered-preview)/.test(rule.selectors));
   codeRules.forEach((rule) => {
     assert.doesNotMatch(rule.declarations, /background(?:-color)?:\s*(?:#fff(?:fff)?\b|white\b)/i);
     assert.doesNotMatch(rule.declarations, /background(?:-color)?:\s*(?:transparent|inherit|unset)\b/i);
   });
-  assert.doesNotMatch(source, /create(?:El|Element)\(\s*["']style["']/);
+  assert.equal([...source.matchAll(/create(?:El|Element)\(\s*["']style["']/g)].length, 1);
+  assert.match(source, /style\.id = CALLOUT_PRESET_STYLE_ID/);
   assert.doesNotMatch(source, /CSSStyleSheet|adoptedStyleSheets|insertRule|replaceSync/);
-  assert.doesNotMatch(source, /buildProfileRuntimeCss|buildCalloutCss|buildFileExplorerCss/);
+  assert.doesNotMatch(source, /buildProfileRuntimeCss|buildFileExplorerCss/);
   assert.doesNotMatch(source, /\.obsidian(?:\/|\\\\)/);
   assert.doesNotMatch(source, /\b(?:fetch|XMLHttpRequest|WebSocket)\s*\(/);
+});
+
+test("fresh settings leave note fields and global callout geometry native", () => {
+  const settings = normalizeSettings(null);
+  const element = fakeElement();
+  applyProfileCssVariables(element, settings.global);
+  applyProfileStateClasses(element, settings.global);
+  for (const field of [
+    "textWeight", "lineHeight", "textColor", "backgroundColor",
+    "linkColor", "linkHoverColor", "internalLinkColor", "externalLinkColor",
+    "codeBackground", "codeBlockBackground"
+  ]) {
+    const variable = STYLE_FIELD_REGISTRY[field].variable;
+    assert.equal(element.css.has(variable), false, field);
+    assert.equal(element.classList.contains(styleFieldActiveClass(field)), false, field);
+  }
+  for (let level = 1; level <= 6; level += 1) {
+    for (const property of ["FontFamily", "Size", "Weight", "Color"]) {
+      const field = "h" + level + property;
+      assert.equal(settings.global[field], "", field);
+      assert.equal(element.classList.contains(styleFieldActiveClass(field)), false, field);
+    }
+  }
+  for (const field of ["borderWidth", "radius", "titleSize", "multiColumnBorderWidth"]) {
+    assert.equal(settings.callouts[field], "", field);
+  }
+  applyCalloutCssVariables(element, settings.callouts);
+  STYLE_CALLOUT_ACTIVE_CLASSES.forEach((className) => {
+    assert.equal(element.classList.contains(className), false, className);
+  });
+});
+
+test("title and every H1-H6 property use independent registry classes in both note views", () => {
+  const values = {
+    FontFamily: "serif, sans-serif, monospace",
+    Size: "23px",
+    Weight: "620",
+    Color: "#123456"
+  };
+  const rules = cssRules(css);
+  const fields = [
+    ["titleFontFamily", values.FontFamily],
+    ["titleSize", values.Size],
+    ["titleWeight", values.Weight]
+  ];
+  for (let level = 1; level <= 6; level += 1) {
+    for (const property of ["FontFamily", "Size", "Weight", "Color"]) {
+      fields.push(["h" + level + property, values[property]]);
+    }
+  }
+  for (const [field, value] of fields) {
+    const profile = normalizeProfile({ [field]: value });
+    const element = fakeElement();
+    applyProfileCssVariables(element, profile);
+    applyProfileStateClasses(element, profile);
+    const className = styleFieldActiveClass(field);
+    assert.equal(element.classList.contains(className), true, field);
+    const rule = rules.find((candidate) => candidate.selectors.includes(className));
+    assert.ok(rule, field + " CSS rule");
+    assert.match(rule.selectors, /\.markdown-preview-view/, field);
+    assert.match(rule.selectors, /\.markdown-source-view\.mod-cm6/, field);
+    profile[field] = "";
+    applyProfileCssVariables(element, profile);
+    applyProfileStateClasses(element, profile);
+    assert.equal(element.classList.contains(className), false, field + " Off");
+    assert.equal(element.css.has(STYLE_FIELD_REGISTRY[field].variable), false, field + " variable cleanup");
+  }
+});
+
+test("current image wrappers and legacy rendered images are narrowly supported", () => {
+  const rules = cssRules(css);
+  const centeredEmbed = rules.find((rule) => (
+    rule.selectors.includes("style-controller-image-align-center")
+    && rule.selectors.includes(".markdown-preview-view .image-embed")
+  ));
+  assert.ok(centeredEmbed);
+  assert.match(centeredEmbed.declarations, /display:\s*flex/);
+  assert.match(centeredEmbed.declarations, /justify-content:\s*center/);
+  assert.match(centeredEmbed.declarations, /width:\s*100%/);
+  assert.match(centeredEmbed.selectors, /\.markdown-source-view\.mod-cm6 \.image-embed/);
+  const boundedEmbed = rules.find((rule) => (
+    rule.declarations.includes("max-width: 100%")
+    && rule.selectors.includes(".image-embed:not([width]):not([height])")
+    && rule.selectors.includes(":has(> .image-wrapper > img:not([width])")
+  ));
+  assert.ok(boundedEmbed);
+  assert.match(boundedEmbed.selectors, /\.markdown-preview-view/);
+  assert.match(boundedEmbed.selectors, /\.markdown-source-view\.mod-cm6/);
+  const sizedWrapper = rules.find((rule) => (
+    rule.declarations.includes("width: var(--osc-image-width)")
+    && rule.selectors.includes(".image-wrapper:has(> img:not([width])")
+  ));
+  assert.ok(sizedWrapper);
+  assert.match(sizedWrapper.declarations, /max-width:\s*100%/);
+  for (const view of ["markdown-preview-view", "markdown-source-view.mod-cm6"]) {
+    assert.ok(sizedWrapper.selectors.includes(view), view);
+  }
+  assert.match(sizedWrapper.selectors, /\.image-embed:not\(\[width\]\):not\(\[height\]\)/);
+  assert.match(sizedWrapper.selectors, /\.image-wrapper:has\(> img:not\(\[width\]\):not\(\[height\]\)/);
+  const respectedWidth = rules.find((rule) => (
+    rule.declarations.includes("width: var(--osc-image-width)")
+    && rule.selectors.includes("style-controller-respect-explicit-image-size")
+    && rule.selectors.includes(":is(p, li, td, th) > img")
+  ));
+  assert.ok(respectedWidth);
+  assert.match(respectedWidth.selectors, /\.image-embed[^,]+ img:not\(\[width\]\)/);
+  assert.match(respectedWidth.selectors, /:is\(p, li, td, th\) > img/);
+  assert.doesNotMatch(respectedWidth.selectors, /(?:^|,)\s*(?:body\s+)?img/);
+  assert.match(source, /image-embed[\s\S]*image-wrapper[\s\S]*createEl\("img"/);
+  assert.doesNotMatch(centeredEmbed.declarations + "\n" + boundedEmbed.declarations + "\n" + sizedWrapper.declarations + "\n" + respectedWidth.declarations, /!important/);
+
+  const element = fakeElement();
+  const pixelWidth = normalizeProfile({ imageWidth: "500px" });
+  applyProfileCssVariables(element, pixelWidth);
+  applyProfileStateClasses(element, pixelWidth);
+  assert.equal(element.css.get("--osc-image-width"), "500px");
+  assert.equal(element.classList.contains("style-controller-respect-explicit-image-size"), true);
+
+  const percentWidth = normalizeProfile({ imageAlignment: "right", imageWidth: "45%" });
+  applyProfileCssVariables(element, percentWidth);
+  applyProfileStateClasses(element, percentWidth);
+  assert.equal(element.css.get("--osc-image-width"), "45%");
+  assert.equal(element.classList.contains("style-controller-image-align-right"), true);
+  assert.equal(element.classList.contains("style-controller-image-width"), true);
+  assert.equal(element.classList.contains("style-controller-respect-explicit-image-size"), true);
+
+  percentWidth.imageRespectExplicitSize = "false";
+  applyProfileStateClasses(element, percentWidth);
+  assert.equal(element.classList.contains("style-controller-respect-explicit-image-size"), false);
+  assert.equal(element.classList.contains("style-controller-ignore-explicit-image-size"), true);
+});
+
+test("File Explorer fields and prefix are independently opt-in", () => {
+  const element = fakeElement();
+  const blank = Object.fromEntries(Object.keys(FILE_EXPLORER_FIELD_ACTIVE_CLASSES).map((field) => [field, ""]));
+  applyFileExplorerCssVariables(element, blank);
+  Object.entries(FILE_EXPLORER_FIELD_ACTIVE_CLASSES).forEach(([field, className]) => {
+    assert.equal(element.classList.contains(className), false, field);
+    assert.equal(element.css.has(FILE_EXPLORER_FIELD_VARIABLES[field]), false, field);
+  });
+  applyFileExplorerCssVariables(element, { ...blank, folderColor: "#123456" });
+  assert.equal(element.classList.contains(FILE_EXPLORER_FIELD_ACTIVE_CLASSES.folderColor), true);
+  assert.equal(element.css.get(FILE_EXPLORER_FIELD_VARIABLES.folderColor), "#123456");
+  applyFileExplorerCssVariables(element, { ...blank, fontFamily: "inherit" });
+  assert.equal(element.classList.contains(FILE_EXPLORER_FIELD_ACTIVE_CLASSES.fontFamily), false);
+  assert.equal(element.css.has(FILE_EXPLORER_FIELD_VARIABLES.fontFamily), false);
+  assert.match(css, /\.style-controller-file-explorer-file\[data-style-controller-prefix\]::before/);
+  assert.match(css, /\.osc-file-explorer-preview \.nav-file-title\[data-osc-file-preview-prefix\]::before/);
+});
+
+test("File Explorer indentation color reaches folder children and clears on Off", () => {
+  const folder = fakeElement();
+  folder.classList.add("nav-folder");
+  const title = fakeElement();
+  title.parentElement = folder;
+  applyFileExplorerIndentGuide(title, { indentLineColor: "#123456" });
+  assert.equal(folder.css.get(FILE_EXPLORER_FIELD_VARIABLES.indentLineColor), "#123456");
+  assert.equal(folder.classList.contains(FILE_EXPLORER_FIELD_ACTIVE_CLASSES.indentLineColor), true);
+  applyFileExplorerIndentGuide(title, { indentLineColor: "" });
+  assert.equal(folder.css.has(FILE_EXPLORER_FIELD_VARIABLES.indentLineColor), false);
+  assert.equal(folder.classList.contains(FILE_EXPLORER_FIELD_ACTIVE_CLASSES.indentLineColor), false);
+  assert.match(css, /\.nav-folder\.style-controller-file-explorer-indent-line-color-active\s*\{\s*--nav-indentation-guide-color:/);
+  assert.doesNotMatch(css, /\.style-controller-file-explorer-folder\.style-controller-file-explorer-indent-line-color-active\s*\{/);
+});
+
+test("alternating table rows cover Reading View and Live Preview widgets", () => {
+  const rule = cssRules(css).find((candidate) => candidate.selectors.includes("style-controller-field-table-row-alt-background-active"));
+  assert.ok(rule);
+  assert.match(rule.selectors, /\.markdown-preview-view tbody tr:nth-child\(even\)/);
+  assert.match(rule.selectors, /\.markdown-source-view\.mod-cm6 \.cm-table-widget tbody tr:nth-child\(even\)/);
+  assert.match(rule.declarations, /background:\s*var\(--osc-table-row-alt-background\)/);
+  assert.doesNotMatch(rule.declarations, /!important/);
+});
+
+test("global callout preview and note callouts share opt-in runtime state", () => {
+  const element = fakeElement();
+  applyCalloutCssVariables(element, {
+    borderWidth: "3px",
+    radius: "",
+    titleSize: "",
+    titleFontFamily: "",
+    multiColumnBorderWidth: "",
+    multiColumnBorderStyle: "",
+    multiColumnBorderColor: "",
+    presets: []
+  });
+  assert.equal(element.classList.contains(STYLE_CALLOUT_ACTIVE_CLASSES[0]), true);
+  STYLE_CALLOUT_ACTIVE_CLASSES.slice(1).forEach((className) => {
+    assert.equal(element.classList.contains(className), false);
+  });
+  applyCalloutCssVariables(element, { titleFontFamily: "inherit", presets: [] });
+  assert.equal(element.classList.contains(STYLE_CALLOUT_ACTIVE_CLASSES[3]), false);
+  assert.equal(element.css.has("--style-controller-callout-title-font-family"), false);
+  assert.match(source, /updateGlobalCalloutPreview[\s\S]*applyCalloutCssVariables\(preview, callouts\)/);
+  assert.match(css, /\.osc-style-scope\.style-controller-callout-border-width-active \.callout/);
+});
+
+test("named callout CSS matches arbitrary types in both note views without overriding explicit icons", () => {
+  const generated = buildCalloutPresetCss([
+    { type: "Research-note", color: "#123456", titleColor: "#abcdef", backgroundColor: "#fedcba", icon: "lucide-mail" },
+    { type: "white", icon: "none", hideIcon: true },
+    { type: 'odd"] { color: red; } /*', color: "#654321" }
+  ]);
+  assert.match(generated, /\.osc-style-scope:not\(\.osc-callout-preview\) \.callout\[data-callout="research-note" i\]/);
+  assert.match(generated, /--callout-color: #123456;/);
+  assert.match(generated, /--callout-title-color: #abcdef;/);
+  assert.match(generated, /background-color: #fedcba;/);
+  assert.match(generated, /:not\(\[data-callout-icon\]\) \{ --callout-icon: lucide-mail; \}/);
+  assert.match(generated, /\[data-callout="white" i\]:not\(\[data-callout-icon\]\) > \.callout-title > \.callout-icon \{ display: none; \}/);
+  assert.match(generated, /odd\\22 \]/);
+  assert.doesNotMatch(generated, /!important|MutationObserver/);
+  assert.equal((generated.match(/\[data-callout="research-note" i\] \{/g) || []).length, 1);
+  assert.equal(buildCalloutPresetCss([{ type: "a", color: "#111111" }, { type: "A", color: "#222222" }]).includes("#111111"), false);
+  assert.doesNotMatch(buildCalloutPresetCss([{ type: "a", icon: "lucide-mail; color: red" }]), /--callout-icon/);
+});
+
+test("saved named callout preset fields survive settings normalization", () => {
+  const preset = { type: "Research-note", color: "#123456", titleColor: "#abcdef", backgroundColor: "#fedcba", icon: "lucide-mail", hideIcon: false };
+  const normalized = normalizeSettings({ callouts: { presets: [preset] } });
+  Object.entries(preset).forEach(([key, value]) => assert.equal(normalized.callouts.presets[0][key], value));
+  assert.match(source, /updateGlobalCalloutPreview[\s\S]*applyCalloutPresetToPreview\(preview, effectiveCalloutPresets\(callouts\.presets\)\.get\("note"\)\)/);
+  assert.match(source, /updateCalloutPreview[\s\S]*applyCalloutPresetToPreview\(preview, effectiveCalloutPresets\(callouts\.presets\)\.get\(calloutTypeKey\(type\)\) \|\| preset\)/);
+});
+
+test("preset preview uses the saved visual fields and preserves explicit Markdown icons", () => {
+  const style = new Map();
+  const iconEl = {};
+  const classes = new Set();
+  const callout = {
+    style: { setProperty: (name, value) => style.set(name, value) },
+    getAttribute: () => "EMAIL",
+    hasAttribute: () => false,
+    querySelector: () => iconEl,
+    toggleClass: (name, active) => active ? classes.add(name) : classes.delete(name)
+  };
+  const preview = { querySelector: () => callout };
+  const icons = [];
+  const preset = { type: "email", color: "#123456", titleColor: "#abcdef", backgroundColor: "#fedcba", icon: "lucide-mail" };
+  applyCalloutPresetToPreview(preview, preset, (...args) => icons.push(args));
+  assert.equal(style.get("--callout-color"), "#123456");
+  assert.equal(style.get("--callout-title-color"), "#abcdef");
+  assert.equal(style.get("background-color"), "#fedcba");
+  assert.equal(icons[0][1], "lucide-mail");
+  applyCalloutPresetToPreview(preview, { ...preset, icon: "none", hideIcon: true }, (...args) => icons.push(args));
+  assert.equal(classes.has("style-controller-preview-hide-callout-icon"), true);
+  assert.match(css, /\.osc-callout-preview \.callout\.style-controller-preview-hide-callout-icon:not\(\[data-callout-icon\]\)/);
+  callout.hasAttribute = () => true;
+  applyCalloutPresetToPreview(preview, preset, (...args) => icons.push(args));
+  assert.equal(icons.length, 1);
+});
+
+test("existing callout icons refresh only for affected types and leave explicit icons alone", () => {
+  const iconEl = {};
+  const makeCallout = (type, explicit, icon) => ({
+    getAttribute: () => type,
+    hasAttribute: () => explicit,
+    querySelector: () => iconEl,
+    getCssPropertyValue: () => icon
+  });
+  const scope = { querySelectorAll: () => [
+    makeCallout("EMAIL", false, "lucide-mail"),
+    makeCallout("email", true, "lucide-mail"),
+    makeCallout("note", false, "lucide-pencil")
+  ] };
+  const icons = [];
+  refreshCalloutIcons([scope], new Set(["email"]), (_element, icon) => icons.push(icon));
+  assert.deepEqual(icons, ["lucide-mail"]);
+});
+
+test("saved callout preset stylesheet updates, reverts and cleans up across documents", () => {
+  const makeDocument = () => {
+    const styles = [];
+    return {
+      styles,
+      head: { appendChild(style) { style.isConnected = true; styles.push(style); } },
+      createElement() { return { textContent: "", isConnected: false, remove() { this.isConnected = false; } }; }
+    };
+  };
+  const mainDocument = makeDocument();
+  const popoutDocument = makeDocument();
+  let iconQueries = 0;
+  const scopes = [mainDocument, popoutDocument].map((ownerDocument) => ({
+    ownerDocument,
+    querySelectorAll: () => { iconQueries += 1; return []; }
+  }));
+  const plugin = {
+    app: { workspace: { containerEl: { ownerDocument: mainDocument } } },
+    settings: { callouts: { presets: [{ type: "email", color: "#123456" }] } }
+  };
+  const views = scopes.map((containerEl) => ({ containerEl }));
+  StyleControllerPlugin.prototype.syncCalloutPresetStyles.call(plugin, views);
+  assert.equal(mainDocument.styles.length, 1);
+  assert.equal(popoutDocument.styles.length, 1);
+  assert.match(mainDocument.styles[0].textContent, /#123456/);
+  StyleControllerPlugin.prototype.syncCalloutPresetStyles.call(plugin, views);
+  assert.equal(mainDocument.styles.length, 1);
+  assert.equal(popoutDocument.styles.length, 1);
+  const draft = [{ type: "email", color: "#abcdef" }];
+  assert.match(mainDocument.styles[0].textContent, /#123456/);
+  plugin.settings.callouts.presets = draft;
+  StyleControllerPlugin.prototype.syncCalloutPresetStyles.call(plugin, views);
+  assert.match(mainDocument.styles[0].textContent, /#abcdef/);
+  plugin.settings.callouts.presets = [{ type: "email", color: "#123456" }];
+  StyleControllerPlugin.prototype.syncCalloutPresetStyles.call(plugin, views);
+  assert.match(mainDocument.styles[0].textContent, /#123456/);
+  plugin.settings.callouts.presets = [];
+  StyleControllerPlugin.prototype.syncCalloutPresetStyles.call(plugin, views);
+  assert.equal(mainDocument.styles[0].isConnected, false);
+  assert.equal(popoutDocument.styles[0].isConnected, false);
+  assert.equal(plugin.calloutPresetStyleEls.size, 0);
+  assert.equal(iconQueries, 0, "color-only presets should not touch existing icons");
+});
+
+test("successful section Apply relies on saveSettings for one workspace style traversal", () => {
+  const method = source.slice(
+    source.indexOf("  async applyDraftContext(context)"),
+    source.indexOf("  revertDraftContext(context)")
+  );
+  assert.match(method, /persist:\s*\(\) => this\.plugin\.saveSettings\(\)/);
+  assert.doesNotMatch(method, /if \(!result\.applied\)[\s\S]*?\n\s*this\.plugin\.applyStyles\(\);\n\s*const current/);
 });

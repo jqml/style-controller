@@ -6,12 +6,13 @@ Obsidian Appearance owns the base text font family and font size. Style Controll
 
 ## Safety warning
 
-This plugin changes appearance by applying scoped CSS custom properties. Test profiles on a small set of notes before assigning broad path overrides. Most blank/default controls remove the corresponding property and allow native Obsidian or theme behavior to continue. Inline and block code backgrounds instead use the Style Controller built-in `#fafafa` background whenever their custom override is Off.
+This plugin changes appearance by applying scoped CSS custom properties. Test profiles on a small set of notes before assigning broad path overrides. Blank/default controls remove the corresponding property and allow native Obsidian or theme behavior to continue.
 
 ## Features
 
-- Reusable stored style profiles, including a built-in Default profile with native styling plus `#fafafa` code backgrounds.
+- Reusable stored style profiles, including a built-in Default profile with native styling.
 - Active global profile settings for typography, headings, links, tables, code, blockquotes, callouts, images, file explorer styling, and custom CSS.
+- Independent native, upright, or italic font-style controls for bold and Markdown emphasis text.
 - Path-specific overrides for folders, files, and path-contains matching.
 - Static CSS rules with custom properties scoped to active Markdown views and matching file paths.
 - Image controls for alignment, width, and whether explicit image sizes are respected.
@@ -21,7 +22,7 @@ This plugin changes appearance by applying scoped CSS custom properties. Test pr
 
 ## Profiles and Default behavior
 
-The Default profile keeps native Obsidian styling except that inline-code and fenced-code backgrounds use Style Controller's built-in `#fafafa`. Each code background uses one compact color control: Off displays and renders `#fafafa`, entering a custom color automatically changes it to On, and clearing the field automatically returns it to Off and `#fafafa`. Stored profiles can be applied to the global settings or used as path-specific overrides. The active profile for a note is resolved from the global settings plus matching enabled overrides in their saved order.
+The Default profile keeps native Obsidian styling. Each code background uses one compact color control: Off keeps Obsidian's resolved background while retaining `#fafafa` as the editable color shown in the control; entering a custom color automatically changes it to On, and clearing the field returns it to Off. Stored profiles can be applied to the global settings or used as path-specific overrides. The active profile for a note is resolved from the global settings plus matching enabled overrides in their saved order.
 
 ## Path overrides
 
@@ -43,7 +44,7 @@ Image settings include alignment, width, and a control for respecting explicit i
 
 ## Applied styles
 
-The plugin uses the packaged `styles.css`; it does not create runtime stylesheets. It applies scoped classes and CSS custom properties to each Markdown view, clears stale values before resolving a new file or profile, and removes its classes and properties on unload.
+The plugin uses the packaged `styles.css` for fixed rules and one scoped runtime stylesheet for saved named callout types. It applies scoped classes and CSS custom properties to each Markdown view, clears stale values before resolving a new file or profile, and removes its classes, properties, and callout rules on unload.
 
 ## Code background smoke test
 
@@ -52,9 +53,9 @@ The plugin uses the packaged `styles.css`; it does not create runtime stylesheet
 3. Confirm **Block bg** has only one compact color control.
 4. Confirm no extra toggle or built-in-default description exists.
 5. Confirm both show `#fafafa` and Off by default.
-6. Confirm both previews render `#fafafa`.
+6. Confirm both previews retain the native Obsidian background while Off.
 7. Type a custom **Inline bg** color and confirm it immediately becomes On.
-8. Clear it and confirm it immediately becomes Off and returns to `#fafafa`.
+8. Clear it and confirm it immediately becomes Off, shows `#fafafa` in the control, and returns to the native background.
 9. Repeat for **Block bg**.
 10. Test Reading view and Live Preview.
 11. Restart Obsidian and confirm persistence.
@@ -62,7 +63,7 @@ The plugin uses the packaged `styles.css`; it does not create runtime stylesheet
 
 ## Code-block ownership diagnosis
 
-The reproducible vault fixture is `Metadata class/Untitled 1.md`, whose fenced block begins at line 23 with `QMSE circuit`. In the affected configuration, Style Controller owns the background contribution: its scoped `pre`/Live Preview code-background selectors load after native Obsidian CSS and resolve the approved Off/default `#fafafa` variable. The fix leaves the background behavior intact while keeping the native `pre code` transparency and native block-token colors. A blank Block text setting emits no plugin text-color declaration, and an explicit Block text value is opt-in and scoped separately.
+The reproducible vault fixture is `Metadata class/Untitled 1.md`, whose fenced block begins at line 23 with `QMSE circuit`. Style Controller owns the background contribution only while the corresponding custom background is On. Off emits no plugin background variable or active class, preserving native `pre` rendering and native block-token colors. A blank Block text setting likewise emits no plugin text-color declaration, and an explicit Block text value is opt-in and scoped separately.
 
 The code-block checks above and the automated tests validate selector ownership and configuration behavior. They do not claim a live Obsidian computed-style check.
 
@@ -79,7 +80,7 @@ The code-block checks above and the automated tests validate selector ownership 
 9. Turn heading color Off and confirm the entire heading becomes native.
 10. Switch profiles and path overrides and confirm no stale styling.
 11. Test light and dark themes.
-12. Confirm code backgrounds still use the approved `#fafafa` behavior.
+12. Confirm code backgrounds remain native while Off and use the configured color only while On.
 
 This checklist describes the manual equivalence checks; the release tests verify selector structure, variable cleanup, and profile isolation without claiming live UI equivalence.
 
