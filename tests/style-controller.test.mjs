@@ -30,7 +30,7 @@ const bundle = await build({
           export class Notice {}
           export class Setting {}
           export class TFolder {}
-          export const MarkdownRenderer = {};
+          export const MarkdownRenderer = { renderMarkdown: async (markdown) => { globalThis.__obsidianMarkdownCalls.push(markdown); } };
           export const prepareFuzzySearch = () => () => null;
           export const normalizePath = (value) => value;
           export const setIcon = () => {};
@@ -42,11 +42,36 @@ const bundle = await build({
 });
 
 const moduleRecord = { exports: {} };
-const context = vm.createContext({ console, exports: moduleRecord.exports, module: moduleRecord });
+const context = vm.createContext({ console, exports: moduleRecord.exports, module: moduleRecord, __obsidianMarkdownCalls: [] });
 new vm.Script(bundle.outputFiles[0].text, { filename: "style-controller-test-bundle.cjs" }).runInContext(context);
 const pluginModule = moduleRecord.exports;
 
 const {
+  ADVANCED_LAYOUT_TEMPLATES,
+  DEFAULT_ADVANCED_LAYOUTS,
+  DEFAULT_SETTINGS,
+  buildAdvancedLayoutCss,
+  buildSingleLayoutCss,
+  createAdvancedLayout,
+  effectiveLayoutOptions,
+  layoutMarkdownSample,
+  nextLayoutMarkdownId,
+  normalizeAdvancedLayouts,
+  normalizeCalloutSpacingByView,
+  isUntouchedAutoLayout,
+  validateAdvancedLayouts,
+  BORDER_STYLES,
+  CALLOUT_SPACING_FIELDS,
+  CALLOUT_SPACING_COMMON,
+  CALLOUT_SPACING_ADVANCED,
+  CALLOUT_SPACING_LEGACY,
+  buildCalloutViewSpacingCss,
+  calloutViewSelector,
+  calloutSpacingLayers,
+  calloutSpacingInheritedLayers,
+  calloutSpacingPlaceholder,
+  calloutSpacingPlaceholderUnit,
+  StyleControllerSettingTab,
   default: StyleControllerPlugin,
   BLOCK_CODE_BACKGROUND_SELECTORS,
   BLOCK_CODE_TEXT_SELECTORS,
@@ -99,6 +124,7 @@ const {
   applyDocumentLayoutStateClass,
   applyCalloutCssVariables,
   applyCalloutPresetToPreview,
+  applyCalloutSpacingToPreview,
   applyFileExplorerCssVariables,
   applyFileExplorerIndentGuide,
   applyProfileCssVariables,
@@ -107,6 +133,8 @@ const {
   applyInterfaceStateClasses,
   clearProfileCssVariables,
   buildCalloutPresetCss,
+  buildCalloutSpacingCss,
+  calloutSpacingEntries,
   clearInterfaceStateClasses,
   codeBackgroundUiState,
   configurationToExport,
@@ -130,7 +158,9 @@ const {
   setCodeBackgroundCustomInput,
   setCodeBackgroundCustomValue,
   singleLineScrollState,
-  styleFieldActiveClass
+  styleFieldActiveClass,
+  validCalloutSpacingValue,
+  validateCalloutSection
 } = pluginModule;
 
 class FakeClassList {
@@ -1986,14 +2016,15 @@ test("preview, reading view, and Live Preview use the same dedicated block varia
   assert.equal(element.css.has("--osc-code-block-background"), false);
 });
 
-test("code preview keeps native fallback and runtime CSS is limited to callout presets", () => {
+test("code preview keeps native fallback and runtime CSS is limited to callout presets and opt-in layouts", () => {
   const codeRules = cssRules(css).filter((rule) => /osc-(?:inline-code-preview|code-block-rendered-preview)/.test(rule.selectors));
   codeRules.forEach((rule) => {
     assert.doesNotMatch(rule.declarations, /background(?:-color)?:\s*(?:#fff(?:fff)?\b|white\b)/i);
     assert.doesNotMatch(rule.declarations, /background(?:-color)?:\s*(?:transparent|inherit|unset)\b/i);
   });
-  assert.equal([...source.matchAll(/create(?:El|Element)\(\s*["']style["']/g)].length, 1);
+  assert.equal([...source.matchAll(/create(?:El|Element)\(\s*["']style["']/g)].length, 3);
   assert.match(source, /style\.id = CALLOUT_PRESET_STYLE_ID/);
+  assert.match(source, /style\.id = ADVANCED_LAYOUT_STYLE_ID/);
   assert.doesNotMatch(source, /CSSStyleSheet|adoptedStyleSheets|insertRule|replaceSync/);
   assert.doesNotMatch(source, /buildProfileRuntimeCss|buildFileExplorerCss/);
   assert.doesNotMatch(source, /\.obsidian(?:\/|\\\\)/);
@@ -2218,8 +2249,139 @@ test("saved named callout preset fields survive settings normalization", () => {
   const preset = { type: "Research-note", color: "#123456", titleColor: "#abcdef", backgroundColor: "#fedcba", icon: "lucide-mail", hideIcon: false };
   const normalized = normalizeSettings({ callouts: { presets: [preset] } });
   Object.entries(preset).forEach(([key, value]) => assert.equal(normalized.callouts.presets[0][key], value));
-  assert.match(source, /updateGlobalCalloutPreview[\s\S]*applyCalloutPresetToPreview\(preview, effectiveCalloutPresets\(callouts\.presets\)\.get\("note"\)\)/);
-  assert.match(source, /updateCalloutPreview[\s\S]*applyCalloutPresetToPreview\(preview, effectiveCalloutPresets\(callouts\.presets\)\.get\(calloutTypeKey\(type\)\) \|\| preset\)/);
+  assert.match(source, /updateGlobalCalloutPreview[\s\S]*const preset = spacing \? null : effectiveCalloutPresets\(callouts\.presets\)\.get\("note"\);[\s\S]*applyCalloutPresetToPreview\(preview, preset\)/);
+  assert.match(source, /updateCalloutPreview[\s\S]*const effectivePreset = effectiveCalloutPresets\(callouts\.presets\)\.get\(calloutTypeKey\(type\)\) \|\| preset;[\s\S]*applyCalloutPresetToPreview\(preview, effectivePreset\)/);
+});
+
+test("callout spacing defaults stay Off and saved global/preset values survive normalization", () => {
+  assert.equal(CALLOUT_SPACING_FIELDS.length, 19);
+  const settings = normalizeSettings({ callouts: {
+    marginTop: "2em", paddingLeft: "5px", bodyFirstMarginTop: "0px", bodyBlockGap: "3px",
+    presets: [{ type: "research", marginTop: "4px", titlePaddingBottom: "3px", bodyLastMarginBottom: "0px", bodyBlockGap: "5px" }]
+  } });
+  assert.equal(settings.callouts.marginTop, "2em");
+  assert.equal(settings.callouts.paddingLeft, "5px");
+  assert.equal(settings.callouts.bodyFirstMarginTop, "0px");
+  assert.equal(settings.callouts.bodyBlockGap, "3px");
+  assert.equal(settings.callouts.presets[0].marginTop, "4px");
+  assert.equal(settings.callouts.presets[0].titlePaddingBottom, "3px");
+  assert.equal(settings.callouts.presets[0].bodyLastMarginBottom, "0px");
+  assert.equal(settings.callouts.presets[0].bodyBlockGap, "5px");
+  CALLOUT_SPACING_FIELDS.forEach((field) => assert.equal(normalizeSettings({}).callouts[field], ""));
+  assert.equal(buildCalloutSpacingCss({}, ".osc-style-scope .callout"), "");
+  assert.equal(validCalloutSpacingValue("paddingTop", "-2px"), "");
+  assert.equal(validCalloutSpacingValue("marginTop", "-2px"), "-2px");
+  assert.equal(validCalloutSpacingValue("bodyBlockGap", "-2px"), "");
+  assert.ok(validateCalloutSection({ presets: [{ paddingTop: "-2px" }] }).some((error) => error.includes("paddingTop")));
+});
+
+test("global and named spacing target native callout layers without affecting other elements", () => {
+  const global = buildCalloutSpacingCss({ marginTop: "2em", paddingRight: "6px", titlePaddingBottom: "4px", bodyPaddingLeft: "3px", bodyFirstMarginTop: "0px", bodyLastMarginBottom: "0px", bodyBlockGap: "3px" }, ".osc-style-scope:not(.osc-callout-preview) .callout");
+  const named = buildCalloutPresetCss([{ type: "Research-note", marginTop: "5px", paddingRight: "2px", bodyFirstMarginTop: "1px", bodyBlockGap: "5px" }]);
+  assert.match(global, /\.callout \{ margin-top: 2em; padding-right: 6px; \}/);
+  assert.match(global, /\.callout > \.callout-title \{ padding-bottom: 4px; \}/);
+  assert.match(global, /\.callout > \.callout-content \{ padding-left: 3px; padding-top: 0px; padding-bottom: 0px; \}/);
+  assert.match(global, /\.callout > \.callout-content > :first-child \{ margin-top: 0px; \}/);
+  assert.match(global, /\.callout > \.callout-content > :last-child \{ margin-bottom: 0px; \}/);
+  assert.match(global, /\.callout > \.callout-content > :not\(:last-child\) \{ margin-bottom: 0px; \}/);
+  assert.match(global, /\.callout > \.callout-content > \* \+ \* \{ margin-top: 0px; padding-top: 3px; \}/);
+  assert.match(named, /\.callout\[data-callout="research-note" i\] \{ margin-top: 5px; padding-right: 2px; \}/);
+  assert.match(named, /\.callout\[data-callout="research-note" i\] > \.callout-content \{ padding-top: 1px; \}/);
+  assert.match(named, /\.callout\[data-callout="research-note" i\] > \.callout-content > \* \+ \* \{ margin-top: 0px; padding-top: 5px; \}/);
+  assert.doesNotMatch(buildCalloutSpacingCss({ paddingTop: "-2px", marginTop: "1px; color: red" }, ".callout"), /color: red|padding-top/);
+  assert.match(source, /buildCalloutSpacingCss\(this\.settings\.callouts, globalSelector\)/);
+  assert.match(source, /applyCalloutSpacingToPreview\(preview, callouts, effectivePreset, spacing \? preview\.getAttribute/);
+  assert.doesNotMatch(global + named, /!important|MutationObserver/);
+});
+
+test("every directional callout spacing control maps to its own CSS longhand", () => {
+  const values = Object.fromEntries([...CALLOUT_SPACING_FIELDS].map((field, index) => [field, `${index + 1}px`]));
+  const entries = [...calloutSpacingEntries(values)];
+  for (const [prefix, selector, propertyPrefix] of [
+    ["margin", "", "margin"],
+    ["padding", "", "padding"],
+    ["titlePadding", " > .callout-title", "padding"],
+    ["bodyPadding", " > .callout-content", "padding"]
+  ]) {
+    for (const direction of ["Top", "Right", "Bottom", "Left"]) {
+      const field = `${prefix}${direction}`;
+      const entry = entries.find((item) => item.field === field);
+      assert.equal(entry.selector, selector, field);
+      assert.equal(entry.property, `${propertyPrefix}-${direction.toLowerCase()}`, field);
+      assert.equal(entry.value, values[field], field);
+    }
+  }
+  assert.equal(entries.length, 23, "title/body and paragraph spacing include reset and padding layers");
+  assert.deepEqual(entries.filter((entry) => entry.field === "bodyBlockGap").map((entry) => entry.value), ["0px", "0px", values.bodyBlockGap]);
+});
+
+test("spacing preview applies named values after global and leaves Off directions native", () => {
+  const values = new Map();
+  const target = (name) => ({ style: { setProperty(property, value) { values.set(`${name}:${property}`, value); } } });
+  const title = target("title");
+  const first = target("first");
+  const callout = {
+    ...target("callout"),
+    querySelectorAll(selector) {
+      const found = ({ ":scope > .callout-title": title, ":scope > .callout-content > :first-child": first })[selector];
+      return found ? [found] : [];
+    }
+  };
+  applyCalloutSpacingToPreview({ querySelector: () => callout },
+    { marginTop: "2em", paddingLeft: "8px", titlePaddingTop: "3px", bodyFirstMarginTop: "1em" },
+    { marginTop: "4px", titlePaddingTop: "0px", bodyFirstMarginTop: "0px" });
+  assert.equal(values.get("callout:margin-top"), "4px");
+  assert.equal(values.get("callout:padding-left"), "8px");
+  assert.equal(values.get("title:padding-top"), "0px");
+  assert.equal(values.get("first:margin-top"), "0px");
+  assert.equal(values.has("callout:margin-right"), false);
+});
+
+test("negative named gaps clear inherited positive gap padding in CSS and preview", () => {
+  const global = { bodyFirstMarginTop: "12px", bodyLastMarginBottom: "9px" };
+  const named = { type: "std", bodyFirstMarginTop: "-3px", bodyLastMarginBottom: "-2px" };
+  const css = buildCalloutPresetCss([named]);
+  assert.match(css, /\.callout\[data-callout="std" i\] > \.callout-content \{ padding-top: 0px; padding-bottom: 0px; \}/);
+  assert.match(css, /\.callout-content > :first-child \{ margin-top: -3px; \}/);
+  assert.match(css, /\.callout-content > :last-child \{ margin-bottom: -2px; \}/);
+  const values = new Map();
+  const target = (name) => ({ style: { setProperty(property, value) { values.set(`${name}:${property}`, value); } } });
+  const content = target("content");
+  const first = target("first");
+  const last = target("last");
+  const callout = { querySelectorAll(selector) {
+    const found = ({ ":scope > .callout-content": content,
+      ":scope > .callout-content > :first-child": first,
+      ":scope > .callout-content > :last-child": last })[selector];
+    return found ? [found] : [];
+  } };
+  applyCalloutSpacingToPreview({ querySelector: () => callout }, global, named);
+  assert.equal(values.get("content:padding-top"), "0px");
+  assert.equal(values.get("content:padding-bottom"), "0px");
+  assert.equal(values.get("first:margin-top"), "-3px");
+  assert.equal(values.get("last:margin-bottom"), "-2px");
+});
+
+test("multi-column border style uses native dropdown and retains saved values", () => {
+  assert.deepEqual([...BORDER_STYLES], ["solid", "dashed", "dotted", "double", "groove", "ridge", "inset", "outset", "none"]);
+  assert.match(source, /"multiColumnBorderStyle", "Multi-column border style", "groove", "border-style"/);
+  assert.match(source, /setting\.addDropdown\(\(dropdown\) => \{[\s\S]*BORDER_STYLES\.forEach/);
+  assert.equal(normalizeSettings({ callouts: { multiColumnBorderStyle: "groove" } }).callouts.multiColumnBorderStyle, "groove");
+  assert.equal(normalizeSettings({ callouts: { multiColumnBorderStyle: "hidden" } }).callouts.multiColumnBorderStyle, "hidden");
+  const element = fakeElement();
+  applyCalloutCssVariables(element, { multiColumnBorderStyle: "hidden", multiColumnBorderWidth: "1px", multiColumnBorderColor: "#000000" });
+  assert.equal(element.classList.contains(STYLE_CALLOUT_ACTIVE_CLASSES[4]), true, "existing valid hidden value remains effective");
+  applyCalloutCssVariables(element, { multiColumnBorderStyle: "bogus", multiColumnBorderWidth: "1px", multiColumnBorderColor: "#000000" });
+  assert.equal(element.classList.contains(STYLE_CALLOUT_ACTIVE_CLASSES[4]), false);
+  applyCalloutCssVariables(element, { multiColumnBorderStyle: "groove", multiColumnBorderWidth: "1px", multiColumnBorderColor: "#000000" });
+  assert.equal(element.classList.contains(STYLE_CALLOUT_ACTIVE_CLASSES[4]), true);
+});
+
+test("grey native settings displays and placeholders are left-aligned without changing status or scrolling", () => {
+  assert.match(css, /\.osc-settings :is\(input\[type="text"\], input\[type="number"\], select, textarea, \.osc-scroll-text-native\) \{\s*text-align: left;/);
+  assert.match(css, /\.osc-settings select \{\s*text-align-last: left;/);
+  assert.match(css, /\.osc-scroll-text-viewport\s*\{[^}]*overflow-x:\s*auto/s);
+  assert.match(css, /\.osc-value-status\s*\{[^}]*text-align:\s*center/s);
 });
 
 test("preset preview uses the saved visual fields and preserves explicit Markdown icons", () => {
@@ -2303,7 +2465,11 @@ test("saved callout preset stylesheet updates, reverts and cleans up across docu
   plugin.settings.callouts.presets = [{ type: "email", color: "#123456" }];
   StyleControllerPlugin.prototype.syncCalloutPresetStyles.call(plugin, views);
   assert.match(mainDocument.styles[0].textContent, /#123456/);
-  plugin.settings.callouts.presets = [];
+  plugin.settings.callouts = { marginTop: "4px", presets: [] };
+  StyleControllerPlugin.prototype.syncCalloutPresetStyles.call(plugin, views);
+  assert.equal(mainDocument.styles[0].isConnected, true);
+  assert.match(mainDocument.styles[0].textContent, /margin-top: 4px/);
+  plugin.settings.callouts = { presets: [] };
   StyleControllerPlugin.prototype.syncCalloutPresetStyles.call(plugin, views);
   assert.equal(mainDocument.styles[0].isConnected, false);
   assert.equal(popoutDocument.styles[0].isConnected, false);
@@ -2318,4 +2484,453 @@ test("successful section Apply relies on saveSettings for one workspace style tr
   );
   assert.match(method, /persist:\s*\(\) => this\.plugin\.saveSettings\(\)/);
   assert.doesNotMatch(method, /if \(!result\.applied\)[\s\S]*?\n\s*this\.plugin\.applyStyles\(\);\n\s*const current/);
+});
+
+test("advanced layouts migrate off, preserve stored instances, and expose only the multi-column template", () => {
+  assert.deepEqual([...ADVANCED_LAYOUT_TEMPLATES].map((template) => template.id), ["multi-column"]);
+  const fresh = normalizeSettings({ callouts: {} }).callouts.advancedLayouts;
+  assert.equal(fresh.enabled, false);
+  assert.equal(fresh.layouts.length, 0);
+  assert.equal(Object.hasOwn(fresh, "defaults"), false);
+  assert.equal(buildAdvancedLayoutCss(DEFAULT_ADVANCED_LAYOUTS), "");
+  const existing = { enabled: true, pinToTop: true,
+    defaults: { columnCount: 3, gap: "12px", minWidth: "180px", breakpoint: "640px", wrap: "wrap", responsive: "stack",
+      widths: [{ mode: "ratio", value: "2" }, { mode: "percent", value: "30" }, { mode: "fixed", value: "220" }] },
+    layouts: [{ id: "saved", template: "multi-column", displayName: "Chemistry", markdownId: "multi-column1", enabled: true,
+      options: { columnCount: "", widths: [], gap: "2em", minWidth: "", breakpoint: "", wrap: "", responsive: "" } }] };
+  const normalized = normalizeAdvancedLayouts(existing);
+  assert.equal(normalized.layouts[0].displayName, "Chemistry");
+  assert.equal(normalized.layouts[0].options.columnCount, 3);
+  assert.equal(normalized.layouts[0].options.gap, "2em");
+  assert.equal(normalized.layouts[0].options.minWidth, "180px");
+  assert.equal(normalized.layouts[0].options.widths[2].mode, "fixed");
+  assert.equal(normalized.pinToTop, true);
+  assert.equal(Object.hasOwn(normalized, "defaults"), false);
+  assert.equal(normalizeSettings({ callouts: { advancedLayouts: existing } }).callouts.advancedLayouts.layouts[0].id, "saved");
+  assert.equal(SETTINGS_SCHEMA_VERSION, 9);
+  const future = normalizeAdvancedLayouts({ layouts: [{ template: "future-grid", markdownId: "grid1", options: { rows: 4 } }] });
+  assert.equal(future.layouts[0].options.rows, 4);
+  assert.equal(Object.hasOwn(future.layouts[0].options, "columnCount"), false);
+});
+
+test("0.1.28 multi-column entries and callout appearance survive migration", () => {
+  const saved = normalizeSettings({ schemaVersion: 6, callouts: {
+    presets: [{ type: "multi-column", color: "#123456", titleColor: "#abcdef", backgroundColor: "#fedcba", icon: "none" }],
+    advancedLayouts: { enabled: true, defaults: { columnCount: 3, gap: "10px", minWidth: "180px", breakpoint: "620px", wrap: "wrap", responsive: "auto-fit",
+      widths: [{ mode: "ratio", value: "1" }, { mode: "ratio", value: "2" }, { mode: "ratio", value: "1" }] },
+    layouts: [{ id: "old-exact", template: "multi-column", displayName: "Legacy", markdownId: "multi-column", enabled: true,
+      options: { columnCount: "", widths: [], gap: "4px", minWidth: "", breakpoint: "", wrap: "", responsive: "" } }] }
+  } });
+  const advanced = saved.callouts.advancedLayouts;
+  assert.equal(advanced.layouts.length, 1);
+  assert.equal(advanced.layouts[0].id, "old-exact");
+  assert.equal(advanced.layouts[0].displayName, "Legacy");
+  assert.equal(advanced.layouts[0].builtIn, false);
+  assert.equal(advanced.layouts[0].enabled, true);
+  assert.equal(advanced.layouts[0].options.columnCount, 3);
+  assert.equal(advanced.layouts[0].options.gap, "4px");
+  assert.equal(advanced.layouts[0].options.widths[1].value, "2");
+  assert.equal(saved.callouts.presets[0].backgroundColor, "#fedcba");
+  assert.match(buildAdvancedLayoutCss(advanced), /data-callout="multi-column" i/);
+  assert.equal(buildAdvancedLayoutCss(advanced, true), "", "MCL owns the exact type when enabled");
+  assert.equal(Object.hasOwn(advanced, "defaults"), false);
+  const configuration = normalizeSettings({ schemaVersion: 6, storedConfigurations: [{ id: "user-layout", name: "User layout",
+    data: { callouts: { advancedLayouts: { enabled: true, defaults: { columnCount: 3 }, layouts: [
+      { id: "saved-custom", template: "multi-column", markdownId: "multi-column2", enabled: true, options: {} }
+    ] } } } }] }).storedConfigurations.find((item) => item.id === "user-layout");
+  assert.equal(configuration.data.callouts.advancedLayouts.layouts[0].id, "saved-custom");
+  assert.equal(configuration.data.callouts.advancedLayouts.layouts[0].options.columnCount, 3);
+  assert.equal(Object.hasOwn(configuration.data.callouts.advancedLayouts, "defaults"), false);
+  const hidden = normalizeAdvancedLayouts({ defaults: { columnCount: 2 }, layouts: [{ template: "multi-column", markdownId: "multi-column3",
+    options: { widths: [{ mode: "ratio", value: "1" }, { mode: "ratio", value: "2" }, { mode: "fixed", value: "350" }] } }] });
+  assert.equal(hidden.layouts[0].options.widths[2].value, "350", "inactive third-column width remains saved");
+  assert.doesNotMatch(buildAdvancedLayoutCss({ ...hidden, enabled: true, layouts: [{ ...hidden.layouts[0], enabled: true }] }), /350px/);
+});
+
+test("multi-column layout identifiers are distinct, validated, and never replace named appearance presets", () => {
+  const first = createAdvancedLayout("multi-column", []);
+  const second = createAdvancedLayout("multi-column", [first]);
+  const third = createAdvancedLayout("multi-column", [first, second]);
+  assert.equal(first.markdownId, "multi-column");
+  assert.equal(second.markdownId, "multi-column1");
+  assert.equal(third.markdownId, "multi-column2");
+  assert.equal(nextLayoutMarkdownId([first, second, third]), "multi-column3");
+  assert.equal(createAdvancedLayout("future-grid", []), null);
+  assert.match(layoutMarkdownSample(first), /> \[!multi-column\][\s\S]*>> \[!note\] Column 1[\s\S]*>> \[!note\] Column 2/);
+  assert.equal(validateAdvancedLayouts({ ...DEFAULT_ADVANCED_LAYOUTS, layouts: [first, { ...second, markdownId: "MULTI-COLUMN" }] }).some((error) => error.includes("duplicates")), true);
+  assert.equal(validateAdvancedLayouts({ ...DEFAULT_ADVANCED_LAYOUTS, layouts: [{ ...first, markdownId: "note" }] }).some((error) => error.includes("identifier")), true);
+  assert.equal(validateCalloutSection({ ...DEFAULT_SETTINGS.callouts, presets: [{ type: "multi-column", color: "#123456" }], advancedLayouts: { ...DEFAULT_ADVANCED_LAYOUTS, enabled: true, layouts: [first] } }).length, 0);
+});
+
+test("multi-column layout CSS is scoped, responsive, independent, and MCL-safe", () => {
+  const base = createAdvancedLayout("multi-column", [{ markdownId: "multi-column" }]);
+  const original = { ...createAdvancedLayout("multi-column", []), enabled: true,
+    options: { columnCount: 3, gap: "12px", minWidth: "180px", breakpoint: "640px", wrap: "wrap", responsive: "auto-fit", widths: [
+      { mode: "ratio", value: "2" }, { mode: "percent", value: "30" }, { mode: "fixed", value: "220" }
+    ] } };
+  const advanced = {
+    enabled: true, layouts: [original, base]
+  };
+  assert.equal(base.options.columnCount, 2);
+  assert.equal(original.options.columnCount, 3);
+  const css = buildAdvancedLayoutCss(advanced);
+  assert.match(css, /data-callout="multi-column1" i/);
+  assert.match(css, /data-callout="multi-column" i/);
+  assert.match(css, /grid-template-columns: minmax\(180px, 2fr\) minmax\(180px, 30%\) minmax\(180px, 220px\)/);
+  assert.match(css, /@container \(max-width: 640px\)/);
+  assert.match(css, /data-callout-metadata\*="wide-2"\] \{ grid-column: span 2/);
+  assert.match(css, /data-callout-metadata\*="wide-3"\] \{ grid-column: span 3/);
+  assert.match(buildSingleLayoutCss(base, ".scope"), /data-callout-metadata\*="wide-3"\] \{ grid-column: span 2/);
+  assert.match(css, /\.callout-content > \*/);
+  assert.doesNotMatch(css, /!important|MutationObserver/);
+  const withMcl = buildAdvancedLayoutCss(advanced, true);
+  assert.match(withMcl, /data-callout="multi-column1" i/);
+  assert.doesNotMatch(withMcl, /data-callout="multi-column" i/);
+  assert.equal(buildAdvancedLayoutCss({ ...advanced, enabled: false }), "");
+  assert.equal(buildAdvancedLayoutCss({ ...advanced, layouts: [{ ...base, enabled: false }] }), "");
+  assert.equal(buildSingleLayoutCss({ ...base, options: { ...base.options, gap: "1em; color: red" } }, ".scope"), "");
+  assert.equal(validateAdvancedLayouts({ ...advanced, layouts: [{ ...base, options: { ...base.options, breakpoint: "50%" } }] }).some((error) => error.includes("percent")), true);
+});
+
+test("per-layout column counts use only their own active widths", () => {
+  const first = createAdvancedLayout("multi-column", []);
+  const second = createAdvancedLayout("multi-column", [first]);
+  first.options.columnCount = 2;
+  first.options.widths = [{ mode: "ratio", value: "1" }, { mode: "ratio", value: "3" }, { mode: "ratio", value: "9" }];
+  second.options.columnCount = 3;
+  second.options.widths = [{ mode: "fixed", value: "210" }, { mode: "ratio", value: "2" }, { mode: "percent", value: "25" }];
+  const firstCss = buildSingleLayoutCss(first, ".scope");
+  const secondCss = buildSingleLayoutCss(second, ".scope");
+  assert.match(firstCss, /minmax\(200px, 1fr\) minmax\(200px, 3fr\)/);
+  assert.doesNotMatch(firstCss, /9fr/);
+  assert.match(secondCss, /minmax\(200px, 210px\) minmax\(200px, 2fr\) minmax\(200px, 25%\)/);
+  assert.equal((layoutMarkdownSample(first).match(/\[!note\]/g) || []).length, 2);
+  assert.equal((layoutMarkdownSample(second).match(/\[!note\]/g) || []).length, 3);
+});
+
+test("advanced settings contain only section controls and template-specific editors", () => {
+  const section = source.slice(source.indexOf("  renderAdvancedLayoutsSection("), source.indexOf("  renderAdvancedLayoutCard("));
+  assert.match(section, /"Pin to top"/);
+  assert.match(section, /advanced\.layouts\.forEach/);
+  assert.match(section, /"Add layout"/);
+  assert.doesNotMatch(section, /Global layout defaults|renderMultiColumnOptions/);
+  assert.match(source, /definition\?\.renderOptions\(this, editContent, layout, callouts, update\)/);
+  assert.match(source, /const ADVANCED_LAYOUT_TEMPLATES = \[\{/);
+  assert.match(source, /header\.addButton\(\(button\) => button\.setButtonText\("Delete"\)/);
+  const editor = source.slice(source.indexOf("  renderAdvancedLayoutCard("), source.indexOf("  renderMultiColumnOptions("));
+  assert.match(editor, /const update = \(\) => \{[\s\S]*this\.updateLayoutPreview\(preview, layout\)/);
+  assert.match(editor, /definition\?\.renderOptions\(this, editContent, layout, callouts, update\)/);
+  const controls = source.slice(source.indexOf("  renderMultiColumnOptions("), source.indexOf("  async updateLayoutPreview("));
+  assert.match(controls, /"gap", "Column gap"[\s\S]*onChange/);
+  assert.match(controls, /options\.widths\[index\] = \{ mode: current\.mode, value \};[\s\S]*onChange\?\.\(\)/);
+});
+
+test("layout runtime styles update on Apply/Revert and clean up across documents", () => {
+  const makeDocument = () => {
+    const styles = [];
+    return { styles, head: { appendChild(style) { style.isConnected = true; styles.push(style); } },
+      createElement() { return { textContent: "", isConnected: false, remove() { this.isConnected = false; } }; } };
+  };
+  const mainDocument = makeDocument();
+  const popoutDocument = makeDocument();
+  const layout = createAdvancedLayout("multi-column", []);
+  const plugin = { app: { workspace: { containerEl: { ownerDocument: mainDocument } }, customCss: { enabledSnippets: new Set() } },
+    settings: { callouts: { advancedLayouts: { ...DEFAULT_ADVANCED_LAYOUTS, enabled: true, layouts: [layout] } } },
+    isMclSnippetEnabled: StyleControllerPlugin.prototype.isMclSnippetEnabled };
+  const views = [{ containerEl: { ownerDocument: mainDocument } }, { containerEl: { ownerDocument: popoutDocument } }];
+  StyleControllerPlugin.prototype.syncAdvancedLayoutStyles.call(plugin, views);
+  assert.equal(mainDocument.styles.length, 1);
+  assert.equal(popoutDocument.styles.length, 1);
+  assert.match(mainDocument.styles[0].textContent, /1em/);
+  plugin.settings.callouts.advancedLayouts.layouts[0].options.gap = "3em";
+  StyleControllerPlugin.prototype.syncAdvancedLayoutStyles.call(plugin, views);
+  assert.match(mainDocument.styles[0].textContent, /3em/);
+  plugin.settings.callouts.advancedLayouts.layouts[0].options.gap = "";
+  StyleControllerPlugin.prototype.syncAdvancedLayoutStyles.call(plugin, views);
+  assert.equal(mainDocument.styles[0].isConnected, false, "invalid layout emits no CSS");
+  plugin.settings.callouts.advancedLayouts.layouts[0].options.gap = "1em";
+  StyleControllerPlugin.prototype.syncAdvancedLayoutStyles.call(plugin, views);
+  assert.match(mainDocument.styles.at(-1).textContent, /1em/);
+  plugin.settings.callouts.advancedLayouts.enabled = false;
+  StyleControllerPlugin.prototype.syncAdvancedLayoutStyles.call(plugin, views);
+  assert.equal(mainDocument.styles.at(-1).isConnected, false);
+  assert.equal(popoutDocument.styles.at(-1).isConnected, false);
+  assert.equal(plugin.advancedLayoutStyleEls.size, 0);
+});
+
+test("advanced layout drafts revert and persist only after Callouts Apply", async () => {
+  const settings = normalizeSettings({ callouts: { advancedLayouts: { enabled: false, layouts: [] } } });
+  const drafts = new SectionDraftManager();
+  const entry = drafts.get("callouts", settings.callouts);
+  entry.value.advancedLayouts.enabled = true;
+  entry.value.advancedLayouts.layouts.push(createAdvancedLayout("multi-column", entry.value.advancedLayouts.layouts));
+  drafts.mark(entry.value.advancedLayouts);
+  assert.equal(entry.dirty, true);
+  assert.equal(settings.callouts.advancedLayouts.enabled, false);
+  assert.equal(settings.callouts.advancedLayouts.layouts.length, 0);
+  drafts.revert("callouts", settings.callouts);
+  assert.equal(entry.value.advancedLayouts.enabled, false);
+  assert.equal(entry.value.advancedLayouts.layouts.length, 0);
+  entry.value.advancedLayouts.enabled = true;
+  entry.value.advancedLayouts.layouts.push(createAdvancedLayout("multi-column", entry.value.advancedLayouts.layouts));
+  let saved = "";
+  const result = await applyDraftAtomically({
+    draft: entry.value,
+    normalize: (value) => normalizeSettings({ callouts: value }).callouts,
+    validate: validateCalloutSection,
+    commit: (candidate) => { settings.callouts = candidate; },
+    persist: async () => { saved = JSON.stringify(settings.callouts); }
+  });
+  assert.equal(result.applied, true);
+  assert.equal(settings.callouts.advancedLayouts.enabled, true);
+  assert.match(saved, /multi-column/);
+  assert.equal(normalizeSettings(JSON.parse(JSON.stringify(settings))).callouts.advancedLayouts.layouts[0].markdownId, "multi-column");
+});
+
+test("deleting any layout persists through Apply and reload without recreating multi-column", async () => {
+  const exact = createAdvancedLayout("multi-column", []);
+  const custom = createAdvancedLayout("multi-column", [exact]);
+  const settings = normalizeSettings({ callouts: { advancedLayouts: { enabled: true, layouts: [exact, custom] } } });
+  const drafts = new SectionDraftManager();
+  const entry = drafts.get("callouts", settings.callouts);
+  entry.value.advancedLayouts.layouts.splice(0, 1);
+  drafts.mark(entry.value.advancedLayouts);
+  assert.equal(settings.callouts.advancedLayouts.layouts.length, 2, "deletion stays draft-only before Apply");
+  drafts.revert("callouts", settings.callouts);
+  assert.equal(entry.value.advancedLayouts.layouts.length, 2, "Revert restores the deleted layout");
+  entry.value.advancedLayouts.layouts.splice(0, 1);
+  let saved = "";
+  const result = await applyDraftAtomically({
+    draft: entry.value,
+    normalize: (value) => normalizeSettings({ callouts: value }).callouts,
+    validate: validateCalloutSection,
+    commit: (candidate) => { settings.callouts = candidate; },
+    persist: async () => { saved = JSON.stringify(settings); }
+  });
+  assert.equal(result.applied, true);
+  let reloaded = normalizeSettings(JSON.parse(saved));
+  assert.equal(reloaded.callouts.advancedLayouts.layouts.length, 1);
+  assert.equal(reloaded.callouts.advancedLayouts.layouts[0].markdownId, "multi-column1");
+  assert.doesNotMatch(buildAdvancedLayoutCss(reloaded.callouts.advancedLayouts), /data-callout="multi-column" i/);
+  assert.equal(nextLayoutMarkdownId(reloaded.callouts.advancedLayouts.layouts), "multi-column", "the deleted exact identifier is reusable");
+  reloaded.callouts.advancedLayouts.layouts.splice(0, 1);
+  reloaded = normalizeSettings(JSON.parse(JSON.stringify(reloaded)));
+  assert.equal(reloaded.callouts.advancedLayouts.layouts.length, 0, "an empty saved list remains empty after restart");
+  assert.equal(buildAdvancedLayoutCss(reloaded.callouts.advancedLayouts), "");
+});
+
+test("0.1.29 migration removes only recognizable untouched automatic layouts", () => {
+  const automatic = { id: "builtin-multi-column", template: "multi-column", displayName: "Multi-column",
+    markdownId: "multi-column", builtIn: true, enabled: false, options: createAdvancedLayout("multi-column", []).options };
+  const customized = { ...automatic, options: { ...automatic.options, gap: "2em" } };
+  const enabled = { ...automatic, enabled: true };
+  const renamed = { ...automatic, displayName: "Chemistry columns" };
+  assert.equal(isUntouchedAutoLayout(automatic), true);
+  for (const retained of [customized, enabled, renamed]) assert.equal(isUntouchedAutoLayout(retained), false);
+  assert.equal(normalizeSettings({ schemaVersion: 7, callouts: { advancedLayouts: {
+    enabled: true, layouts: [automatic, { ...createAdvancedLayout("multi-column", [automatic]), markdownId: "multi-column1" }]
+  } } }).callouts.advancedLayouts.layouts.length, 1);
+  assert.equal(normalizeAdvancedLayouts({ defaults: { gap: "2em" }, layouts: [automatic] }).layouts.length, 1,
+    "legacy custom defaults make the apparently automatic entry ambiguous, so it stays");
+  for (const retained of [customized, enabled, renamed]) {
+    const migrated = normalizeSettings({ schemaVersion: 7, callouts: { advancedLayouts: { enabled: true, layouts: [retained] } } });
+    assert.equal(migrated.callouts.advancedLayouts.layouts.length, 1);
+    assert.equal(migrated.callouts.advancedLayouts.layouts[0].markdownId, "multi-column");
+    assert.equal(migrated.callouts.advancedLayouts.layouts[0].builtIn, false, "retained layouts become deletable");
+  }
+});
+
+test("spacing UI prioritizes common controls and preserves legacy overrides", () => {
+  const visible = [...CALLOUT_SPACING_COMMON, ...CALLOUT_SPACING_ADVANCED, ...CALLOUT_SPACING_LEGACY].map(([field]) => field);
+  assert.equal(visible.length, 19);
+  assert.equal(new Set(visible).size, CALLOUT_SPACING_FIELDS.length);
+  assert.equal(CALLOUT_SPACING_COMMON[0][0], "marginTop");
+  assert.equal(CALLOUT_SPACING_COMMON.at(-1)[0], "bodyBlockGap");
+  const ui = source.slice(source.indexOf("  renderCalloutSpacingControls("), source.indexOf("  renderCalloutPreview("));
+  assert.match(ui, /CALLOUT_SPACING_COMMON\.forEach/);
+  assert.match(ui, /createEl\("details", \{ cls: "osc-setting-group osc-callout-spacing-advanced" \}\)/);
+  assert.match(ui, /CALLOUT_SPACING_LEGACY\.filter\(\(\[field\]\) => hasActiveValue\(values\[field\]\)\)/);
+  assert.match(ui, /type: "number", step: "0\.1",[\s\S]*placeholder/);
+  assert.match(ui, /SIZE_UNITS\.forEach\(\(unit\) => select\.createEl\("option"/);
+  const legacy = normalizeSettings({ schemaVersion: 7, callouts: { bodyPaddingTop: "7px", presets: [{ type: "std", titlePaddingBottom: "9px" }] } });
+  assert.equal(legacy.callouts.bodyPaddingTop, "7px");
+  assert.equal(legacy.callouts.presets[0].titlePaddingBottom, "9px");
+  assert.match(buildCalloutSpacingCss(legacy.callouts, ".callout"), /padding-top: 7px/);
+  assert.match(buildCalloutSpacingCss(legacy.callouts.presets[0], '.callout[data-callout="std"]'), /padding-bottom: 9px/);
+});
+
+test("integrated spacing previews render fixed two-paragraph Markdown through the existing callout renderer", async () => {
+  const calls = context.__obsidianMarkdownCalls;
+  const preview = (spacing) => ({
+    classList: { contains: (name) => spacing && name === "osc-callout-spacing-preview" },
+    getAttribute: () => "reading",
+    empty() {}, createDiv() { return {}; }, contains() { return false; }
+  });
+  const tab = { createCalloutPreviewRenderTarget: () => ({}) };
+  const preset = { type: "std", previewTitle: "Saved title", previewBody: "Saved body", marginTop: "19px" };
+  const callouts = { previewTitle: "Saved global title", previewBody: "Saved global body", presets: [preset], marginTop: "7px" };
+  const before = JSON.stringify(callouts);
+  calls.length = 0;
+  await StyleControllerSettingTab.prototype.updateGlobalCalloutPreview.call(tab, preview(true), callouts);
+  await StyleControllerSettingTab.prototype.updateCalloutPreview.call(tab, preview(true), preset, callouts);
+  assert.equal(calls.length, 2);
+  assert.match(calls[0], /^> \[!note\] Spacing preview\n> The first paragraph[\s\S]*\n> ?\n> The second paragraph/);
+  assert.match(calls[1], /^> \[!std\] Spacing preview\n> The first paragraph[\s\S]*\n> ?\n> The second paragraph/);
+  assert.equal(JSON.stringify(callouts), before, "preview-only content must not enter settings");
+  await StyleControllerSettingTab.prototype.updateCalloutPreview.call(tab, preview(false), preset, callouts);
+  assert.match(calls.at(-1), /^> \[!std\] Saved title\n> Saved body/);
+});
+
+test("spacing preview registry refreshes all inherited drafts or only the edited named type", () => {
+  const global = { id: "global" };
+  const first = { type: "std", marginTop: "" };
+  const second = { type: "custom", marginTop: "" };
+  const calls = [];
+  const tab = {
+    calloutSpacingPreviews: [{ preview: global, preset: null }, { preview: { id: "first" }, preset: first },
+      { preview: { id: "second" }, preset: second }],
+    updateGlobalCalloutPreview(preview, draft) { calls.push([preview.id, draft.marginTop]); },
+    updateCalloutPreview(preview, preset, draft) { calls.push([preview.id, preset.marginTop, draft.marginTop]); }
+  };
+  const draft = { marginTop: "13px" };
+  StyleControllerSettingTab.prototype.refreshCalloutSpacingPreviews.call(tab, draft);
+  assert.deepEqual(calls, [["global", "13px"], ["first", "", "13px"], ["second", "", "13px"]]);
+  calls.length = 0;
+  first.marginTop = "21px";
+  StyleControllerSettingTab.prototype.refreshCalloutSpacingPreviews.call(tab, draft, first);
+  assert.deepEqual(calls, [["first", "21px", "13px"]]);
+  assert.match(source, /this\.refreshCalloutSpacingPreviews\(callouts\);[\s\S]*this\.refreshCalloutSpacingPlaceholders\(callouts\)/);
+  assert.match(source, /this\.refreshCalloutSpacingPreviews\(callouts, preset\)/);
+  const section = source.slice(source.indexOf("  renderCalloutSpacingControls("), source.indexOf("  addCalloutSpacingSetting("));
+  assert.match(section, /details\.createEl\("summary", \{ text: "Spacing" \}\);[\s\S]*setName\("Preview view"\)[\s\S]*renderGlobalCalloutPreview\(content, callouts, true, view\)/);
+  assert.match(css, /\.osc-callout-spacing-preview\s*\{[^}]*border:[^}]*overflow: visible;[^}]*padding: 24px;/s);
+});
+
+test("0.1.31 callout spacing migrates as shared values with separate views off", () => {
+  const old = { schemaVersion: 8, callouts: { marginTop: "2em", bodyBlockGap: "6px",
+    presets: [{ type: "std", paddingLeft: "19px", titlePaddingBottom: "4px" }] } };
+  const migrated = normalizeSettings(old);
+  assert.equal(migrated.schemaVersion, 9);
+  assert.equal(migrated.callouts.marginTop, "2em");
+  assert.equal(migrated.callouts.bodyBlockGap, "6px");
+  assert.equal(migrated.callouts.presets[0].paddingLeft, "19px");
+  assert.equal(migrated.callouts.presets[0].titlePaddingBottom, "4px");
+  assert.equal(migrated.callouts.spacingByView.enabled, false);
+  assert.equal(migrated.callouts.presets[0].spacingByView.enabled, false);
+  for (const mode of ["reading", "live"]) for (const field of CALLOUT_SPACING_FIELDS) {
+    assert.equal(migrated.callouts.spacingByView[mode][field] ?? "", "");
+    assert.equal(migrated.callouts.presets[0].spacingByView[mode][field] ?? "", "");
+  }
+  assert.equal(buildCalloutViewSpacingCss(migrated.callouts), "");
+  const normalized = normalizeCalloutSpacingByView({ enabled: false, reading: { marginTop: "17px" } });
+  assert.equal(normalized.reading.marginTop, "17px", "disabled view values stay saved");
+  assert.equal(buildCalloutViewSpacingCss({ spacingByView: normalized }), "");
+});
+
+test("view-specific spacing CSS is scoped and named overrides beat global view values", () => {
+  const global = normalizeSettings({ callouts: { marginTop: "6px", spacingByView: { enabled: true,
+    reading: { marginTop: "12px" }, live: { marginTop: "18px" } }, presets: [] } }).callouts;
+  const preset = normalizeSettings({ callouts: { presets: [{ type: "std", marginTop: "22px", spacingByView: { enabled: true,
+    reading: { marginTop: "30px" }, live: { marginTop: "34px" } } }] } }).callouts.presets[0];
+  const cssGlobal = buildCalloutViewSpacingCss(global);
+  const cssNamed = buildCalloutPresetCss([preset]);
+  assert.match(calloutViewSelector("reading"), /:where\(\.markdown-preview-view\)/);
+  assert.match(calloutViewSelector("live", "std"), /:where\(\.markdown-source-view\.mod-cm6\).*data-callout="std" i/);
+  assert.match(cssGlobal, /margin-top: 12px/);
+  assert.match(cssGlobal, /margin-top: 18px/);
+  assert.match(cssNamed, /margin-top: 22px/);
+  assert.match(cssNamed, /margin-top: 30px/);
+  assert.match(cssNamed, /margin-top: 34px/);
+  assert.doesNotMatch(cssGlobal + cssNamed, /!important/);
+  assert.deepEqual([...calloutSpacingLayers(global, preset, "reading")].map((item) => item.marginTop), ["6px", "12px", "22px", "30px"]);
+  assert.deepEqual([...calloutSpacingLayers(global, preset, "live")].map((item) => item.marginTop), ["6px", "18px", "22px", "34px"]);
+  assert.deepEqual([...calloutSpacingInheritedLayers(global, preset, "live", true)].map((item) => item.marginTop), ["6px", "18px", "22px"]);
+  preset.spacingByView.enabled = false;
+  assert.deepEqual([...calloutSpacingLayers(global, preset, "live")].map((item) => item.marginTop), ["6px", "18px", "22px"]);
+  assert.equal(preset.spacingByView.live.marginTop, "34px", "disabling separation keeps the saved value");
+});
+
+test("numeric Off defaults follow the selected view without becoming overrides", () => {
+  const measurements = { reading: { marginTop: "16px", bodyBlockGap: "6.39px" },
+    live: { marginTop: "0px", bodyBlockGap: "16px" } };
+  assert.equal(calloutSpacingPlaceholder(measurements, "marginTop", "reading"), "16");
+  assert.equal(calloutSpacingPlaceholder(measurements, "marginTop", "live"), "0");
+  assert.equal(calloutSpacingPlaceholder(measurements, "bodyBlockGap", "reading"), "6.39");
+  assert.equal(calloutSpacingPlaceholderUnit(measurements, "marginTop", "live"), "px");
+  const ui = source.slice(source.indexOf("  addCalloutSpacingSetting("), source.indexOf("  refreshCalloutSpacingPlaceholders("));
+  assert.match(ui, /input\.value = active \? parsed\.value : ""/);
+  assert.match(ui, /select\.addEventListener\("change", \(\) => \{[\s\S]*if \(input\.value\) save\(\);[\s\S]*else select\.value = calloutSpacingPlaceholderUnit/);
+  assert.match(ui, /values\[field\] = input\.value \? `\$\{input\.value\}\$\{select\.value\}` : ""/);
+  assert.match(source, /measureCalloutSpacingMode\(parent\.ownerDocument, view,[\s\S]*inherited \? settings\.type : "note"/);
+  assert.match(source, /measureCalloutSpacingMode\(this\.containerEl\.ownerDocument, group\.view,[\s\S]*group\.inherited \? group\.settings\.type : "note"/);
+  assert.match(source, /this\.refreshCalloutSpacingPreviews\(callouts, preset\);\s*this\.refreshCalloutSpacingPlaceholders\(callouts\);/);
+});
+
+test("spacing preview builds the selected Obsidian view wrapper without persisting the selector", () => {
+  const createRoot = (view) => {
+    const classes = [];
+    const node = () => ({ createDiv({ cls }) { classes.push(cls); return node(); } });
+    const preview = { classList: { contains: () => true }, getAttribute: () => view, createDiv: node().createDiv };
+    StyleControllerSettingTab.prototype.createCalloutPreviewRenderTarget.call({}, preview);
+    return classes;
+  };
+  assert.deepEqual(createRoot("reading"), ["markdown-preview-view markdown-rendered", "markdown-preview-sizer"]);
+  assert.deepEqual(createRoot("live"), ["markdown-source-view mod-cm6", "cm-content", "cm-embed-block"]);
+  const ui = source.slice(source.indexOf("  renderCalloutSpacingControls("), source.indexOf("  addCalloutSpacingSetting("));
+  assert.match(ui, /setName\("Preview view"\)[\s\S]*\.addOption\("reading", "Reading View"\)[\s\S]*\.addOption\("live", "Live Preview"\)/);
+  assert.match(ui, /this\.calloutSpacingViewSelection\.set\(key, selected\);\s*this\.refreshPreservingScroll\(\)/);
+  assert.match(ui, /settings\.spacingByView\.enabled = enabled;\s*this\.noteDraftMutation\(settings\)/);
+});
+
+test("content-sized spacing view wrappers are limited to settings previews", () => {
+  assert.match(css, /\.osc-style-scope\.osc-callout-spacing-preview :is\(\.markdown-preview-view, \.markdown-source-view\.mod-cm6\)\s*\{[^}]*height: auto;[^}]*min-height: 0;[^}]*padding: 0;[^}]*overflow: visible;/s);
+  assert.match(css, /\.osc-style-scope\.osc-callout-spacing-preview \.markdown-source-view\.mod-cm6 \.cm-content\s*\{[^}]*min-height: 0;[^}]*width: 100%;/s);
+  const rules = cssRules(css).filter((rule) => rule.selectors.includes("osc-callout-spacing-preview") && rule.declarations.includes("height: auto"));
+  assert.ok(rules.length >= 1);
+  rules.forEach((rule) => assert.match(rule.selectors, /\.osc-callout-spacing-preview/));
+  assert.doesNotMatch(rules.map((rule) => rule.declarations).join("\n"), /!important/);
+});
+
+test("separate-view spacing drafts Apply, Revert, and retain inactive view values", async () => {
+  const settings = normalizeSettings({ schemaVersion: 8, callouts: { marginTop: "9px", presets: [{ type: "std", marginTop: "14px" }] } });
+  const drafts = new SectionDraftManager();
+  const entry = drafts.get("callouts", settings.callouts);
+  entry.value.spacingByView.enabled = true;
+  entry.value.spacingByView.reading.marginTop = "21px";
+  entry.value.spacingByView.live.marginTop = "3px";
+  entry.value.presets[0].spacingByView.enabled = true;
+  entry.value.presets[0].spacingByView.live.marginTop = "5px";
+  drafts.mark(entry.value.spacingByView);
+  assert.equal(settings.callouts.spacingByView.enabled, false);
+  drafts.revert("callouts", settings.callouts);
+  assert.equal(entry.value.spacingByView.reading.marginTop ?? "", "");
+  entry.value.spacingByView.enabled = true;
+  entry.value.spacingByView.reading.marginTop = "21px";
+  entry.value.spacingByView.live.marginTop = "3px";
+  entry.value.presets[0].spacingByView.enabled = true;
+  entry.value.presets[0].spacingByView.live.marginTop = "5px";
+  let persisted = "";
+  const result = await applyDraftAtomically({ draft: entry.value,
+    normalize: (value) => normalizeSettings({ callouts: value }).callouts,
+    validate: validateCalloutSection,
+    commit: (candidate) => { settings.callouts = candidate; },
+    persist: async () => { persisted = JSON.stringify(settings); } });
+  assert.equal(result.applied, true);
+  const reloaded = normalizeSettings(JSON.parse(persisted));
+  assert.equal(reloaded.callouts.marginTop, "9px");
+  assert.equal(reloaded.callouts.spacingByView.reading.marginTop, "21px");
+  assert.equal(reloaded.callouts.spacingByView.live.marginTop, "3px");
+  assert.equal(reloaded.callouts.presets[0].spacingByView.live.marginTop, "5px");
+  reloaded.callouts.spacingByView.enabled = false;
+  assert.equal(reloaded.callouts.spacingByView.live.marginTop, "3px");
+  assert.equal(buildCalloutViewSpacingCss(reloaded.callouts), "");
+  assert.ok(validateCalloutSection({ presets: [], spacingByView: { enabled: true, live: { paddingTop: "-1px" } } })
+    .some((error) => error.includes("live paddingTop")));
+});
+
+test("layout Edit panel remains open when changing column count", () => {
+  const method = source.slice(source.indexOf("  renderAdvancedLayoutCard("), source.indexOf("  renderMultiColumnOptions("));
+  assert.match(method, /editor\.open = this\.openLayoutEditors\?\.has\(layout\.id\) === true/);
+  assert.match(method, /editor\.addEventListener\("toggle"/);
+  assert.match(source, /options\.columnCount = Number\(value\);[\s\S]*this\.refreshPreservingScroll\(\)/);
 });

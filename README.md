@@ -19,6 +19,7 @@ This plugin changes appearance by applying scoped CSS custom properties. Test pr
 - Status indicators for style fields: On, Off, and Error.
 - Content-sized horizontal scrollers for long single-line text and resolved native font stacks.
 - Import/export workflows for stored configurations.
+- Named callout appearance presets and opt-in multi-column callout layouts.
 
 ## Profiles and Default behavior
 
@@ -42,9 +43,19 @@ Each major settings section has one **Apply** button and one **Revert** button. 
 
 Image settings include alignment, width, and a control for respecting explicit image sizes. Blank image settings do not emit image CSS.
 
+## Callouts and layouts
+
+**Global callout style** and each **Named callout type** have shared spacing controls for outer margins, inner padding, title/body gap, and paragraph spacing. The advanced spacing group exposes directional adjustments. The spacing example switches between Reading View and Live Preview; **Separate settings by view** is optional and leaves existing shared values intact. Empty fields stay Off and show the selected view's measured native or inherited value without saving an override. Changes appear in the settings preview immediately, but affect notes only after **Apply**; **Revert** restores the last applied values.
+
+CSS snippets and themes can intentionally take precedence. In particular, Obsidian Pro's optional `reading-view-match-editor` snippet uses `!important` on Reading View paragraph margins, so negative title/body or trailing paragraph margins cannot take effect there while that snippet is enabled. Style Controller does not override it with `!important`.
+
+**Advanced Callout Layouts** is disabled by default. Enable it, add a Multi-column layout, then edit its Markdown identifier, column widths, gap, minimum width, wrapping, and breakpoint. The first layout uses `[!multi-column]`; later layouts use `[!multi-column1]`, `[!multi-column2]`, and so on. Each layout can be disabled, duplicated, deleted, or copied as Markdown independently. Deleting a layout removes only its styling; it never edits existing notes. Named callout presets control appearance, while layouts control structure.
+
+The optional MCLMultiColumn snippet remains available. When it is enabled, Style Controller leaves `[!multi-column]` to MCL; custom layout identifiers can still be styled by Style Controller. Existing MCL metadata such as `wide-2`, `wide-3`, `no-wrap`, and `center-fixed` has limited support in Style Controller layouts, but other MCL-specific behaviors are not reproduced. Keep MCL enabled for notes that depend on those behaviors.
+
 ## Applied styles
 
-The plugin uses the packaged `styles.css` for fixed rules and one scoped runtime stylesheet for saved named callout types. It applies scoped classes and CSS custom properties to each Markdown view, clears stale values before resolving a new file or profile, and removes its classes, properties, and callout rules on unload.
+The plugin uses the packaged `styles.css` for fixed rules and scoped runtime stylesheets for saved named callout types and enabled layouts. It applies scoped classes and CSS custom properties to each Markdown view, clears stale values before resolving a new file or profile, and removes its classes, properties, callout rules, and layout rules on unload.
 
 ## Code background smoke test
 
@@ -163,6 +174,8 @@ npm run build
 ```
 
 The production build writes `main.js`.
+
+The optional browser fixtures use the active Obsidian runtime CSS, not the app bundle's fallback CSS. Set `OBSIDIAN_ASAR_PATH` to the currently loaded `obsidian-<version>.asar` before running either fixture; the spacing fixture also needs `OBSIDIAN_PRO_SNIPPETS` pointing to Pro's `.obsidian/snippets` directory so it can load the enabled snippets from `appearance.json`. These fixtures verify computed styles in headless Chrome, not interactive behavior inside Obsidian.
 
 ## License
 

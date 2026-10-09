@@ -46,4 +46,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             main.js manifest.json styles.css \
             --title "Style Controller $GITHUB_REF_NAME" \
-            --notes "Since 0.1.22: native defaults remain in control when settings are Off; bold and italic font-style controls were added; image sizing and Obsidian 1.14.4 table, File Explorer, and footer selectors were corrected; named callout presets now style both note views and previews while respecting explicit icons."
+            --notes "Since 0.1.26: callout spacing now supports shared and separate Reading View/Live Preview settings, measured native/inherited defaults, and content-sized live previews; named callout styling and icon behavior remain intact. Opt-in Advanced Callout Layouts adds independent, responsive multi-column identifiers with migration and MCL coexistence. Native/default values are left-aligned, and multi-column border style uses a dropdown."

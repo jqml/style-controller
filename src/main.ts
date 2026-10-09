@@ -12,7 +12,7 @@ import {
   setIcon
 } from "obsidian";
 
-const SETTINGS_SCHEMA_VERSION = 5;
+const SETTINGS_SCHEMA_VERSION = 9;
 const DEFAULT_CODE_BACKGROUND = "#fafafa";
 const LEGACY_AUTOMATIC_LINK_DEFAULTS = {
   linkColor: "#00ff33",
@@ -43,6 +43,65 @@ const LEGACY_AUTOMATIC_CALLOUT_DEFAULTS = {
   multiColumnBorderStyle: "groove"
 };
 const SIZE_UNITS = ["px", "rem", "em", "%", "pt"];
+const BORDER_STYLES = ["solid", "dashed", "dotted", "double", "groove", "ridge", "inset", "outset", "none"];
+const VALID_BORDER_STYLES = [...BORDER_STYLES, "hidden"];
+const CALLOUT_SPACING_GROUPS = [
+  { label: "Outer margin", prefix: "margin", selector: "" },
+  { label: "Inner padding", prefix: "padding", selector: "" },
+  { label: "Title padding", prefix: "titlePadding", selector: " > .callout-title" },
+  { label: "Body padding", prefix: "bodyPadding", selector: " > .callout-content" }
+];
+const CALLOUT_SPACING_DIRECTIONS = ["Top", "Right", "Bottom", "Left"];
+const CALLOUT_SPACING_FIELDS = CALLOUT_SPACING_GROUPS.flatMap(({ prefix }) =>
+  CALLOUT_SPACING_DIRECTIONS.map((direction) => `${prefix}${direction}`)
+).concat(["bodyFirstMarginTop", "bodyLastMarginBottom", "bodyBlockGap"]);
+const CALLOUT_SPACING_COMMON = [
+  ["marginTop", "Outer space above"], ["marginBottom", "Outer space below"],
+  ["paddingTop", "Inner padding top"], ["paddingRight", "Inner padding right"],
+  ["paddingBottom", "Inner padding bottom"], ["paddingLeft", "Inner padding left"],
+  ["bodyFirstMarginTop", "Title/body gap"], ["bodyBlockGap", "Extra paragraph spacing"]
+];
+const CALLOUT_SPACING_ADVANCED = [
+  ["marginLeft", "Outer space left"], ["marginRight", "Outer space right"],
+  ["titlePaddingTop", "Title padding top"], ["titlePaddingLeft", "Title padding left"],
+  ["titlePaddingRight", "Title padding right"], ["bodyPaddingLeft", "Body padding left"],
+  ["bodyPaddingRight", "Body padding right"]
+];
+const CALLOUT_SPACING_LEGACY = [
+  ["titlePaddingBottom", "Title padding bottom"], ["bodyPaddingTop", "Body padding top"],
+  ["bodyPaddingBottom", "Body padding bottom"], ["bodyLastMarginBottom", "Last block bottom margin"]
+];
+const CALLOUT_SPACING_PREVIEW_TITLE = "Spacing preview";
+const CALLOUT_SPACING_PREVIEW_BODY = "The first paragraph shows the space below the title.\n\nThe second paragraph shows the space between paragraphs.";
+const CALLOUT_SPACING_VIEWS = ["reading", "live"];
+const DEFAULT_LAYOUT_WIDTH = { mode: "ratio", value: "1" };
+const DEFAULT_LAYOUT_OPTIONS = {
+  columnCount: 2,
+  widths: [{ ...DEFAULT_LAYOUT_WIDTH }, { ...DEFAULT_LAYOUT_WIDTH }],
+  gap: "1em",
+  minWidth: "200px",
+  wrap: "wrap",
+  responsive: "auto-fit",
+  breakpoint: "600px"
+};
+const DEFAULT_ADVANCED_LAYOUTS = {
+  enabled: false,
+  pinToTop: false,
+  layouts: []
+};
+const ADVANCED_LAYOUT_TEMPLATES = [{
+  id: "multi-column",
+  name: "Multi-column",
+  markdownPrefix: "multi-column",
+  isValidMarkdownId: (type) => /^multi-column(?:[a-z0-9]+(?:-[a-z0-9]+)*)?$/.test(type),
+  createOptions: () => normalizeLayoutOptions(),
+  normalizeOptions: (options) => normalizeLayoutOptions(options),
+  migrateLegacyOptions: (defaults, options) => materializeLegacyMultiColumnOptions(defaults, options),
+  validateOptions: (options, label) => validateLayoutOptions(options, label),
+  buildCss: (layout, scope) => buildSingleLayoutCss(layout, scope),
+  markdownSample: (layout) => multiColumnMarkdownSample(layout),
+  renderOptions: (tab, parent, layout, callouts, onChange) => tab.renderMultiColumnOptions(parent, layout.options, callouts, onChange)
+}];
 const LINE_HEIGHT_UNITS = ["unitless", ...SIZE_UNITS];
 const HEADING_SPACE_ABOVE_UNITS = [...SIZE_UNITS];
 const FONT_STYLE_VALUES = ["normal", "italic"];
@@ -493,14 +552,29 @@ function validateCalloutSection(callouts) {
   ["borderWidth", "radius", "titleSize", "multiColumnBorderWidth"].forEach((field) => {
     if (hasActiveValue(callouts[field]) && !normalizeCssSizeText(callouts[field])) errors.push(`${field} must be a valid CSS size`);
   });
+  errors.push(...validateCalloutSpacingValues(callouts, "Global callout"));
   ["multiColumnBorderColor"].forEach((field) => {
     if (hasActiveValue(callouts[field]) && !normalizeHexColor(callouts[field])) errors.push(`${field} must be a valid hex color`);
   });
   (callouts.presets || []).forEach((preset, index) => {
+    errors.push(...validateCalloutSpacingValues(preset, `Preset ${index + 1}`));
     ["color", "titleColor", "backgroundColor"].forEach((field) => {
       if (hasActiveValue(preset[field]) && !normalizeHexColor(preset[field])) errors.push(`preset ${index + 1} ${field} must be a valid hex color`);
     });
   });
+  errors.push(...validateAdvancedLayouts(callouts.advancedLayouts));
+  return errors;
+}
+
+function validateCalloutSpacingValues(settings, label) {
+  const errors = [];
+  for (const [mode, values] of [["shared", settings], ...CALLOUT_SPACING_VIEWS.map((view) => [view, settings?.spacingByView?.[view]])]) {
+    CALLOUT_SPACING_FIELDS.forEach((field) => {
+      if (hasActiveValue(values?.[field]) && !validCalloutSpacingValue(field, values[field])) {
+        errors.push(`${label} ${mode} ${field} must be a valid CSS size (padding cannot be negative)`);
+      }
+    });
+  }
   return errors;
 }
 
@@ -544,6 +618,9 @@ const DEFAULT_SETTINGS = {
   interface: DEFAULT_INTERFACE_SETTINGS,
   global: DEFAULT_PROFILE,
   callouts: {
+    advancedLayouts: DEFAULT_ADVANCED_LAYOUTS,
+    ...Object.fromEntries(CALLOUT_SPACING_FIELDS.map((field) => [field, ""])),
+    spacingByView: { enabled: false, reading: {}, live: {} },
     borderWidth: "",
     radius: "",
     titleSize: "",
@@ -735,6 +812,7 @@ const STYLE_CALLOUT_ACTIVE_CLASSES = [
   STYLE_CALLOUT_MULTI_COLUMN_BORDER_ACTIVE_CLASS
 ];
 const CALLOUT_PRESET_STYLE_ID = "style-controller-callout-presets";
+const ADVANCED_LAYOUT_STYLE_ID = "style-controller-advanced-callout-layouts";
 const CALLOUT_PREVIEW_HIDE_ICON_CLASS = "style-controller-preview-hide-callout-icon";
 const STYLE_BOTTOM_LEFT_CONTROLS_LEFT_CLASS = "style-controller-bottom-left-controls-left";
 const STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS = "style-controller-matched-document-layout";
@@ -886,6 +964,31 @@ function confirmWithModal(app, title, message, confirmText = "Confirm") {
   });
 }
 
+class LayoutTemplateModal extends Modal {
+  constructor(app, onSelect) {
+    super(app);
+    this.onSelect = onSelect;
+  }
+
+  onOpen() {
+    this.contentEl.empty();
+    new Setting(this.contentEl).setName("Add callout layout").setHeading();
+    let template = ADVANCED_LAYOUT_TEMPLATES[0].id;
+    new Setting(this.contentEl)
+      .setName("Template")
+      .addDropdown((dropdown) => {
+        ADVANCED_LAYOUT_TEMPLATES.forEach((definition) => dropdown.addOption(definition.id, definition.name));
+        dropdown.setValue(template).onChange((value) => { template = value; });
+      });
+    new Setting(this.contentEl)
+      .addButton((button) => button.setButtonText("Cancel").onClick(() => this.close()))
+      .addButton((button) => button.setButtonText("Add layout").setCta().onClick(() => {
+        this.onSelect(template);
+        this.close();
+      }));
+  }
+}
+
 export default class StyleControllerPlugin extends Plugin {
   async onload() {
     await this.loadSettings();
@@ -930,6 +1033,8 @@ export default class StyleControllerPlugin extends Plugin {
     const presetTypes = this.calloutPresetIconTypes || new Set();
     this.calloutPresetStyleEls?.forEach((style) => style.remove());
     this.calloutPresetStyleEls?.clear();
+    this.advancedLayoutStyleEls?.forEach((style) => style.remove());
+    this.advancedLayoutStyleEls?.clear();
     this.calloutPresetIconTypes = new Set();
     refreshCalloutIcons(this.getMarkdownContainers(), presetTypes);
     const interfaceRoot = this.getInterfaceRoot();
@@ -1008,7 +1113,37 @@ export default class StyleControllerPlugin extends Plugin {
       applyCalloutCssVariables(container, this.settings.callouts);
     });
     this.syncCalloutPresetStyles(markdownViews);
+    this.syncAdvancedLayoutStyles(markdownViews);
     this.applyFileExplorerStyles();
+  }
+
+  isMclSnippetEnabled() {
+    return this.app.customCss?.enabledSnippets?.has("MCLMultiColumn") === true;
+  }
+
+  syncAdvancedLayoutStyles(markdownViews) {
+    const mainDocument = this.app.workspace.containerEl?.ownerDocument
+      || (typeof document !== "undefined" ? document : null);
+    if (!mainDocument) return;
+    const css = buildAdvancedLayoutCss(this.settings.callouts.advancedLayouts, this.isMclSnippetEnabled());
+    const documents = new Set([mainDocument, ...markdownViews.map((view) => view.containerEl?.ownerDocument).filter(Boolean)]);
+    this.advancedLayoutStyleEls ||= new Map();
+    this.advancedLayoutStyleEls.forEach((style, ownerDocument) => {
+      if (css && documents.has(ownerDocument)) return;
+      style.remove();
+      this.advancedLayoutStyleEls.delete(ownerDocument);
+    });
+    if (!css) return;
+    for (const ownerDocument of documents) {
+      let style = this.advancedLayoutStyleEls.get(ownerDocument);
+      if (!style?.isConnected) {
+        style = ownerDocument.createElement("style");
+        style.id = ADVANCED_LAYOUT_STYLE_ID;
+        ownerDocument.head.appendChild(style);
+        this.advancedLayoutStyleEls.set(ownerDocument, style);
+      }
+      if (style.textContent !== css) style.textContent = css;
+    }
   }
 
   syncCalloutPresetStyles(markdownViews) {
@@ -1016,7 +1151,12 @@ export default class StyleControllerPlugin extends Plugin {
       || (typeof document !== "undefined" ? document : null);
     if (!mainDocument) return;
     const presets = this.settings.callouts.presets;
-    const css = buildCalloutPresetCss(presets);
+    const globalSelector = ".osc-style-scope:not(.osc-callout-preview) .callout";
+    const css = [
+      buildCalloutSpacingCss(this.settings.callouts, globalSelector),
+      buildCalloutViewSpacingCss(this.settings.callouts),
+      buildCalloutPresetCss(presets)
+    ].filter(Boolean).join("\n");
     const oldTypes = this.calloutPresetIconTypes || new Set();
     const nextTypes = calloutPresetIconTypes(presets);
     const documents = new Set([mainDocument, ...markdownViews.map((view) => view.containerEl?.ownerDocument).filter(Boolean)]);
@@ -1532,6 +1672,8 @@ function normalizeCallouts(callouts) {
   const normalized = {
     ...defaults,
     ...(callouts || {}),
+    spacingByView: normalizeCalloutSpacingByView(callouts?.spacingByView),
+    advancedLayouts: normalizeAdvancedLayouts(callouts?.advancedLayouts),
     presets: Array.isArray(callouts?.presets)
       ? callouts.presets.map(normalizeCalloutPreset)
       : defaults.presets.map(normalizeCalloutPreset)
@@ -1552,6 +1694,8 @@ function cloneCalloutDefaults() {
 
 function normalizeCalloutPreset(preset) {
   return {
+    ...Object.fromEntries(CALLOUT_SPACING_FIELDS.map((field) => [field, preset[field] ?? ""])),
+    spacingByView: normalizeCalloutSpacingByView(preset.spacingByView),
     type: preset.type || "custom",
     color: preset.color || "#008293",
     titleColor: preset.titleColor || "",
@@ -1561,6 +1705,234 @@ function normalizeCalloutPreset(preset) {
     previewTitle: preset.previewTitle || "Hello",
     previewBody: preset.previewBody || "ss"
   };
+}
+
+function normalizeCalloutSpacingByView(source) {
+  const input = source && typeof source === "object" ? source : {};
+  const values = (view) => Object.fromEntries(CALLOUT_SPACING_FIELDS
+    .filter((field) => Object.prototype.hasOwnProperty.call(input[view] || {}, field))
+    .map((field) => [field, String(input[view][field] ?? "")]));
+  return { enabled: input.enabled === true, reading: values("reading"), live: values("live") };
+}
+
+function normalizeLayoutWidth(width, fallback = DEFAULT_LAYOUT_WIDTH) {
+  const source = width && typeof width === "object" ? width : {};
+  return {
+    mode: String(source.mode ?? fallback.mode),
+    value: String(source.value ?? fallback.value)
+  };
+}
+
+function normalizeLayoutOptions(options, defaults = DEFAULT_LAYOUT_OPTIONS) {
+  const source = options && typeof options === "object" ? options : {};
+  return {
+    columnCount: source.columnCount ?? defaults.columnCount,
+    widths: Array.isArray(source.widths) ? source.widths.map((width, index) => normalizeLayoutWidth(width, defaults.widths[index] || DEFAULT_LAYOUT_WIDTH))
+      : defaults.widths.map((width) => normalizeLayoutWidth(width)),
+    gap: String(source.gap ?? defaults.gap),
+    minWidth: String(source.minWidth ?? defaults.minWidth),
+    wrap: String(source.wrap ?? defaults.wrap),
+    responsive: String(source.responsive ?? defaults.responsive),
+    breakpoint: String(source.breakpoint ?? defaults.breakpoint)
+  };
+}
+
+function normalizeAdvancedLayouts(advanced) {
+  const source = advanced && typeof advanced === "object" ? advanced : {};
+  const legacyDefaults = Object.prototype.hasOwnProperty.call(source, "defaults")
+    ? normalizeLayoutOptions(source.defaults) : null;
+  const untouchedLegacyDefaults = !legacyDefaults || draftValuesEqual(legacyDefaults, normalizeLayoutOptions(DEFAULT_LAYOUT_OPTIONS));
+  const layouts = Array.isArray(source.layouts) ? source.layouts.filter((layout) => !untouchedLegacyDefaults || !isUntouchedAutoLayout(layout)).map((layout, index) => {
+    const template = String(layout?.template || "multi-column");
+    const definition = ADVANCED_LAYOUT_TEMPLATES.find((candidate) => candidate.id === template);
+    const legacyOptions = normalizeLayoutOptions(layout?.options, {
+      columnCount: "", widths: [], gap: "", minWidth: "", wrap: "", responsive: "", breakpoint: ""
+    });
+    return {
+      ...layout,
+      id: String(layout?.id || `legacy-layout-${index + 1}`),
+      template,
+      displayName: String(layout?.displayName ?? definition?.name ?? template),
+      markdownId: String(layout?.markdownId ?? ""),
+      builtIn: false,
+      enabled: layout?.enabled === true,
+      options: definition
+        ? legacyDefaults && definition.migrateLegacyOptions
+          ? definition.migrateLegacyOptions(legacyDefaults, legacyOptions) : definition.normalizeOptions(layout?.options)
+        : cloneDraftValue(layout?.options || {})
+    };
+  }) : [];
+  return {
+    enabled: source.enabled === true,
+    pinToTop: source.pinToTop === true,
+    layouts
+  };
+}
+
+function isUntouchedAutoLayout(layout) {
+  if (layout?.id !== "builtin-multi-column" || layout?.builtIn !== true || layout?.enabled !== false
+    || layout?.template !== "multi-column" || layout?.displayName !== "Multi-column"
+    || calloutTypeKey(layout?.markdownId) !== "multi-column") return false;
+  return draftValuesEqual(normalizeLayoutOptions(layout.options), normalizeLayoutOptions(DEFAULT_LAYOUT_OPTIONS));
+}
+
+function effectiveLayoutOptions(defaults, options) {
+  const requestedCount = Number(options?.columnCount || defaults.columnCount);
+  const count = Number.isInteger(requestedCount) && requestedCount >= 2 && requestedCount <= 6 ? requestedCount : 2;
+  const widths = Array.from({ length: count }, (_, index) => {
+    const own = options?.widths?.[index];
+    return normalizeLayoutWidth(own?.mode && own.mode !== "inherit" ? own : defaults.widths[index] || DEFAULT_LAYOUT_WIDTH);
+  });
+  return {
+    columnCount: count,
+    widths,
+    gap: options?.gap || defaults.gap,
+    minWidth: options?.minWidth || defaults.minWidth,
+    wrap: options?.wrap || defaults.wrap,
+    responsive: options?.responsive || defaults.responsive,
+    breakpoint: options?.breakpoint || defaults.breakpoint
+  };
+}
+
+function materializeLegacyMultiColumnOptions(defaults, options) {
+  const effective = effectiveLayoutOptions(defaults, options);
+  const extras = options.widths.slice(effective.columnCount).map((width, index) => {
+    const fallback = defaults.widths[effective.columnCount + index] || DEFAULT_LAYOUT_WIDTH;
+    return normalizeLayoutWidth(width.mode === "inherit" ? fallback : width);
+  });
+  return { ...effective, widths: [...effective.widths, ...extras] };
+}
+
+function validateLayoutOptions(options, label) {
+  const errors = [];
+  if (!Number.isInteger(Number(options.columnCount)) || Number(options.columnCount) < 2 || Number(options.columnCount) > 6) {
+    errors.push(`${label} column count must be 2–6`);
+  }
+  ["gap", "minWidth", "breakpoint"].forEach((field) => {
+    const value = normalizeCssSizeText(options[field]);
+    if (!value || value.startsWith("-") || (field !== "gap" && Number(parseCssSize(value).value) <= 0)) {
+      errors.push(`${label} ${field} must be a non-negative CSS size${field === "gap" ? "" : " greater than zero"}`);
+    } else if (field !== "gap" && value.endsWith("%")) {
+      errors.push(`${label} ${field} must use a length unit, not percent`);
+    }
+  });
+  for (const [field, values] of [["wrap", ["wrap", "nowrap"]], ["responsive", ["auto-fit", "stack"]]]) {
+    if (!values.includes(options[field])) errors.push(`${label} ${field} is invalid`);
+  }
+  options.widths.slice(0, Number(options.columnCount) || 0).forEach((width, index) => {
+    const number = Number(width.value);
+    if (!["ratio", "percent", "fixed"].includes(width.mode) || !Number.isFinite(number) || number <= 0
+      || (width.mode === "percent" && number > 100) || (width.mode === "ratio" && number > 100)) {
+      errors.push(`${label} column ${index + 1} width is invalid`);
+    }
+  });
+  return errors;
+}
+
+function validateAdvancedLayouts(advanced) {
+  const settings = normalizeAdvancedLayouts(advanced);
+  const errors = [];
+  const seen = new Set();
+  settings.layouts.forEach((layout, index) => {
+    const label = `Layout ${index + 1}`;
+    const definition = ADVANCED_LAYOUT_TEMPLATES.find((template) => template.id === layout.template);
+    if (!definition) return;
+    const type = calloutTypeKey(layout.markdownId);
+    if (!definition.isValidMarkdownId(type)) errors.push(`${label} Markdown identifier must be multi-column or begin with multi-column followed by letters/numbers`);
+    if (seen.has(type)) errors.push(`${label} Markdown identifier duplicates another layout`);
+    seen.add(type);
+    errors.push(...definition.validateOptions(layout.options, label));
+  });
+  return errors;
+}
+
+function nextLayoutMarkdownId(layouts, prefix = "multi-column") {
+  const used = new Set(layouts.map((layout) => calloutTypeKey(layout.markdownId)));
+  if (!used.has(prefix)) return prefix;
+  let index = 1;
+  while (used.has(`${prefix}${index}`)) index += 1;
+  return `${prefix}${index}`;
+}
+
+function createAdvancedLayout(template, layouts) {
+  const definition = ADVANCED_LAYOUT_TEMPLATES.find((candidate) => candidate.id === template);
+  if (!definition) return null;
+  const markdownId = nextLayoutMarkdownId(layouts, definition.markdownPrefix);
+  return {
+    id: `layout-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    template: definition.id,
+    displayName: `${definition.name}${markdownId === definition.markdownPrefix ? "" : ` ${markdownId.slice(definition.markdownPrefix.length)}`}`,
+    markdownId,
+    builtIn: false,
+    enabled: true,
+    options: definition.createOptions()
+  };
+}
+
+function layoutMarkdownSample(layout) {
+  const definition = ADVANCED_LAYOUT_TEMPLATES.find((candidate) => candidate.id === layout.template);
+  return definition?.markdownSample(layout) || "";
+}
+
+function multiColumnMarkdownSample(layout) {
+  const type = calloutTypeKey(layout.markdownId);
+  if (!/^multi-column(?:[a-z0-9]+(?:-[a-z0-9]+)*)?$/.test(type)) return "";
+  const count = normalizeLayoutOptions(layout.options).columnCount;
+  const lines = [`> [!${type}]`];
+  for (let index = 1; index <= count; index += 1) {
+    lines.push(">", `>> [!note] Column ${index}`, ">> Add Markdown content here.");
+  }
+  return lines.join("\n");
+}
+
+function layoutTrack(width, minWidth) {
+  const amount = Number(width.value);
+  if (!Number.isFinite(amount) || amount <= 0) return `minmax(${minWidth}, 1fr)`;
+  if (width.mode === "ratio") return `minmax(${minWidth}, ${amount}fr)`;
+  if (width.mode === "percent") return `minmax(${minWidth}, ${amount}%)`;
+  if (width.mode === "fixed") return `minmax(${minWidth}, ${amount}px)`;
+  return `minmax(${minWidth}, 1fr)`;
+}
+
+function buildSingleLayoutCss(layout, scope) {
+  if (layout.template !== "multi-column" || validateLayoutOptions(layout.options, "Layout").length) return "";
+  const type = calloutTypeKey(layout.markdownId);
+  if (!/^multi-column(?:[a-z0-9]+(?:-[a-z0-9]+)*)?$/.test(type)) return "";
+  const options = effectiveLayoutOptions(DEFAULT_LAYOUT_OPTIONS, layout.options);
+  const selector = `${scope} .callout[data-callout="${escapeCssAttributeValue(type)}" i]`;
+  const tracks = options.widths.map((width) => layoutTrack(width, options.minWidth)).join(" ");
+  const rules = [
+    `${selector} { container-type: inline-size; background: transparent; border: 0; padding: 0; overflow: visible; }`,
+    `${selector} > .callout-title { display: none; }`,
+    `${selector} > .callout-content { display: grid; grid-template-columns: ${tracks}; gap: ${options.gap}; padding: 0; overflow-x: auto; }`,
+    `${selector} > .callout-content > * { min-width: 0; margin: 0; }`,
+    `${selector} > .callout-content > [data-callout-metadata*="wide-2"] { grid-column: span 2; }`,
+    `${selector} > .callout-content > [data-callout-metadata*="wide-3"] { grid-column: span ${Math.min(3, options.columnCount)}; }`
+  ];
+  if (type === "multi-column") {
+    rules.push(`${selector}[data-callout-metadata*="no-wrap"] > .callout-content { grid-template-columns: ${tracks}; overflow-x: auto; }`);
+    rules.push(`${selector}[data-callout-metadata*="center-fixed"] > .callout-content { justify-content: center; }`);
+  }
+  if (options.wrap === "wrap") {
+    const narrowTracks = options.responsive === "stack" ? "minmax(0, 1fr)"
+      : `repeat(auto-fit, minmax(min(100%, ${options.minWidth}), 1fr))`;
+    rules.push(`@container (max-width: ${options.breakpoint}) { ${selector} > .callout-content { grid-template-columns: ${narrowTracks}; overflow-x: visible; } ${selector} > .callout-content > [data-callout-metadata*="wide-"] { grid-column: auto; } }`);
+  }
+  return rules.join("\n");
+}
+
+function buildAdvancedLayoutCss(advanced, mclEnabled = false, scope = ".osc-style-scope:where(:not(.osc-layout-preview))") {
+  const settings = normalizeAdvancedLayouts(advanced);
+  if (!settings.enabled) return "";
+  const used = new Set();
+  return settings.layouts.filter((layout) => layout.enabled && (calloutTypeKey(layout.markdownId) !== "multi-column" || !mclEnabled))
+    .map((layout) => {
+      const type = calloutTypeKey(layout.markdownId);
+      if (used.has(type)) return "";
+      used.add(type);
+      const definition = ADVANCED_LAYOUT_TEMPLATES.find((candidate) => candidate.id === layout.template);
+      return definition?.buildCss(layout, scope) || "";
+    }).filter(Boolean).join("\n");
 }
 
 function normalizeOverride(override) {
@@ -1768,8 +2140,11 @@ function applyCalloutCssVariables(element, callouts) {
   const titleFontFamily = String(settings.titleFontFamily || "").trim().toLowerCase() === "inherit"
     ? ""
     : cssFontValue(settings.titleFontFamily);
-  const multiColumnBorder = settings.multiColumnBorderWidth && settings.multiColumnBorderStyle && settings.multiColumnBorderColor
-    ? `${settings.multiColumnBorderWidth} ${settings.multiColumnBorderStyle} ${settings.multiColumnBorderColor}`
+  const multiColumnBorderStyle = String(settings.multiColumnBorderStyle || "").trim().toLowerCase();
+  const multiColumnBorder = normalizeCssSizeText(settings.multiColumnBorderWidth)
+    && VALID_BORDER_STYLES.includes(multiColumnBorderStyle)
+    && cssColorValue(settings.multiColumnBorderColor)
+    ? `${normalizeCssSizeText(settings.multiColumnBorderWidth)} ${multiColumnBorderStyle} ${cssColorValue(settings.multiColumnBorderColor)}`
     : "";
   element.setCssProps({
     "--style-controller-callout-border-width": cssValue(settings.borderWidth),
@@ -1817,6 +2192,182 @@ function calloutPresetIconTypes(presets) {
     .map(([type]) => type));
 }
 
+function calloutSpacingEntries(settings) {
+  const entries = CALLOUT_SPACING_GROUPS.flatMap(({ prefix, selector }) =>
+    CALLOUT_SPACING_DIRECTIONS.map((direction) => ({
+      field: `${prefix}${direction}`,
+      selector,
+      property: `${prefix === "margin" ? "margin" : "padding"}-${direction.toLowerCase()}`,
+      value: validCalloutSpacingValue(`${prefix}${direction}`, settings?.[`${prefix}${direction}`])
+    }))
+  ).filter(({ value }) => value);
+  const first = validCalloutSpacingValue("bodyFirstMarginTop", settings?.bodyFirstMarginTop);
+  if (first) {
+    if (first.startsWith("-")) entries.push(
+      { field: "bodyFirstMarginTop", selector: " > .callout-content", property: "padding-top", value: "0px", reset: true },
+      { field: "bodyFirstMarginTop", selector: " > .callout-content > :first-child", property: "margin-top", value: first }
+    );
+    else entries.push(
+      { field: "bodyFirstMarginTop", selector: " > .callout-content", property: "padding-top", value: first },
+      { field: "bodyFirstMarginTop", selector: " > .callout-content > :first-child", property: "margin-top", value: "0px", reset: true }
+    );
+  }
+  const last = validCalloutSpacingValue("bodyLastMarginBottom", settings?.bodyLastMarginBottom);
+  if (last) {
+    if (last.startsWith("-")) entries.push(
+      { field: "bodyLastMarginBottom", selector: " > .callout-content", property: "padding-bottom", value: "0px", reset: true },
+      { field: "bodyLastMarginBottom", selector: " > .callout-content > :last-child", property: "margin-bottom", value: last }
+    );
+    else entries.push(
+      { field: "bodyLastMarginBottom", selector: " > .callout-content", property: "padding-bottom", value: last },
+      { field: "bodyLastMarginBottom", selector: " > .callout-content > :last-child", property: "margin-bottom", value: "0px", reset: true }
+    );
+  }
+  const gap = validCalloutSpacingValue("bodyBlockGap", settings?.bodyBlockGap);
+  if (gap) entries.push(
+    { field: "bodyBlockGap", selector: " > .callout-content > :not(:last-child)", property: "margin-bottom", value: "0px", reset: true },
+    { field: "bodyBlockGap", selector: " > .callout-content > * + *", property: "margin-top", value: "0px", reset: true },
+    { field: "bodyBlockGap", selector: " > .callout-content > * + *", property: "padding-top", value: gap }
+  );
+  return entries;
+}
+
+function validCalloutSpacingValue(field, value) {
+  const normalized = normalizeCssSizeText(value);
+  return (field.toLowerCase().includes("padding") || field === "bodyBlockGap") && normalized.startsWith("-") ? "" : normalized;
+}
+
+function buildCalloutSpacingCss(settings, selector) {
+  const bySelector = new Map();
+  calloutSpacingEntries(settings).forEach(({ selector: suffix, property, value }) => {
+    const declarations = bySelector.get(suffix) || [];
+    declarations.push(`${property}: ${value};`);
+    bySelector.set(suffix, declarations);
+  });
+  return [...bySelector].map(([suffix, declarations]) =>
+    `${selector}${suffix} { ${declarations.join(" ")} }`
+  ).join("\n");
+}
+
+function calloutViewSelector(view, type = "") {
+  const scope = ".osc-style-scope:not(.osc-callout-preview)";
+  const viewClass = view === "live" ? ".markdown-source-view.mod-cm6" : ".markdown-preview-view";
+  const typeSelector = type ? `[data-callout="${escapeCssAttributeValue(type)}" i]` : "";
+  return `:is(${scope}:where(${viewClass}), ${scope} :where(${viewClass})) .callout${typeSelector}`;
+}
+
+function buildCalloutViewSpacingCss(settings, type = "") {
+  if (settings?.spacingByView?.enabled !== true) return "";
+  return CALLOUT_SPACING_VIEWS.map((view) =>
+    buildCalloutSpacingCss(settings.spacingByView[view], calloutViewSelector(view, type))
+  ).filter(Boolean).join("\n");
+}
+
+function calloutSpacingLayers(globalSettings, preset = null, view = null) {
+  return [
+    globalSettings,
+    view && globalSettings?.spacingByView?.enabled ? globalSettings.spacingByView[view] : null,
+    preset,
+    view && preset?.spacingByView?.enabled ? preset.spacingByView[view] : null
+  ].filter(Boolean);
+}
+
+function applyCalloutSpacingToPreview(preview, globalSettings, preset, view = null) {
+  const callout = preview.querySelector(".callout[data-callout]");
+  if (!callout) return;
+  calloutSpacingLayers(globalSettings, preset, view).forEach((settings) => {
+    calloutSpacingEntries(settings).forEach(({ selector, property, value }) => {
+      const targets = selector ? callout.querySelectorAll(`:scope${selector}`) : [callout];
+      targets.forEach((target) => target.style.setProperty(property, value));
+    });
+  });
+}
+
+function measureCalloutSpacingMode(ownerDocument, mode, inheritedSettings = null, type = "std") {
+  const view = ownerDocument?.defaultView;
+  if (!view?.getComputedStyle || !ownerDocument.body) return {};
+  const host = ownerDocument.createElement("div");
+  host.className = `osc-callout-spacing-measure ${mode === "reading" ? "markdown-preview-view markdown-rendered" : "markdown-source-view mod-cm6"}`;
+  const contentRoot = ownerDocument.createElement("div");
+  contentRoot.className = mode === "reading" ? "markdown-preview-sizer" : "cm-content";
+  host.appendChild(contentRoot);
+  const wrapper = mode === "reading" ? contentRoot : ownerDocument.createElement("div");
+  if (mode !== "reading") {
+    wrapper.className = "cm-embed-block";
+    contentRoot.appendChild(wrapper);
+  }
+  const callout = ownerDocument.createElement("div");
+  callout.className = "callout";
+  callout.setAttribute("data-callout", calloutTypeKey(type) || "std");
+  wrapper.appendChild(callout);
+  const title = ownerDocument.createElement("div");
+  title.className = "callout-title";
+  const titleText = ownerDocument.createElement("div");
+  titleText.className = "callout-title-inner";
+  titleText.textContent = "Spacing preview";
+  title.appendChild(titleText);
+  callout.appendChild(title);
+  const body = ownerDocument.createElement("div");
+  body.className = "callout-content";
+  const first = ownerDocument.createElement("p");
+  first.textContent = "First paragraph";
+  const second = ownerDocument.createElement("p");
+  second.textContent = "Second paragraph";
+  body.append(first, second);
+  callout.appendChild(body);
+  ownerDocument.body.appendChild(host);
+  try {
+    if (inheritedSettings) (Array.isArray(inheritedSettings) ? inheritedSettings : [inheritedSettings]).forEach((settings) => {
+      applyCalloutSpacingToPreview({ querySelector: () => callout }, settings);
+    });
+    const values = {};
+    CALLOUT_SPACING_GROUPS.forEach(({ prefix }) => {
+      const target = prefix === "margin" || prefix === "padding" ? callout
+        : prefix === "titlePadding" ? title : body;
+      const property = prefix === "margin" ? "margin" : "padding";
+      CALLOUT_SPACING_DIRECTIONS.forEach((direction) => {
+        values[`${prefix}${direction}`] = view.getComputedStyle(target).getPropertyValue(`${property}-${direction.toLowerCase()}`).trim();
+      });
+    });
+    values.bodyFirstMarginTop = `${Number((first.getBoundingClientRect().top - title.getBoundingClientRect().bottom).toFixed(2))}px`;
+    values.bodyLastMarginBottom = view.getComputedStyle(second).marginBottom;
+    const secondPaddingTop = Number.parseFloat(view.getComputedStyle(second).paddingTop) || 0;
+    values.bodyBlockGap = `${Number((second.getBoundingClientRect().top + secondPaddingTop - first.getBoundingClientRect().bottom).toFixed(2))}px`;
+    return values;
+  } finally {
+    host.remove();
+  }
+}
+
+function measureCalloutSpacingModes(ownerDocument, inheritedSettings = null, type = "std") {
+  return {
+    reading: measureCalloutSpacingMode(ownerDocument, "reading", inheritedSettings, type),
+    live: measureCalloutSpacingMode(ownerDocument, "live", inheritedSettings, type)
+  };
+}
+
+function calloutSpacingPlaceholder(measurements, field, view) {
+  return parseCssSize(measurements?.[view]?.[field]).value;
+}
+
+function calloutSpacingPlaceholderUnit(measurements, field, view) {
+  return parseCssSize(measurements?.[view]?.[field]).unit;
+}
+
+function calloutSpacingInheritedLayers(callouts, preset, view, separate) {
+  if (!preset) return separate ? [callouts] : [];
+  return [
+    callouts,
+    callouts?.spacingByView?.enabled ? callouts.spacingByView[view] : null,
+    separate ? preset : null
+  ].filter(Boolean);
+}
+
+function calloutPreviewBodyMarkdown(body) {
+  const lines = String(body).split(/\r?\n/).map((line) => `> ${line}`).join("\n");
+  return /\n\s*\n/.test(String(body)) ? lines : `${lines}\n>\n> Second paragraph for spacing.`;
+}
+
 function buildCalloutPresetCss(presets) {
   // Saved type names cannot be enumerated in the packaged stylesheet.
   const rules = [];
@@ -1828,6 +2379,10 @@ function buildCalloutPresetCss(presets) {
       ["background-color", cssColorValue(preset.backgroundColor)]
     ].filter(([, value]) => value).map(([property, value]) => `${property}: ${value};`);
     if (declarations.length) rules.push(`${selector} { ${declarations.join(" ")} }`);
+    const spacing = buildCalloutSpacingCss(preset, selector);
+    if (spacing) rules.push(spacing);
+    const viewSpacing = buildCalloutViewSpacingCss(preset, type);
+    if (viewSpacing) rules.push(viewSpacing);
     if (preset.hideIcon === true || String(preset.icon || "").trim().toLowerCase() === "none") {
       rules.push(`${selector}:not([data-callout-icon]) > .callout-title > .callout-icon { display: none; }`);
     } else {
@@ -3836,6 +4391,10 @@ class StyleControllerSettingTab extends PluginSettingTab {
     });
     const callouts = context.value;
     const root = parent.createDiv({ cls: "osc-profile" });
+    this.calloutSpacingGroups = [];
+    this.calloutSpacingPreviews = [];
+    this.calloutSpacingViewSelection ||= new Map();
+    this.calloutSpacingOpen ||= new Map();
     root.createEl("div", { text: "Callouts", cls: "osc-section-heading" });
     this.renderSectionActions(root, context);
     context.previewRoot = root;
@@ -3856,6 +4415,8 @@ class StyleControllerSettingTab extends PluginSettingTab {
     const updateGlobalPreview = () => {
       this.updateGlobalCalloutPreview(globalPreview, callouts);
       presetPreviews.forEach(({ preview, preset }) => this.updateCalloutPreview(preview, preset, callouts));
+      this.refreshCalloutSpacingPreviews(callouts);
+      this.refreshCalloutSpacingPlaceholders(callouts);
     };
     const globalGrid = global.createDiv({ cls: "osc-setting-grid" });
     this.addDirectSetting(globalGrid, callouts, "borderWidth", "Border width", "2", "size", "", updateGlobalPreview);
@@ -3864,14 +4425,17 @@ class StyleControllerSettingTab extends PluginSettingTab {
     this.addDirectSetting(globalGrid, callouts, "titleFontFamily", "Title font", "Inter, Arial, sans-serif", "font", "", updateGlobalPreview)
       .settingEl.classList.add("osc-callout-title-font-setting");
     this.addDirectSetting(globalGrid, callouts, "multiColumnBorderWidth", "Multi-column border width", "1", "size", "", updateGlobalPreview);
-    this.addDirectSetting(globalGrid, callouts, "multiColumnBorderStyle", "Multi-column border style", "groove", "text", "", updateGlobalPreview);
+    this.addDirectSetting(globalGrid, callouts, "multiColumnBorderStyle", "Multi-column border style", "groove", "border-style", "", updateGlobalPreview);
     this.addDirectSetting(globalGrid, callouts, "multiColumnBorderColor", "Multi-column border color", "#000000", "color", "", updateGlobalPreview);
+    this.renderCalloutSpacingControls(global, callouts, updateGlobalPreview);
     const previewGrid = global.createDiv({ cls: "osc-setting-grid osc-callout-global-preview-controls" });
     this.addDirectSetting(previewGrid, callouts, "previewTitle", "Preview title", "Global callout preview", "text", "", updateGlobalPreview)
       .settingEl.classList.add("osc-callout-preview-text-setting");
     this.addDirectSetting(previewGrid, callouts, "previewBody", "Preview body", "ss", "text", "", updateGlobalPreview)
       .settingEl.classList.add("osc-callout-preview-text-setting");
 
+    const advanced = callouts.advancedLayouts;
+    if (advanced.enabled && advanced.pinToTop) this.renderAdvancedLayoutsSection(root, callouts);
     const presets = this.renderCollapsibleGroup(root, "Named callout types");
     const grid = presets.createDiv({ cls: "osc-callout-grid" });
     callouts.presets.forEach((preset, index) => {
@@ -3883,12 +4447,15 @@ class StyleControllerSettingTab extends PluginSettingTab {
         title.setText(preset.type || `Callout ${index + 1}`);
         presetPreviews.forEach(({ preview, preset }) => this.updateCalloutPreview(preview, preset, callouts));
         this.updateGlobalCalloutPreview(globalPreview, callouts);
+        this.refreshCalloutSpacingPreviews(callouts, preset);
+        this.refreshCalloutSpacingPlaceholders(callouts);
       };
       this.addDirectSetting(card, preset, "type", "Type", "email", "text", "", updateCallout);
       this.addDirectSetting(card, preset, "color", "Callout color", "#008293", "color", "", updateCallout);
       this.addDirectSetting(card, preset, "titleColor", "Title color", "#008293", "color", "", updateCallout);
       this.addDirectSetting(card, preset, "backgroundColor", "Background", "#ecf6f3", "color", "", updateCallout);
       this.addDirectSetting(card, preset, "icon", "Icon", "lucide-mail", "text", "", updateCallout);
+      this.renderCalloutSpacingControls(card, preset, updateCallout, true, callouts, `preset-${index}`);
       this.addDirectSetting(card, preset, "previewTitle", "Preview title", "Hello", "text", "", updateCallout)
         .settingEl.classList.add("osc-callout-preview-text-setting");
       this.addDirectSetting(card, preset, "previewBody", "Preview body", "ss", "text", "", updateCallout)
@@ -3930,43 +4497,359 @@ class StyleControllerSettingTab extends PluginSettingTab {
           this.noteDraftMutation(callouts);
           this.refreshPreservingScroll();
         }));
+    if (!advanced.enabled || !advanced.pinToTop) this.renderAdvancedLayoutsSection(root, callouts);
   }
 
-  renderCalloutPreview(parent, preset, callouts = this.plugin.settings.callouts) {
-    const preview = parent.createDiv({ cls: "osc-callout-preview osc-style-scope markdown-rendered" });
+  renderAdvancedLayoutsSection(parent, callouts) {
+    const advanced = callouts.advancedLayouts;
+    const root = parent.createDiv({ cls: "osc-advanced-layouts" });
+    new Setting(root)
+      .setName("Advanced Callout Layouts")
+      .setDesc("Opt-in structural layouts for dedicated callout Markdown identifiers.")
+      .addToggle((toggle) => toggle.setValue(advanced.enabled).onChange((enabled) => {
+        advanced.enabled = enabled;
+        this.advancedLayoutsOpen = enabled;
+        this.noteDraftMutation(callouts);
+        this.refreshPreservingScroll();
+      }));
+    if (!advanced.enabled) return;
+    const details = root.createEl("details", { cls: "osc-setting-group" });
+    details.open = this.advancedLayoutsOpen === true;
+    details.addEventListener("toggle", () => { this.advancedLayoutsOpen = details.open; });
+    details.createEl("summary", { text: "Layouts" });
+    const content = details.createDiv({ cls: "osc-setting-group-content" });
+    new Setting(content)
+      .setName("Pin to top")
+      .setDesc("Show this section above Named callout types.")
+      .addToggle((toggle) => toggle.setValue(advanced.pinToTop).onChange((pinned) => {
+        advanced.pinToTop = pinned;
+        this.advancedLayoutsOpen = true;
+        this.noteDraftMutation(callouts);
+        this.refreshPreservingScroll();
+      }));
+    if (this.plugin.isMclSnippetEnabled()) {
+      content.createDiv({ cls: "osc-layout-warning", text: "MCLMultiColumn is enabled. Style Controller leaves [!multi-column] to MCL; custom identifiers remain available." });
+    }
+    advanced.layouts.forEach((layout, index) => this.renderAdvancedLayoutCard(content, callouts, layout, index));
+    new Setting(content)
+      .setName("Add layout")
+      .setDesc("Choose a template and create an independent Markdown identifier.")
+      .addButton((button) => button.setButtonText("Add layout").setCta().onClick(() => {
+        new LayoutTemplateModal(this.app, (template) => {
+          const layout = createAdvancedLayout(template, advanced.layouts);
+          if (!layout) return;
+          advanced.layouts.push(layout);
+          this.advancedLayoutsOpen = true;
+          this.noteDraftMutation(callouts);
+          this.refreshPreservingScroll();
+        }).open();
+      }));
+  }
+
+  renderAdvancedLayoutCard(parent, callouts, layout, index) {
+    const advanced = callouts.advancedLayouts;
+    const card = parent.createDiv({ cls: "osc-layout-card" });
+    const header = new Setting(card)
+      .setName(layout.displayName || `Layout ${index + 1}`)
+      .setDesc(`[!${layout.markdownId || "?"}] · ${layout.template}`);
+    const editor = card.createEl("details", { cls: "osc-setting-group" });
+    editor.open = this.openLayoutEditors?.has(layout.id) === true;
+    editor.addEventListener("toggle", () => {
+      this.openLayoutEditors ||= new Set();
+      if (editor.open) this.openLayoutEditors.add(layout.id);
+      else this.openLayoutEditors.delete(layout.id);
+    });
+    editor.createEl("summary", { text: "Edit layout" });
+    const editContent = editor.createDiv({ cls: "osc-setting-group-content" });
+    const preview = card.createDiv({ cls: "osc-layout-preview osc-style-scope markdown-rendered" });
+    preview.setAttribute("data-osc-layout-id", layout.id);
+    const update = () => {
+      header.setName(layout.displayName || `Layout ${index + 1}`);
+      header.setDesc(`[!${layout.markdownId || "?"}] · ${layout.template}`);
+      this.updateLayoutPreview(preview, layout);
+    };
+    header.addToggle((toggle) => toggle.setValue(layout.enabled).onChange((enabled) => {
+      layout.enabled = enabled;
+      this.noteDraftMutation(callouts);
+      card.toggleClass("is-disabled", !enabled);
+    }));
+    header.addButton((button) => button.setButtonText("Edit").onClick(() => { editor.open = !editor.open; }));
+    header.addButton((button) => button.setButtonText("Duplicate").onClick(() => {
+      const created = createAdvancedLayout(layout.template, advanced.layouts);
+      if (!created) return;
+      const duplicate = { ...cloneDraftValue(layout), id: created.id, markdownId: created.markdownId,
+        displayName: `${layout.displayName} copy`, builtIn: false, enabled: false };
+      advanced.layouts.splice(index + 1, 0, duplicate);
+      this.advancedLayoutsOpen = true;
+      this.noteDraftMutation(callouts);
+      this.refreshPreservingScroll();
+    }));
+    header.addButton((button) => button.setButtonText("Copy Markdown").onClick(async () => {
+      const markdown = layoutMarkdownSample(layout);
+      if (!markdown) return new Notice("Use a valid Markdown identifier before copying.");
+      try {
+        await navigator.clipboard.writeText(markdown);
+        new Notice(`Copied Markdown for [!${layout.markdownId}].`);
+      } catch {
+        new Notice("Clipboard access failed; try again from the desktop app.");
+      }
+    }));
+    header.addButton((button) => button.setButtonText("Delete").setWarning().onClick(() => {
+      this.openLayoutEditors?.delete(layout.id);
+      advanced.layouts.splice(index, 1);
+      this.noteDraftMutation(callouts);
+      this.refreshPreservingScroll();
+    }));
+    card.toggleClass("is-disabled", !layout.enabled);
+
+    this.addDirectSetting(editContent, layout, "displayName", "Display name", "Multi-column", "text", "Does not change Markdown in notes.", update);
+    this.addDirectSetting(editContent, layout, "markdownId", "Markdown identifier", "multi-column", "text", "Changing this identifier does not rewrite Markdown notes.", update);
+    const definition = ADVANCED_LAYOUT_TEMPLATES.find((template) => template.id === layout.template);
+    definition?.renderOptions(this, editContent, layout, callouts, update);
+    this.updateLayoutPreview(preview, layout);
+  }
+
+  renderMultiColumnOptions(parent, options, callouts, onChange) {
+    const grid = parent.createDiv({ cls: "osc-setting-grid" });
+    const countSetting = new Setting(grid).setName("Columns");
+    countSetting.addText((text) => {
+      text.inputEl.type = "number";
+      text.inputEl.min = "2";
+      text.inputEl.max = "6";
+      text.inputEl.step = "1";
+      text.setPlaceholder("2")
+        .setValue(String(options.columnCount ?? ""))
+        .onChange((value) => {
+          options.columnCount = Number(value);
+          this.noteDraftMutation(callouts);
+          this.advancedLayoutsOpen = true;
+          this.refreshPreservingScroll();
+        });
+    });
+    this.addDirectSetting(grid, options, "gap", "Column gap", "1em", "size", "", onChange);
+    this.addDirectSetting(grid, options, "minWidth", "Minimum width", "200px", "size", "", onChange);
+    this.addDirectSetting(grid, options, "breakpoint", "Responsive breakpoint", "600px", "size", "", onChange);
+    for (const [field, label, values] of [
+      ["wrap", "Wrapping", [["wrap", "Wrap on narrow widths"], ["nowrap", "Keep columns; scroll"]]],
+      ["responsive", "Narrow layout", [["auto-fit", "Auto-fit columns"], ["stack", "Stack to one column"]]]
+    ]) {
+      new Setting(grid).setName(label).addDropdown((dropdown) => {
+        values.forEach(([value, text]) => dropdown.addOption(value, text));
+        dropdown.setValue(options[field]).onChange((value) => {
+          options[field] = value;
+          this.noteDraftMutation(callouts);
+          onChange?.();
+        });
+      });
+    }
+    const count = normalizeLayoutOptions(options).columnCount;
+    parent.createEl("div", { text: "Individual column widths", cls: "osc-control-subheading" });
+    const widthGrid = parent.createDiv({ cls: "osc-setting-grid" });
+    for (let index = 0; index < count; index += 1) {
+      const width = options.widths[index] || { ...DEFAULT_LAYOUT_WIDTH };
+      const setting = new Setting(widthGrid).setName(`Column ${index + 1}`);
+      setting.addDropdown((dropdown) => {
+        dropdown.addOption("ratio", "Ratio (fr)").addOption("percent", "Percent (%)").addOption("fixed", "Fixed (px)")
+          .setValue(width.mode)
+          .onChange((value) => {
+            const current = options.widths[index] || width;
+            options.widths[index] = { mode: value, value: current.value || "1" };
+            this.noteDraftMutation(callouts);
+            onChange?.();
+          });
+      });
+      setting.addText((text) => {
+        text.inputEl.type = "number";
+        text.inputEl.min = "0.1";
+        text.inputEl.step = "0.1";
+        text.setPlaceholder("1")
+          .setValue(width.value)
+          .onChange((value) => {
+            const current = options.widths[index] || width;
+            options.widths[index] = { mode: current.mode, value };
+            this.noteDraftMutation(callouts);
+            onChange?.();
+          });
+      });
+    }
+  }
+
+  async updateLayoutPreview(preview, layout) {
+    preview.empty();
+    const markdown = layoutMarkdownSample(layout);
+    if (!markdown) {
+      preview.createDiv({ text: "Enter a valid Markdown identifier to preview this layout." });
+      return;
+    }
+    const scope = `.osc-layout-preview:where([data-osc-layout-id="${escapeCssAttributeValue(layout.id)}"])`;
+    const css = this.plugin.isMclSnippetEnabled() && calloutTypeKey(layout.markdownId) === "multi-column"
+      ? "" : ADVANCED_LAYOUT_TEMPLATES.find((template) => template.id === layout.template)?.buildCss(layout, scope) || "";
+    if (css) {
+      const style = preview.ownerDocument.createElement("style");
+      style.textContent = css;
+      preview.appendChild(style);
+    }
+    const target = preview.createDiv();
+    await MarkdownRenderer.renderMarkdown(markdown, target, "Style Controller Layout Preview.md", this.plugin);
+  }
+
+  renderCalloutSpacingControls(parent, settings, onChange, inherited = false, callouts = settings, key = "global") {
+    const view = this.calloutSpacingViewSelection.get(key) || "reading";
+    const separate = settings.spacingByView?.enabled === true;
+    const values = separate ? settings.spacingByView[view] : settings;
+    const group = { view, separate, inherited, settings, callouts, controls: [] };
+    group.measurements = { [view]: measureCalloutSpacingMode(parent.ownerDocument, view,
+      calloutSpacingInheritedLayers(callouts, inherited ? settings : null, view, separate), inherited ? settings.type : "note") };
+    this.calloutSpacingGroups.push(group);
+    const details = parent.createEl("details", { cls: "osc-setting-group osc-callout-spacing-group" });
+    details.open = this.calloutSpacingOpen.has(key) ? this.calloutSpacingOpen.get(key) : !parent.classList.contains("osc-callout-card");
+    details.addEventListener("toggle", () => this.calloutSpacingOpen.set(key, details.open));
+    details.createEl("summary", { text: "Spacing" });
+    const content = details.createDiv({ cls: "osc-setting-group-content" });
+    const toolbar = content.createDiv({ cls: "osc-callout-spacing-toolbar" });
+    new Setting(toolbar).setName("Preview view").addDropdown((dropdown) => dropdown
+      .addOption("reading", "Reading View")
+      .addOption("live", "Live Preview")
+      .setValue(view)
+      .onChange((selected) => {
+        this.calloutSpacingViewSelection.set(key, selected);
+        this.refreshPreservingScroll();
+      }));
+    new Setting(toolbar).setName("Separate settings by view").addToggle((toggle) => toggle
+      .setValue(separate)
+      .onChange((enabled) => {
+        settings.spacingByView.enabled = enabled;
+        this.noteDraftMutation(settings);
+        this.refreshPreservingScroll();
+      }));
+    const preview = inherited
+      ? this.renderCalloutPreview(content, settings, callouts, true, view)
+      : this.renderGlobalCalloutPreview(content, callouts, true, view);
+    this.calloutSpacingPreviews.push({ preview, preset: inherited ? settings : null });
+    content.createEl("div", { text: separate
+      ? "Empty inherits shared, global, or native spacing."
+      : "Empty inherits global or native spacing; shared values apply to both views.", cls: "osc-callout-spacing-help" });
+    const commonGrid = content.createDiv({ cls: "osc-setting-grid" });
+    CALLOUT_SPACING_COMMON.forEach(([field, label]) => this.addCalloutSpacingSetting(commonGrid, values, field, label, group, onChange));
+    const advanced = content.createEl("details", { cls: "osc-setting-group osc-callout-spacing-advanced" });
+    advanced.createEl("summary", { text: "Advanced spacing" });
+    const advancedGrid = advanced.createDiv({ cls: "osc-setting-group-content osc-setting-grid" });
+    CALLOUT_SPACING_ADVANCED.forEach(([field, label]) => this.addCalloutSpacingSetting(advancedGrid, values, field, label, group, onChange));
+    const activeLegacy = CALLOUT_SPACING_LEGACY.filter(([field]) => hasActiveValue(values[field]));
+    if (activeLegacy.length) {
+      const legacy = content.createEl("details", { cls: "osc-setting-group osc-callout-spacing-legacy" });
+      legacy.createEl("summary", { text: "Existing detailed overrides" });
+      const legacyGrid = legacy.createDiv({ cls: "osc-setting-group-content osc-setting-grid" });
+      activeLegacy.forEach(([field, label]) => this.addCalloutSpacingSetting(legacyGrid, values, field, label, group, onChange));
+    }
+  }
+
+  addCalloutSpacingSetting(parent, values, field, label, group, onChange) {
+    const placeholder = calloutSpacingPlaceholder(group.measurements, field, group.view);
+    const defaultUnit = calloutSpacingPlaceholderUnit(group.measurements, field, group.view);
+    const active = hasActiveValue(values[field]);
+    const parsed = parseCssSize(active ? values[field] : "");
+    const setting = new Setting(parent).setName(label);
+    const wrapper = setting.controlEl.createDiv({ cls: "osc-size-control osc-callout-spacing-size-control" });
+    wrapper.toggleClass("is-native", !active);
+    const nonNegative = field.toLowerCase().includes("padding") || field === "bodyBlockGap";
+    const input = wrapper.createEl("input", { attr: { type: "number", step: "0.1", ...(nonNegative ? { min: "0" } : {}), placeholder, "aria-label": `${label} value` } });
+    input.value = active ? parsed.value : "";
+    const select = wrapper.createEl("select", { attr: { "aria-label": `${label} unit` } });
+    SIZE_UNITS.forEach((unit) => select.createEl("option", { text: unit, value: unit }));
+    select.value = active ? parsed.unit : defaultUnit;
+    const status = createValueStatus(wrapper, active);
+    const save = () => {
+      values[field] = input.value ? `${input.value}${select.value}` : "";
+      wrapper.toggleClass("is-native", !hasActiveValue(values[field]));
+      updateValueStatus(status, hasActiveValue(values[field]));
+      this.noteDraftMutation(values);
+      onChange?.();
+    };
+    input.addEventListener("input", save);
+    select.addEventListener("change", () => {
+      if (input.value) save();
+      else select.value = calloutSpacingPlaceholderUnit(group.measurements, field, group.view);
+    });
+    group.controls.push({ field, input, select, wrapper, values });
+    bindControlInactiveState(setting, () => hasActiveValue(values[field]));
+  }
+
+  refreshCalloutSpacingPlaceholders(callouts) {
+    this.calloutSpacingGroups?.forEach((group) => {
+      group.measurements = { [group.view]: measureCalloutSpacingMode(this.containerEl.ownerDocument, group.view,
+        calloutSpacingInheritedLayers(callouts, group.inherited ? group.settings : null, group.view, group.separate),
+        group.inherited ? group.settings.type : "note") };
+      group.controls.forEach(({ field, input, select, wrapper, values }) => {
+        input.placeholder = calloutSpacingPlaceholder(group.measurements, field, group.view);
+        if (!hasActiveValue(values[field])) {
+          select.value = calloutSpacingPlaceholderUnit(group.measurements, field, group.view);
+          wrapper.toggleClass("is-native", true);
+        }
+      });
+    });
+  }
+
+  refreshCalloutSpacingPreviews(callouts, changedPreset = null) {
+    this.calloutSpacingPreviews?.forEach(({ preview, preset }) => {
+      if (changedPreset && preset !== changedPreset) return;
+      if (preset) this.updateCalloutPreview(preview, preset, callouts);
+      else this.updateGlobalCalloutPreview(preview, callouts);
+    });
+  }
+
+  renderCalloutPreview(parent, preset, callouts = this.plugin.settings.callouts, spacing = false, view = "reading") {
+    const preview = parent.createDiv({ cls: `osc-callout-preview osc-style-scope markdown-rendered${spacing ? " osc-callout-spacing-preview" : ""}` });
+    if (spacing) preview.setAttribute("data-osc-spacing-view", view);
     this.updateCalloutPreview(preview, preset, callouts);
     return preview;
   }
 
-  renderGlobalCalloutPreview(parent, callouts = this.plugin.settings.callouts) {
-    const preview = parent.createDiv({ cls: "osc-callout-preview osc-global-callout-preview osc-style-scope markdown-rendered" });
+  renderGlobalCalloutPreview(parent, callouts = this.plugin.settings.callouts, spacing = false, view = "reading") {
+    const preview = parent.createDiv({ cls: `osc-callout-preview osc-global-callout-preview osc-style-scope markdown-rendered${spacing ? " osc-callout-spacing-preview" : ""}` });
+    if (spacing) preview.setAttribute("data-osc-spacing-view", view);
     this.updateGlobalCalloutPreview(preview, callouts);
     return preview;
   }
 
+  createCalloutPreviewRenderTarget(preview) {
+    if (!preview.classList.contains("osc-callout-spacing-preview")) return preview.createDiv();
+    const view = preview.getAttribute("data-osc-spacing-view") === "live" ? "live" : "reading";
+    const modeRoot = preview.createDiv({ cls: view === "reading"
+      ? "markdown-preview-view markdown-rendered" : "markdown-source-view mod-cm6" });
+    const content = modeRoot.createDiv({ cls: view === "reading" ? "markdown-preview-sizer" : "cm-content" });
+    return view === "reading" ? content : content.createDiv({ cls: "cm-embed-block" });
+  }
+
   async updateGlobalCalloutPreview(preview, callouts = this.plugin.settings.callouts) {
     preview.empty();
-    const renderTarget = preview.createDiv();
-    const title = String(callouts.previewTitle || "").trim() || "Global callout preview";
-    const body = String(callouts.previewBody || "").trim() || "ss";
-    const bodyLines = body.split(/\r?\n/).map((line) => `> ${line}`).join("\n");
+    const renderTarget = this.createCalloutPreviewRenderTarget(preview);
+    const spacing = preview.classList.contains("osc-callout-spacing-preview");
+    const title = spacing ? CALLOUT_SPACING_PREVIEW_TITLE : String(callouts.previewTitle || "").trim() || "Global callout preview";
+    const body = spacing ? CALLOUT_SPACING_PREVIEW_BODY : String(callouts.previewBody || "").trim() || "ss";
+    const bodyLines = calloutPreviewBodyMarkdown(body);
     await MarkdownRenderer.renderMarkdown(`> [!note] ${title}\n${bodyLines}`, renderTarget, "", this.plugin);
     if (!preview.contains(renderTarget)) return;
     applyCalloutCssVariables(preview, callouts);
-    applyCalloutPresetToPreview(preview, effectiveCalloutPresets(callouts.presets).get("note"));
+    const preset = spacing ? null : effectiveCalloutPresets(callouts.presets).get("note");
+    applyCalloutPresetToPreview(preview, preset);
+    applyCalloutSpacingToPreview(preview, callouts, preset, spacing ? preview.getAttribute("data-osc-spacing-view") : null);
   }
 
   async updateCalloutPreview(preview, preset, callouts = this.plugin.settings.callouts) {
     preview.empty();
-    const renderTarget = preview.createDiv();
+    const renderTarget = this.createCalloutPreviewRenderTarget(preview);
     const type = String(preset.type || "note").trim() || "note";
-    const title = String(preset.previewTitle || "").trim() || "Hello";
-    const body = String(preset.previewBody || "").trim() || "ss";
-    const bodyLines = body.split(/\r?\n/).map((line) => `> ${line}`).join("\n");
+    const spacing = preview.classList.contains("osc-callout-spacing-preview");
+    const title = spacing ? CALLOUT_SPACING_PREVIEW_TITLE : String(preset.previewTitle || "").trim() || "Hello";
+    const body = spacing ? CALLOUT_SPACING_PREVIEW_BODY : String(preset.previewBody || "").trim() || "ss";
+    const bodyLines = calloutPreviewBodyMarkdown(body);
     await MarkdownRenderer.renderMarkdown(`> [!${type}] ${title}\n${bodyLines}`, renderTarget, "", this.plugin);
     if (!preview.contains(renderTarget)) return;
     applyCalloutCssVariables(preview, callouts);
-    applyCalloutPresetToPreview(preview, effectiveCalloutPresets(callouts.presets).get(calloutTypeKey(type)) || preset);
+    const effectivePreset = effectiveCalloutPresets(callouts.presets).get(calloutTypeKey(type)) || preset;
+    applyCalloutPresetToPreview(preview, effectivePreset);
+    applyCalloutSpacingToPreview(preview, callouts, effectivePreset, spacing ? preview.getAttribute("data-osc-spacing-view") : null);
   }
 
   renderSectionPreview(parent, title, profile) {
@@ -4344,6 +5227,8 @@ class StyleControllerSettingTab extends PluginSettingTab {
       this.addDirectColorControl(setting, object, key, placeholder, onChange);
     } else if (type === "font") {
       this.addDirectFontControl(setting, object, key, placeholder, onChange);
+    } else if (type === "border-style") {
+      this.addDirectBorderStyleControl(setting, object, key, onChange);
     } else if (FONT_WEIGHT_FIELDS.has(key)) {
       this.addDirectWeightControl(setting, object, key, placeholder, onChange);
     } else {
@@ -4363,6 +5248,23 @@ class StyleControllerSettingTab extends PluginSettingTab {
     }
     bindControlInactiveState(setting, () => hasActiveValue(object[key]));
     return setting;
+  }
+
+  addDirectBorderStyleControl(setting, object, key, onChange = null) {
+    let status;
+    setting.addDropdown((dropdown) => {
+      dropdown.addOption("", "Native/default");
+      BORDER_STYLES.forEach((style) => dropdown.addOption(style, style));
+      const saved = String(object[key] || "").trim();
+      if (saved && !BORDER_STYLES.includes(saved)) dropdown.addOption(saved, `${saved} (saved value)`);
+      dropdown.setValue(saved).onChange((value) => {
+        object[key] = value;
+        updateValueStatus(status, hasActiveValue(value));
+        this.noteDraftMutation(object);
+        onChange?.();
+      });
+    });
+    status = createValueStatus(setting.controlEl, hasActiveValue(object[key]));
   }
 
   addDirectSizeControl(setting, object, key, placeholder, onChange = null) {
@@ -4464,10 +5366,18 @@ class StyleControllerSettingTab extends PluginSettingTab {
 }
 
 export {
+  StyleControllerSettingTab,
+  ADVANCED_LAYOUT_TEMPLATES,
+  BORDER_STYLES,
+  CALLOUT_SPACING_FIELDS,
+  CALLOUT_SPACING_COMMON,
+  CALLOUT_SPACING_ADVANCED,
+  CALLOUT_SPACING_LEGACY,
   BLOCK_CODE_BACKGROUND_SELECTORS,
   BLOCK_CODE_TEXT_SELECTORS,
   CODE_BACKGROUND_CUSTOM_FIELDS,
   DEFAULT_CODE_BACKGROUND,
+  DEFAULT_ADVANCED_LAYOUTS,
   DEFAULT_INTERFACE_SETTINGS,
   DEFAULT_PROFILE,
   DEFAULT_SETTINGS,
@@ -4517,6 +5427,7 @@ export {
   applyDocumentLayoutStateClass,
   applyCalloutCssVariables,
   applyCalloutPresetToPreview,
+  applyCalloutSpacingToPreview,
   applyDraftAtomically,
   applyFileExplorerCssVariables,
   applyFileExplorerIndentGuide,
@@ -4526,12 +5437,25 @@ export {
   clearInterfaceStateClasses,
   clearProfileCssVariables,
   buildCalloutPresetCss,
+  buildCalloutSpacingCss,
+  buildCalloutViewSpacingCss,
+  calloutViewSelector,
+  calloutSpacingLayers,
+  calloutSpacingInheritedLayers,
+  buildAdvancedLayoutCss,
+  buildSingleLayoutCss,
+  calloutSpacingEntries,
+  calloutSpacingPlaceholder,
+  calloutSpacingPlaceholderUnit,
+  calloutPreviewBodyMarkdown,
   codeBackgroundUiState,
   configurationToExport,
   createConfigurationSnapshot,
   createDefaultProfile,
+  createAdvancedLayout,
   createNativeConfigurationData,
   effectiveCodeBackground,
+  effectiveLayoutOptions,
   hasActiveValue,
   headingSpaceAboveCssValue,
   isValidHeadingSpaceAboveValue,
@@ -4543,11 +5467,20 @@ export {
   normalizeOptionalProfile,
   normalizeProfile,
   normalizeSettings,
+  normalizeAdvancedLayouts,
+  normalizeCalloutSpacingByView,
+  isUntouchedAutoLayout,
   parseConfigurationImport,
+  layoutMarkdownSample,
+  nextLayoutMarkdownId,
   refreshCalloutIcons,
+  measureCalloutSpacingModes,
   setCodeBackgroundCustomEnabled,
   setCodeBackgroundCustomInput,
   setCodeBackgroundCustomValue,
   singleLineScrollState,
-  styleFieldActiveClass
+  styleFieldActiveClass,
+  validCalloutSpacingValue,
+  validateCalloutSection,
+  validateAdvancedLayouts
 };
