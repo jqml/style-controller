@@ -24,7 +24,7 @@ const bundle = await build({
       buildApi.onResolve({ filter: /^obsidian$/ }, () => ({ path: "obsidian", namespace: "test-stub" }));
       buildApi.onLoad({ filter: /.*/, namespace: "test-stub" }, () => ({
         contents: `
-          export class Plugin {}
+          export class Plugin {} export class MarkdownRenderChild { constructor(containerEl) { this.containerEl = containerEl; } }
           export class PluginSettingTab {}
           export class Modal {}
           export class Notice {}
@@ -2933,4 +2933,87 @@ test("layout Edit panel remains open when changing column count", () => {
   assert.match(method, /editor\.open = this\.openLayoutEditors\?\.has\(layout\.id\) === true/);
   assert.match(method, /editor\.addEventListener\("toggle"/);
   assert.match(source, /options\.columnCount = Number\(value\);[\s\S]*this\.refreshPreservingScroll\(\)/);
+});
+
+function hoverFixture(plugin, path, native = true) {
+  const container = fakeElement();
+  const embed = { matches: (selector) => native && selector === ".hover-popover > .markdown-embed" };
+  container.matches = (selector) => selector === ".markdown-embed-content";
+  container.parentElement = embed;
+  const rendered = { parentElement: container };
+  const children = [];
+  const context = { sourcePath: path, containerEl: { closest: () => rendered }, addChild: (child) => children.push(child) };
+  // Section elements are detached during native Page Preview rendering.
+  plugin.styleHoverPreview({ closest: () => null }, context);
+  return { container, context, children };
+}
+
+function hoverPlugin() {
+  const plugin = new StyleControllerPlugin();
+  plugin.settings = normalizeSettings({ global: { h2Color: "#112233", h2Size: "25px" }, overrides: [{
+    id: "linked", name: "Linked profile", type: "folder", pattern: "Linked", enabled: true,
+    modules: { headings: true, boldItalic: true, baseText: true, tablesCodeQuotes: true },
+    profile: { h2Color: "#a63871", h2FontFamily: "Georgia, serif", h2Size: "31px", italicColor: "#abcdef", textColor: "#123456" }
+  }] });
+  return plugin;
+}
+
+test("Page Preview resolves the linked path and uses the shared profile and callout pipeline", () => {
+  const plugin = hoverPlugin();
+  const { container, children } = hoverFixture(plugin, "Linked/Target.md");
+  const expected = fakeElement();
+  const { profile } = plugin.getProfileForPath("Linked/Target.md");
+  applyProfileCssVariables(expected, profile);
+  applyProfileStateClasses(expected, profile);
+  applyCalloutCssVariables(expected, plugin.settings.callouts);
+  assert.deepEqual(container.css, expected.css);
+  assert.equal(container.css.get("--osc-h2-color"), "#a63871");
+  assert.equal(container.css.get("--osc-h2-size"), "31px");
+  assert.equal(container.classList.contains(STYLE_SCOPE_CLASS), true);
+  assert.equal(container.classList.contains(STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS), false);
+  assert.equal(children.length, 1);
+  assert.notEqual(children[0].containerEl, container);
+  assert.equal(children[0].containerEl.closest().parentElement, container);
+});
+
+test("Page Preview ignores unrelated popovers, ordinary notes, and nested embeds", () => {
+  const plugin = hoverPlugin();
+  const { container, children } = hoverFixture(plugin, "Linked/Target.md", false);
+  assert.equal(children.length, 0);
+  assert.equal(container.classList.contains(STYLE_SCOPE_CLASS), false);
+  plugin.styleHoverPreview({ closest: () => null }, { sourcePath: "Linked/Target.md" });
+  assert.equal(plugin.hoverPreviewScopes, undefined);
+});
+
+test("Page Preview survives virtualized sections, refreshes changed profiles, and releases closed previews", () => {
+  const plugin = hoverPlugin();
+  const first = hoverFixture(plugin, "Linked/Target.md");
+  plugin.styleHoverPreview({}, first.context);
+  assert.equal(first.children.length, 1);
+  // Nested links have independent native renderer contexts and destination paths.
+  const nested = hoverFixture(plugin, "Other/Nested.md");
+  assert.equal(nested.container.css.get("--osc-h2-color"), "#112233");
+  plugin.settings.overrides[0].enabled = false;
+  plugin.hoverPreviewScopes.forEach((entry, container) => plugin.applyNoteProfile(container, entry.path));
+  assert.equal(first.container.css.get("--osc-h2-color"), "#112233");
+  assert.equal(first.container.classList.contains(styleFieldActiveClass("italicColor")), false);
+  first.children[0].onunload();
+  assert.equal(first.container.classList.contains(STYLE_SCOPE_CLASS), false);
+  assert.equal(first.container.css.size, 0);
+  assert.equal(plugin.hoverPreviewScopes.size, 1);
+  nested.children[0].onunload();
+  assert.equal(plugin.hoverPreviewScopes.size, 0);
+});
+
+test("plugin unload clears an open Page Preview and late renderer cleanup is safe", () => {
+  const plugin = hoverPlugin();
+  const { container, children } = hoverFixture(plugin, "Linked/Target.md");
+  plugin.getMarkdownContainers = () => [];
+  plugin.getInterfaceRoot = () => null;
+  plugin.clearFileExplorerStyles = () => {};
+  plugin.removeStyles();
+  assert.equal(container.classList.contains(STYLE_SCOPE_CLASS), false);
+  assert.equal(container.css.size, 0);
+  assert.equal(plugin.hoverPreviewScopes.size, 0);
+  assert.doesNotThrow(() => children[0].onunload());
 });

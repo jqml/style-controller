@@ -3,6 +3,7 @@ import {
   Plugin,
   PluginSettingTab,
   MarkdownRenderer,
+  MarkdownRenderChild,
   Notice,
   Setting,
   TFolder,
@@ -1002,6 +1003,7 @@ export default class StyleControllerPlugin extends Plugin {
       this.applyStyles();
       this.settingTab?.refreshNativeDefaults();
     }));
+    this.registerMarkdownPostProcessor((element, context) => this.styleHoverPreview(element, context));
     this.app.workspace.onLayoutReady(() => this.applyStyles());
   }
 
@@ -1040,26 +1042,10 @@ export default class StyleControllerPlugin extends Plugin {
     const interfaceRoot = this.getInterfaceRoot();
     clearInterfaceStateClasses(interfaceRoot);
     this.getMarkdownContainers().forEach((container) => {
-      cleanScopeClasses(container);
-      container.classList.remove(
-        STYLE_SCOPE_CLASS,
-        ...STYLE_PROFILE_FIELD_ACTIVE_CLASSES,
-        ...STYLE_CALLOUT_ACTIVE_CLASSES,
-        ...STYLE_IMAGE_ALIGNMENT_CLASSES,
-        STYLE_IMAGE_WIDTH_CLASS,
-        STYLE_IMAGE_RESPECT_EXPLICIT_CLASS,
-        STYLE_IMAGE_IGNORE_EXPLICIT_CLASS,
-        STYLE_HEADING_COLOR_ACTIVE_CLASS,
-        ...STYLE_HEADING_COLOR_CLASSES,
-        ...STYLE_HEADING_SPACE_ABOVE_CLASSES,
-        ...STYLE_TITLE_ACTIVE_CLASSES,
-        STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS,
-        ...STYLE_EMPHASIS_ACTIVE_CLASSES,
-        STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS
-      );
-      clearProfileCssVariables(container);
-      container.removeAttribute("data-osc-profile");
+      clearNoteStyleScope(container);
     });
+    this.hoverPreviewScopes?.forEach((entry, container) => clearNoteStyleScope(container));
+    this.hoverPreviewScopes?.clear();
     this.clearFileExplorerStyles();
   }
 
@@ -1083,38 +1069,63 @@ export default class StyleControllerPlugin extends Plugin {
       const file = view.file;
       const container = view.containerEl;
       const scopeClass = `osc-scope-${index}`;
-      cleanScopeClasses(container);
-      container.classList.remove(
-        STYLE_SCOPE_CLASS,
-        ...STYLE_PROFILE_FIELD_ACTIVE_CLASSES,
-        ...STYLE_CALLOUT_ACTIVE_CLASSES,
-        ...STYLE_IMAGE_ALIGNMENT_CLASSES,
-        STYLE_IMAGE_WIDTH_CLASS,
-        STYLE_IMAGE_RESPECT_EXPLICIT_CLASS,
-        STYLE_IMAGE_IGNORE_EXPLICIT_CLASS,
-        STYLE_HEADING_COLOR_ACTIVE_CLASS,
-        ...STYLE_HEADING_COLOR_CLASSES,
-        ...STYLE_HEADING_SPACE_ABOVE_CLASSES,
-        ...STYLE_TITLE_ACTIVE_CLASSES,
-        ...STYLE_EMPHASIS_ACTIVE_CLASSES,
-        STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS,
-        STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS
-      );
-      clearProfileCssVariables(container);
-      container.removeAttribute("data-osc-profile");
-      if (!file) return;
-
-      const match = this.getProfileForPath(file.path);
-      container.classList.add(STYLE_SCOPE_CLASS, scopeClass);
+      if (!file) {
+        clearNoteStyleScope(container);
+        return;
+      }
+      this.applyNoteProfile(container, file.path);
+      container.classList.add(scopeClass);
       applyDocumentLayoutStateClass(container, this.settings?.interface);
-      container.setAttribute("data-osc-profile", match.name);
-      applyProfileCssVariables(container, match.profile);
-      applyProfileStateClasses(container, match.profile);
-      applyCalloutCssVariables(container, this.settings.callouts);
+    });
+    this.hoverPreviewScopes?.forEach((entry, container) => {
+      this.applyNoteProfile(container, entry.path);
     });
     this.syncCalloutPresetStyles(markdownViews);
     this.syncAdvancedLayoutStyles(markdownViews);
     this.applyFileExplorerStyles();
+  }
+
+  styleHoverPreview(element, context) {
+    // Obsidian renders sections while detached. Its renderer context supplies the
+    // sizer in that case; never infer the destination from the active note.
+    const rendered = (context.containerEl || element)?.closest?.(".markdown-preview-view");
+    const container = rendered?.parentElement;
+    if (!container?.matches(".markdown-embed-content")) return;
+    const embed = container.parentElement;
+    if (!embed?.matches(".hover-popover > .markdown-embed")) return;
+    if (!context.sourcePath) return;
+
+    this.hoverPreviewScopes ||= new Map();
+    const existing = this.hoverPreviewScopes.get(container);
+    if (existing) {
+      if (existing.path !== context.sourcePath) {
+        existing.path = context.sourcePath;
+        this.applyNoteProfile(container, existing.path);
+      }
+      return;
+    }
+    const entry = { path: context.sourcePath };
+    this.hoverPreviewScopes.set(container, entry);
+    this.applyNoteProfile(container, entry.path);
+    // Use the renderer's sizer, which survives section virtualization and belongs
+    // to its preview. An outer embed is pruned by Obsidian's component cleanup.
+    const child = new MarkdownRenderChild(context.containerEl || element);
+    child.onunload = () => {
+      if (this.hoverPreviewScopes.get(container) !== entry) return;
+      clearNoteStyleScope(container);
+      this.hoverPreviewScopes.delete(container);
+    };
+    context.addChild(child);
+  }
+
+  applyNoteProfile(container, path) {
+    clearNoteStyleScope(container);
+    const match = this.getProfileForPath(path);
+    container.classList.add(STYLE_SCOPE_CLASS);
+    container.setAttribute("data-osc-profile", match.name);
+    applyProfileCssVariables(container, match.profile);
+    applyProfileStateClasses(container, match.profile);
+    applyCalloutCssVariables(container, this.settings.callouts);
   }
 
   isMclSnippetEnabled() {
@@ -2452,6 +2463,28 @@ function applyFileExplorerIndentGuide(folderTitle, style) {
   const color = cssColorValue(style.indentLineColor);
   setCssVariable(folder, FILE_EXPLORER_FIELD_VARIABLES.indentLineColor, color);
   folder.toggleClass(FILE_EXPLORER_FIELD_ACTIVE_CLASSES.indentLineColor, !!color);
+}
+
+function clearNoteStyleScope(container) {
+  cleanScopeClasses(container);
+  container.classList.remove(
+    STYLE_SCOPE_CLASS,
+    ...STYLE_PROFILE_FIELD_ACTIVE_CLASSES,
+    ...STYLE_CALLOUT_ACTIVE_CLASSES,
+    ...STYLE_IMAGE_ALIGNMENT_CLASSES,
+    STYLE_IMAGE_WIDTH_CLASS,
+    STYLE_IMAGE_RESPECT_EXPLICIT_CLASS,
+    STYLE_IMAGE_IGNORE_EXPLICIT_CLASS,
+    STYLE_HEADING_COLOR_ACTIVE_CLASS,
+    ...STYLE_HEADING_COLOR_CLASSES,
+    ...STYLE_HEADING_SPACE_ABOVE_CLASSES,
+    ...STYLE_TITLE_ACTIVE_CLASSES,
+    STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS,
+    ...STYLE_EMPHASIS_ACTIVE_CLASSES,
+    STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS
+  );
+  clearProfileCssVariables(container);
+  container.removeAttribute("data-osc-profile");
 }
 
 function cleanScopeClasses(element) {
