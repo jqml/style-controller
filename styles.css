@@ -29,7 +29,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 10px 0 12px;
+  margin: 10px 0 5px;
 }
 
 .osc-top-nav button {
@@ -43,6 +43,85 @@
 .osc-top-nav button.is-active {
   background: var(--interactive-accent);
   color: var(--text-on-accent);
+}
+
+/* Both tab rows stay outside the natural-height settings scroller. */
+.osc-subsection-nav {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0 0 12px;
+  min-width: 0;
+}
+
+.osc-subsection-nav[hidden] {
+  display: none;
+}
+
+.osc-subsection-nav button {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+  height: 28px;
+  padding: 3px 2px 4px;
+}
+
+.osc-subsection-nav button:hover {
+  color: var(--text-normal);
+}
+
+.osc-subsection-nav button.is-active {
+  border-bottom-color: var(--interactive-accent);
+  color: var(--interactive-accent);
+}
+
+/* View/export choices reuse native settings rows and the shared draft actions. */
+.osc-settings .osc-views-export {
+  container-type: inline-size;
+  padding: 10px;
+}
+
+.osc-views-export .setting-item-info {
+  min-width: 0;
+}
+
+.osc-views-export .setting-item-control {
+  flex: 0 0 270px;
+  min-width: 0;
+}
+
+.osc-settings .osc-views-export .setting-item-control select:not(.is-measuring) {
+  max-width: 100%;
+  width: 270px;
+}
+
+@container (max-width: 480px) {
+  .osc-views-export .osc-views-export-setting {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 8px;
+  }
+
+  .osc-views-export .setting-item-info {
+    margin-right: 0;
+  }
+
+  .osc-views-export .setting-item-control {
+    flex: auto;
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .osc-settings .osc-views-export .setting-item-control select:not(.is-measuring) {
+    width: 100%;
+  }
 }
 
 .osc-override-card {
@@ -1347,45 +1426,47 @@
   line-height: var(--osc-title-line-height);
 }
 
+/* Obsidian forces cm-header text to inherit font-size. Set the
+   owning heading line so its text, formatting marks and wrapping share the size. */
 .osc-style-scope.style-controller-field-h1-font-family-active .markdown-preview-view h1,
 .osc-style-scope.style-controller-field-h1-font-family-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-1 > .cm-header-1:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-family: var(--osc-h1-font-family); }
 .osc-style-scope.style-controller-field-h1-size-active .markdown-preview-view h1,
-.osc-style-scope.style-controller-field-h1-size-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-1 > .cm-header-1:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-size: var(--osc-h1-size); }
+.osc-style-scope.style-controller-field-h1-size-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-1 { font-size: var(--osc-h1-size); }
 .osc-style-scope.style-controller-field-h1-weight-active .markdown-preview-view h1,
 .osc-style-scope.style-controller-field-h1-weight-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-1 > .cm-header-1:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-weight: var(--osc-h1-weight); }
 
 .osc-style-scope.style-controller-field-h2-font-family-active .markdown-preview-view h2,
 .osc-style-scope.style-controller-field-h2-font-family-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-2 > .cm-header-2:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-family: var(--osc-h2-font-family); }
 .osc-style-scope.style-controller-field-h2-size-active .markdown-preview-view h2,
-.osc-style-scope.style-controller-field-h2-size-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-2 > .cm-header-2:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-size: var(--osc-h2-size); }
+.osc-style-scope.style-controller-field-h2-size-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-2 { font-size: var(--osc-h2-size); }
 .osc-style-scope.style-controller-field-h2-weight-active .markdown-preview-view h2,
 .osc-style-scope.style-controller-field-h2-weight-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-2 > .cm-header-2:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-weight: var(--osc-h2-weight); }
 
 .osc-style-scope.style-controller-field-h3-font-family-active .markdown-preview-view h3,
 .osc-style-scope.style-controller-field-h3-font-family-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-3 > .cm-header-3:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-family: var(--osc-h3-font-family); }
 .osc-style-scope.style-controller-field-h3-size-active .markdown-preview-view h3,
-.osc-style-scope.style-controller-field-h3-size-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-3 > .cm-header-3:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-size: var(--osc-h3-size); }
+.osc-style-scope.style-controller-field-h3-size-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-3 { font-size: var(--osc-h3-size); }
 .osc-style-scope.style-controller-field-h3-weight-active .markdown-preview-view h3,
 .osc-style-scope.style-controller-field-h3-weight-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-3 > .cm-header-3:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-weight: var(--osc-h3-weight); }
 
 .osc-style-scope.style-controller-field-h4-font-family-active .markdown-preview-view h4,
 .osc-style-scope.style-controller-field-h4-font-family-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-4 > .cm-header-4:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-family: var(--osc-h4-font-family); }
 .osc-style-scope.style-controller-field-h4-size-active .markdown-preview-view h4,
-.osc-style-scope.style-controller-field-h4-size-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-4 > .cm-header-4:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-size: var(--osc-h4-size); }
+.osc-style-scope.style-controller-field-h4-size-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-4 { font-size: var(--osc-h4-size); }
 .osc-style-scope.style-controller-field-h4-weight-active .markdown-preview-view h4,
 .osc-style-scope.style-controller-field-h4-weight-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-4 > .cm-header-4:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-weight: var(--osc-h4-weight); }
 
 .osc-style-scope.style-controller-field-h5-font-family-active .markdown-preview-view h5,
 .osc-style-scope.style-controller-field-h5-font-family-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-5 > .cm-header-5:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-family: var(--osc-h5-font-family); }
 .osc-style-scope.style-controller-field-h5-size-active .markdown-preview-view h5,
-.osc-style-scope.style-controller-field-h5-size-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-5 > .cm-header-5:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-size: var(--osc-h5-size); }
+.osc-style-scope.style-controller-field-h5-size-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-5 { font-size: var(--osc-h5-size); }
 .osc-style-scope.style-controller-field-h5-weight-active .markdown-preview-view h5,
 .osc-style-scope.style-controller-field-h5-weight-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-5 > .cm-header-5:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-weight: var(--osc-h5-weight); }
 
 .osc-style-scope.style-controller-field-h6-font-family-active .markdown-preview-view h6,
 .osc-style-scope.style-controller-field-h6-font-family-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-6 > .cm-header-6:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-family: var(--osc-h6-font-family); }
 .osc-style-scope.style-controller-field-h6-size-active .markdown-preview-view h6,
-.osc-style-scope.style-controller-field-h6-size-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-6 > .cm-header-6:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-size: var(--osc-h6-size); }
+.osc-style-scope.style-controller-field-h6-size-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-6 { font-size: var(--osc-h6-size); }
 .osc-style-scope.style-controller-field-h6-weight-active .markdown-preview-view h6,
 .osc-style-scope.style-controller-field-h6-weight-active .markdown-source-view.mod-cm6 .cm-line.HyperMD-header-6 > .cm-header-6:not(.cm-formatting, .cm-formatting-header, .cm-math, .cm-inline-code, .cm-link, .cm-url, .cm-hmd-internal-link, .cm-hashtag, .cm-tag, .cm-comment, .cm-html-embed, [class*="cm-html-"], .cm-embed, .cm-widgetBuffer, .cm-foldPlaceholder, .cm-hmd-frontmatter, .cm-hmd-orgmode-markup, .cm-property) { font-weight: var(--osc-h6-weight); }
 
@@ -1871,4 +1952,227 @@ body.style-controller-bottom-left-controls-left .workspace-split.mod-primary-spl
   width: 600px;
   visibility: hidden;
   pointer-events: none;
+}
+
+/* Match only adjacent prose paragraph boundaries. Do not change --p-spacing:
+   Obsidian also uses it for headings, lists, tables and other block types.
+   One lh follows the resolved paragraph line height, including path profiles. */
+.osc-style-scope.style-controller-match-paragraph-spacing .markdown-preview-sizer > .el-p:not(:has(> p > :is(img, .internal-embed, .math-block))):has(+ .el-p):not(:has(+ .el-p > p > :is(img, .internal-embed, .math-block))) > p,
+.osc-base-preview.style-controller-match-paragraph-spacing .osc-compact-preview-content > p:has(+ p) {
+  margin-block-end: 0;
+}
+
+.osc-style-scope.style-controller-match-paragraph-spacing .markdown-preview-sizer > .el-p:not(:has(> p > :is(img, .internal-embed, .math-block))) + .el-p:not(:has(> p > :is(img, .internal-embed, .math-block))) > p,
+.osc-base-preview.style-controller-match-paragraph-spacing .osc-compact-preview-content > p + p {
+  margin-block-start: 1lh;
+}
+
+/* Measure native editor selectors in the note's own profile/theme scope. */
+.osc-reading-metrics-probe {
+  position: fixed;
+  inset: auto auto -100000px -100000px;
+  width: 700px;
+  height: auto;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.osc-style-scope.style-controller-match-reading-view .markdown-preview-sizer > .osc-reading-block {
+  font-family: var(--osc-reading-body-font-family);
+  font-size: var(--osc-reading-body-font-size);
+  font-weight: var(--osc-reading-body-font-weight);
+  font-style: var(--osc-reading-body-font-style);
+  color: var(--osc-reading-body-color);
+  line-height: var(--osc-reading-body-line-height);
+  letter-spacing: var(--osc-reading-body-letter-spacing);
+}
+
+/* Source-derived gaps apply only between two supported top-level sections.
+   No inner list/quote layout, code, math, callout or soft-break rules change. */
+.osc-style-scope.style-controller-match-reading-view .markdown-preview-sizer > .osc-reading-block:has(+ .osc-reading-block) > :first-child {
+  margin-block-end: 0;
+}
+.osc-style-scope.style-controller-match-reading-view .markdown-preview-sizer > .osc-reading-block + .osc-reading-block > :first-child {
+  margin-block-start: 0;
+}
+.osc-style-scope.style-controller-match-reading-view .markdown-preview-sizer > .osc-reading-block + .osc-reading-block {
+  padding-block-start: calc(min(1, var(--osc-source-gap-lines, 1)) * 1lh + var(--osc-reading-block-padding-top, 0px));
+}
+.osc-style-scope.style-controller-preserve-blank-lines:not(.style-controller-match-reading-view) .markdown-preview-sizer > .osc-reading-block + .osc-reading-block {
+  padding-block-start: calc(max(0, var(--osc-source-gap-lines, 1) - 1) * 1lh);
+}
+.osc-style-scope.style-controller-match-reading-view.style-controller-preserve-blank-lines .markdown-preview-sizer > .osc-reading-block + .osc-reading-block {
+  padding-block-start: calc(var(--osc-source-gap-lines, 1) * 1lh + var(--osc-reading-block-padding-top, 0px));
+}
+
+.osc-style-scope.style-controller-match-reading-view .markdown-preview-sizer > .osc-reading-block > h1 {
+  margin-block: 0;
+  font-family: var(--osc-reading-h1-font-family);
+  font-size: var(--osc-reading-h1-font-size);
+  font-weight: var(--osc-reading-h1-font-weight);
+  font-style: var(--osc-reading-h1-font-style);
+  color: var(--osc-reading-h1-color);
+  line-height: var(--osc-reading-h1-line-height);
+  letter-spacing: var(--osc-reading-h1-letter-spacing);
+  padding-block-start: var(--osc-reading-h1-padding-top, 0px);
+}
+.osc-style-scope.style-controller-match-reading-view .markdown-preview-sizer > .osc-reading-block[data-osc-after-heading-blank] > h1 {
+  padding-block-start: var(--osc-reading-h1-after-heading-padding, 0px);
+}
+
+.osc-style-scope.style-controller-match-reading-view .markdown-preview-sizer > .osc-reading-block > h2 {
+  margin-block: 0;
+  font-family: var(--osc-reading-h2-font-family);
+  font-size: var(--osc-reading-h2-font-size);
+  font-weight: var(--osc-reading-h2-font-weight);
+  font-style: var(--osc-reading-h2-font-style);
+  color: var(--osc-reading-h2-color);
+  line-height: var(--osc-reading-h2-line-height);
+  letter-spacing: var(--osc-reading-h2-letter-spacing);
+  padding-block-start: var(--osc-reading-h2-padding-top, 0px);
+}
+.osc-style-scope.style-controller-match-reading-view .markdown-preview-sizer > .osc-reading-block[data-osc-after-heading-blank] > h2 {
+  padding-block-start: var(--osc-reading-h2-after-heading-padding, 0px);
+}
+
+.osc-style-scope.style-controller-match-reading-view .markdown-preview-sizer > .osc-reading-block > h3 {
+  margin-block: 0;
+  font-family: var(--osc-reading-h3-font-family);
+  font-size: var(--osc-reading-h3-font-size);
+  font-weight: var(--osc-reading-h3-font-weight);
+  font-style: var(--osc-reading-h3-font-style);
+  color: var(--osc-reading-h3-color);
+  line-height: var(--osc-reading-h3-line-height);
+  letter-spacing: var(--osc-reading-h3-letter-spacing);
+  padding-block-start: var(--osc-reading-h3-padding-top, 0px);
+}
+.osc-style-scope.style-controller-match-reading-view .markdown-preview-sizer > .osc-reading-block[data-osc-after-heading-blank] > h3 {
+  padding-block-start: var(--osc-reading-h3-after-heading-padding, 0px);
+}
+
+.osc-style-scope.style-controller-match-reading-view .markdown-preview-sizer > .osc-reading-block > h4 {
+  margin-block: 0;
+  font-family: var(--osc-reading-h4-font-family);
+  font-size: var(--osc-reading-h4-font-size);
+  font-weight: var(--osc-reading-h4-font-weight);
+  font-style: var(--osc-reading-h4-font-style);
+  color: var(--osc-reading-h4-color);
+  line-height: var(--osc-reading-h4-line-height);
+  letter-spacing: var(--osc-reading-h4-letter-spacing);
+  padding-block-start: var(--osc-reading-h4-padding-top, 0px);
+}
+.osc-style-scope.style-controller-match-reading-view .markdown-preview-sizer > .osc-reading-block[data-osc-after-heading-blank] > h4 {
+  padding-block-start: var(--osc-reading-h4-after-heading-padding, 0px);
+}
+
+.osc-style-scope.style-controller-match-reading-view .markdown-preview-sizer > .osc-reading-block > h5 {
+  margin-block: 0;
+  font-family: var(--osc-reading-h5-font-family);
+  font-size: var(--osc-reading-h5-font-size);
+  font-weight: var(--osc-reading-h5-font-weight);
+  font-style: var(--osc-reading-h5-font-style);
+  color: var(--osc-reading-h5-color);
+  line-height: var(--osc-reading-h5-line-height);
+  letter-spacing: var(--osc-reading-h5-letter-spacing);
+  padding-block-start: var(--osc-reading-h5-padding-top, 0px);
+}
+.osc-style-scope.style-controller-match-reading-view .markdown-preview-sizer > .osc-reading-block[data-osc-after-heading-blank] > h5 {
+  padding-block-start: var(--osc-reading-h5-after-heading-padding, 0px);
+}
+
+.osc-style-scope.style-controller-match-reading-view .markdown-preview-sizer > .osc-reading-block > h6 {
+  margin-block: 0;
+  font-family: var(--osc-reading-h6-font-family);
+  font-size: var(--osc-reading-h6-font-size);
+  font-weight: var(--osc-reading-h6-font-weight);
+  font-style: var(--osc-reading-h6-font-style);
+  color: var(--osc-reading-h6-color);
+  line-height: var(--osc-reading-h6-line-height);
+  letter-spacing: var(--osc-reading-h6-letter-spacing);
+  padding-block-start: var(--osc-reading-h6-padding-top, 0px);
+}
+.osc-style-scope.style-controller-match-reading-view .markdown-preview-sizer > .osc-reading-block[data-osc-after-heading-blank] > h6 {
+  padding-block-start: var(--osc-reading-h6-after-heading-padding, 0px);
+}
+
+.osc-style-scope.style-controller-match-reading-view .markdown-preview-sizer > .el-table.osc-reading-block {
+  --osc-reading-block-padding-top: var(--osc-reading-table-padding-top, 0px);
+}
+.osc-style-scope.style-controller-match-reading-view .markdown-preview-sizer > .el-table.osc-reading-block:has(+ .osc-reading-block) {
+  padding-block-end: var(--osc-reading-table-padding-bottom, 0px);
+}
+
+/* Only the opt-in native PDF document. Keep complete blocks pageable, rather
+   than printing virtualized editor controls or constraining content to panes. */
+.print.osc-style-scope.osc-pdf-export .markdown-preview-view {
+  font-family: var(--osc-reading-body-font-family);
+  font-size: var(--osc-reading-body-font-size);
+  font-weight: var(--osc-reading-body-font-weight);
+  font-style: var(--osc-reading-body-font-style);
+  color: var(--osc-reading-body-color);
+  line-height: var(--osc-reading-body-line-height);
+  letter-spacing: var(--osc-reading-body-letter-spacing);
+  background: var(--osc-background-color, var(--background-primary));
+  padding: 0;
+  overflow: visible;
+  print-color-adjust: exact;
+}
+.print.osc-style-scope.osc-pdf-export .markdown-preview-sizer {
+  min-height: 0;
+  max-width: none;
+  width: auto;
+  margin: 0;
+}
+.print.osc-style-scope.osc-pdf-export .inline-title,
+.print.osc-style-scope.osc-pdf-export :is(h1, h2, h3, h4, h5, h6) {
+  break-after: avoid-page;
+}
+.print.osc-style-scope.osc-pdf-export :is(p, li) {
+  orphans: 2;
+  widows: 2;
+}
+.print.osc-style-scope.osc-pdf-export .markdown-preview-sizer > :is(.el-table, .el-pre),
+.print.osc-style-scope.osc-pdf-export :is(table, pre, .callout, .callout-content, .math-block) {
+  max-width: 100%;
+  max-height: none;
+  overflow: visible;
+}
+.print.osc-style-scope.osc-pdf-export :is(table, pre) {
+  break-inside: auto;
+}
+.print.osc-style-scope.osc-pdf-export :is(tr, img, .math-block, .callout) {
+  break-inside: avoid-page;
+}
+.print.osc-style-scope.osc-pdf-export thead {
+  display: table-header-group;
+}
+.print.osc-style-scope.osc-pdf-export img {
+  max-width: 100%;
+  object-fit: contain;
+}
+
+/* Keep navigation outside the natural-height content scroller.
+   Obsidian's outer bottom padding would reserve a permanent blank footer here;
+   end spacing belongs inside the page so it scrolls with the controls. */
+.vertical-tab-content.osc-settings {
+  padding-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.osc-settings > .osc-top-nav {
+  flex: none;
+}
+.osc-settings-page {
+  padding-bottom: max(var(--keyboard-height, 0px), var(--size-4-4, 16px));
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  flex: 0 1 auto;
+}
+.osc-settings-page > .setting-item {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  margin: 8px 0 12px;
+  padding: 12px 18px;
 }

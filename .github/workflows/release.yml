@@ -46,4 +46,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             main.js manifest.json styles.css \
             --title "Style Controller $GITHUB_REF_NAME" \
-            --notes "Fix internal-link Page Preview formatting to use the linked note's resolved Style Controller profile. Supports Reading View, Live Preview, and nested links; reuses existing typography, heading, emphasis, and callout styles. Open previews refresh when settings change, retain native scrolling and interaction, and clean up when closed or the plugin unloads. Includes regression tests and native Obsidian Pro verification."
+            --notes-file RELEASE_NOTES.md

@@ -139,6 +139,9 @@ const DEFAULT_PROFILE = {
   italicSize: "",
   italicWeight: "",
   italicColor: "",
+  pdfMatchLivePreview: "",
+  paragraphSpacing: "",
+  preserveExtraBlankLines: "",
   lineHeight: "",
   lineHeightValue: "",
   lineHeightUnit: "unitless",
@@ -322,6 +325,9 @@ function fieldDefinition(type, group, variable, selectors, property = null, opti
 }
 
 const STYLE_FIELD_REGISTRY = {
+  pdfMatchLivePreview: fieldDefinition("choice", "baseText", null, [], null, { emitsCss: false }),
+  paragraphSpacing: fieldDefinition("choice", "baseText", null, [], null, { emitsCss: false }),
+  preserveExtraBlankLines: fieldDefinition("choice", "baseText", null, [], null, { emitsCss: false }),
   textWeight: fieldDefinition("weight", "baseText", "--osc-text-weight", BASE_TEXT_SELECTORS, "font-weight"),
   boldFontFamily: fieldDefinition("font", "boldItalic", "--osc-bold-font-family", [".markdown-preview-view strong", ".markdown-preview-view b", EMPHASIS_SOURCE_SELECTORS.bold], "font-family"),
   boldFontStyle: fieldDefinition("style", "boldItalic", "--osc-bold-font-style", [".markdown-preview-view strong", ".markdown-preview-view b", EMPHASIS_SOURCE_SELECTORS.bold], "font-style"),
@@ -418,6 +424,7 @@ const PROFILE_SECTION_FIELDS = {
   baseText: [
     "textWeight", "lineHeight", "lineHeightValue", "lineHeightUnit", "textColor", "backgroundColor", "accentColor"
   ],
+  viewsExport: ["paragraphSpacing", "preserveExtraBlankLines", "pdfMatchLivePreview"],
   boldItalic: [
     "boldFontFamily", "boldFontStyle", "boldWeight", "boldColor",
     "italicFontFamily", "italicFontStyle", "italicSize", "italicWeight", "italicColor"
@@ -519,6 +526,15 @@ class SectionDraftManager {
 
 function validateProfileSection(profile, fields) {
   const errors = [];
+  if (fields.includes("pdfMatchLivePreview") && ![undefined, "", "on", "off"].includes(profile.pdfMatchLivePreview)) {
+    errors.push("PDF matching must be inherited, on or off");
+  }
+  if (fields.includes("preserveExtraBlankLines") && ![undefined, "", "on", "off"].includes(profile.preserveExtraBlankLines)) {
+    errors.push("Preserve extra blank lines must be inherited, on or off");
+  }
+  if (fields.includes("paragraphSpacing") && ![undefined, "", "matched", "document", "native"].includes(profile.paragraphSpacing)) {
+    errors.push("Reading matching must be native, paragraphs only, document, or inherited");
+  }
   if (fields.includes("lineHeightValue") && hasActiveValue(profile.lineHeightValue)) {
     if (!isValidLineHeightValue(profile.lineHeightValue)) errors.push("Line height must be a finite number greater than zero");
     if (!LINE_HEIGHT_UNITS.includes(profile.lineHeightUnit)) errors.push(`Line height unit must be ${LINE_HEIGHT_UNITS.join(", ")}`);
@@ -1003,8 +1019,15 @@ export default class StyleControllerPlugin extends Plugin {
       this.applyStyles();
       this.settingTab?.refreshNativeDefaults();
     }));
-    this.registerMarkdownPostProcessor((element, context) => this.styleHoverPreview(element, context));
-    this.app.workspace.onLayoutReady(() => this.applyStyles());
+    this.registerMarkdownPostProcessor((element, context) => {
+      if (isNativePdfRender(element, context)) return this.stylePdfExport(element, context);
+      this.styleHoverPreview(element, context);
+      return this.styleReadingSection(element, context);
+    });
+    this.app.workspace.onLayoutReady(() => {
+      this.applyStyles();
+      this.getMarkdownViews().forEach((view) => view.previewMode?.rerender(true));
+    });
   }
 
   onunload() {
@@ -1021,7 +1044,10 @@ export default class StyleControllerPlugin extends Plugin {
 
   async saveSettings() {
     this.settings = normalizeSettings(this.settings);
-    await this.saveData(this.settings);
+    const snapshot = cloneDraftValue(this.settings);
+    const operation = (this.settingsWrite || Promise.resolve()).then(() => this.saveData(snapshot));
+    this.settingsWrite = operation.catch(() => {});
+    await operation;
     this.applyStyles();
   }
 
@@ -1030,6 +1056,12 @@ export default class StyleControllerPlugin extends Plugin {
   }
 
   removeStyles() {
+    this.pdfExportScopes?.forEach((entry) => entry.cleanup());
+    this.pdfExportScopes?.clear();
+    this.readingGeneration = (this.readingGeneration || 0) + 1;
+    this.readingSections?.forEach((entry, element) => clearReadingSection(element));
+    this.readingSections?.clear();
+    this.readingSources = new WeakMap();
     nativeSemanticProbeScope = null;
     nativeSemanticProbeUsesReadingView = false;
     const presetTypes = this.calloutPresetIconTypes || new Set();
@@ -1044,7 +1076,10 @@ export default class StyleControllerPlugin extends Plugin {
     this.getMarkdownContainers().forEach((container) => {
       clearNoteStyleScope(container);
     });
-    this.hoverPreviewScopes?.forEach((entry, container) => clearNoteStyleScope(container));
+    this.hoverPreviewScopes?.forEach((entry, container) => {
+      container.ownerDocument?.defaultView?.cancelAnimationFrame(entry.frame);
+      clearNoteStyleScope(container);
+    });
     this.hoverPreviewScopes?.clear();
     this.clearFileExplorerStyles();
   }
@@ -1110,7 +1145,14 @@ export default class StyleControllerPlugin extends Plugin {
     // Use the renderer's sizer, which survives section virtualization and belongs
     // to its preview. An outer embed is pruned by Obsidian's component cleanup.
     const child = new MarkdownRenderChild(context.containerEl || element);
+    child.onload = () => {
+      if (!container.classList.contains("style-controller-match-reading-view")) return;
+      entry.frame = container.ownerDocument.defaultView.requestAnimationFrame(() => {
+        if (this.hoverPreviewScopes.get(container) === entry && container.classList.contains("style-controller-match-reading-view")) measureReadingReference(container);
+      });
+    };
     child.onunload = () => {
+      container.ownerDocument?.defaultView?.cancelAnimationFrame(entry.frame);
       if (this.hoverPreviewScopes.get(container) !== entry) return;
       clearNoteStyleScope(container);
       this.hoverPreviewScopes.delete(container);
@@ -1126,6 +1168,186 @@ export default class StyleControllerPlugin extends Plugin {
     applyProfileCssVariables(container, match.profile);
     applyProfileStateClasses(container, match.profile);
     applyCalloutCssVariables(container, this.settings.callouts);
+    if (match.profile.paragraphSpacing === "document") measureReadingReference(container);
+  }
+
+  async stylePdfExport(element, context) {
+    const match = this.getProfileForPath(context.sourcePath);
+    if (match.profile.pdfMatchLivePreview !== "on") return;
+    const preview = context.containerEl, scope = preview.parentElement;
+    this.pdfExportScopes ||= new Map();
+    if (this.pdfExportScopes.has(scope)) return;
+    const doc = scope.ownerDocument, main = this.app.workspace.containerEl.ownerDocument;
+    const file = this.app.vault.getAbstractFileByPath(context.sourcePath);
+    if (!file) return;
+    const originalClass = scope.className, originalStyle = scope.getAttribute("style");
+    const originalTheme = ["theme-light", "theme-dark"].filter(name => doc.body.classList.contains(name));
+    const nativeTitle = preview.querySelector(":scope > h1:not([data-heading])");
+    let title = nativeTitle;
+    let sizer, cancelled = false;
+    const generatedStyles = [];
+    const wrappers = new Map();
+    const entry = { path: context.sourcePath, cleanup: () => {
+      if (cancelled) return;
+      cancelled = true;
+      for (const [wrapper, original] of wrappers) {
+        clearReadingSection(wrapper);
+        wrapper.className = original.className;
+        if (original.style === null) wrapper.removeAttribute("style"); else wrapper.setAttribute("style", original.style);
+        this.readingSections?.delete(wrapper);
+      }
+      if (sizer) { sizer.replaceWith(...sizer.childNodes); }
+      if (title && title !== nativeTitle) title.replaceWith(nativeTitle);
+      generatedStyles.forEach(style => style.remove());
+      clearNoteStyleScope(scope);
+      scope.className = originalClass;
+      if (originalStyle === null) scope.removeAttribute("style"); else scope.setAttribute("style", originalStyle);
+      doc.body.classList.remove("theme-light", "theme-dark");
+      doc.body.classList.add(...originalTheme);
+      if (this.pdfExportScopes.get(scope) === entry) this.pdfExportScopes.delete(scope);
+    } };
+    this.pdfExportScopes.set(scope, entry);
+    const child = new MarkdownRenderChild(preview);
+    child.onunload = entry.cleanup;
+    context.addChild(child);
+    try {
+      const source = await this.app.vault.cachedRead(file);
+      if (cancelled) return;
+      // The native renderer already expands the entire document and awaits its
+      // postprocessors. Keep its math, embeds, footnotes and pagination intact.
+      const profile = { ...match.profile, paragraphSpacing: "document", preserveExtraBlankLines: match.profile.preserveExtraBlankLines || "on" };
+      scope.classList.add(STYLE_SCOPE_CLASS, "osc-pdf-export");
+      scope.setAttribute("data-osc-profile", match.name);
+      applyProfileCssVariables(scope, profile);
+      applyProfileStateClasses(scope, profile);
+      applyCalloutCssVariables(scope, this.settings.callouts);
+      // Native PDF forces light appearance and --font-print. Resolve screen
+      // typography in the application's document, before print media applies.
+      doc.body.classList.remove("theme-light", "theme-dark");
+      doc.body.classList.add(main.body.classList.contains("theme-dark") ? "theme-dark" : "theme-light");
+      const reference = main.createElement("div");
+      reference.className = STYLE_SCOPE_CLASS;
+      applyProfileCssVariables(reference, profile);
+      applyProfileStateClasses(reference, profile);
+      main.body.append(reference);
+      try {
+        measureReadingReference(reference);
+        for (const name of reference.style) if (name.startsWith("--osc-reading-")) scope.style.setProperty(name, reference.style.getPropertyValue(name));
+        for (const name of ["--font-text", "--font-text-size", "--font-monospace"]) scope.style.setProperty(name, main.defaultView.getComputedStyle(reference).getPropertyValue(name));
+        if (title) {
+          const editor = reference.createDiv({ cls: "markdown-source-view mod-cm6 is-live-preview" });
+          const sample = editor.createDiv({ cls: "inline-title", text: title.textContent });
+          const computed = main.defaultView.getComputedStyle(sample);
+          // The native filename is an H1, while Live Preview uses a separate
+          // inline-title div. Match that DOM to avoid H1-only snippet margins.
+          const replacement = doc.createElement("div");
+          replacement.className = "inline-title";
+          replacement.setAttribute("role", "heading");
+          replacement.setAttribute("aria-level", "1");
+          replacement.textContent = title.textContent;
+          title.replaceWith(replacement);
+          title = replacement;
+          for (const name of [...READING_REFERENCE_PROPERTIES, "margin-top", "margin-bottom", "padding"]) title.style.setProperty(name, computed.getPropertyValue(name));
+        }
+      } finally { reference.remove(); }
+      for (const styles of [this.calloutPresetStyleEls, this.advancedLayoutStyleEls]) {
+        const original = styles?.get(main);
+        if (original) { const copy = original.cloneNode(true); copy.removeAttribute("id"); doc.head.append(copy); generatedStyles.push(copy); }
+      }
+      const calloutSpacing = doc.createElement("style");
+      calloutSpacing.textContent = buildPdfCalloutSpacingCss(this.settings.callouts);
+      doc.head.append(calloutSpacing);
+      generatedStyles.push(calloutSpacing);
+      sizer = doc.createElement("div");
+      sizer.className = "markdown-preview-sizer";
+      const blocks = [...preview.children].filter(block => block !== title);
+      preview.append(sizer);
+      sizer.append(...blocks);
+      const sections = pdfSourceSections(source, this.app.metadataCache.getFileCache(file), blocks);
+      for (const [index, wrapper] of blocks.entries()) {
+        const block = wrapper.firstElementChild;
+        if (!block || wrapper.matches(".mod-ui,section,hr")) continue;
+        wrappers.set(wrapper, { className: wrapper.className, style: wrapper.getAttribute("style") });
+        wrapper.classList.add(`el-${block.tagName.toLowerCase()}`);
+        if (block.matches("table,pre")) {
+          // Native table postprocessing can install an inline scroll container.
+          // Scroll containers are atomic in print and clip multi-page tables.
+          for (const property of ["overflow", "overflow-x", "overflow-y", "max-height"]) wrapper.style.removeProperty(property);
+        }
+        // Reuse the normal section annotation/blank-line implementation only
+        // when the native output and cached root source ranges align exactly.
+        if (sections) await this.styleReadingSection(wrapper, {
+          containerEl: sizer, sourcePath: context.sourcePath,
+          getSectionInfo: () => ({ text: source, lineStart: sections[index]?.position.start.line }),
+          addChild: component => context.addChild(component)
+        });
+      }
+      // Font loading can otherwise race native PDF's fixed 200ms settling wait.
+      await doc.fonts?.ready;
+    } catch (error) {
+      entry.cleanup();
+      new Notice("Style Controller PDF matching failed; exporting with native formatting.");
+      console.error("Style Controller PDF matching", error);
+    }
+  }
+
+  async styleReadingSection(element, context) {
+    const sizer = context.containerEl;
+    const preview = sizer?.closest?.(".markdown-preview-view");
+    // Only the native note renderer and Page Preview; exclude settings, canvas,
+    // arbitrary MarkdownRenderer output and nested embeds with another source.
+    const scope = preview?.closest?.(".osc-style-scope");
+    if (!sizer?.matches?.(".markdown-preview-sizer") || !scope) return;
+    // Obsidian can recycle a section element for a different block type.
+    // Retire its previous lifetime before validating the new render.
+    if (this.readingSections?.has(element)) {
+      clearReadingSection(element);
+      this.readingSections.delete(element);
+    }
+    const view = this.getMarkdownViews().find((candidate) => candidate.containerEl === scope);
+    if (view ? view.file?.path !== context.sourcePath : (this.hoverPreviewScopes?.get(scope)?.path || this.pdfExportScopes?.get(scope)?.path) !== context.sourcePath) return;
+    if (element.parentElement && element.parentElement !== sizer) return;
+    const block = element.firstElementChild;
+    if (!block || !element.matches(".el-p,.el-h1,.el-h2,.el-h3,.el-h4,.el-h5,.el-h6,.el-ul,.el-ol,.el-table,.el-blockquote")) return;
+    if (element.querySelector(".callout,.internal-embed,img,.math-block,pre,iframe")) return;
+    let info = context.getSectionInfo(element);
+    if (info && !info.text) {
+      // During initial rendering Obsidian can expose ranges before its text.
+      // The view buffer includes unsaved edits; hover previews read their target.
+      const generation = this.readingGeneration;
+      const file = this.app.vault.getAbstractFileByPath(context.sourcePath);
+      let text;
+      try {
+        text = view?.getViewData?.() || (file ? await this.app.vault.cachedRead(file) : "");
+      } catch {
+        return; // A deleted/unreadable hover target keeps native rendering.
+      }
+      if (generation !== this.readingGeneration) return;
+      if (view ? view.file?.path !== context.sourcePath : (this.hoverPreviewScopes?.get(scope)?.path || this.pdfExportScopes?.get(scope)?.path) !== context.sourcePath) return;
+      info = { ...info, text };
+    }
+    if (!info?.text) return;
+    this.readingSources ||= new WeakMap();
+    let source = this.readingSources.get(sizer);
+    if (source?.text !== info.text) {
+      source = { text: info.text, lines: info.text.split(/\r?\n/) };
+      this.readingSources.set(sizer, source);
+    }
+    const boundary = readingSourceBoundary(info, source.lines);
+    if (!boundary) return;
+    element.classList.add("osc-reading-block");
+    element.style.setProperty("--osc-source-gap-lines", String(boundary.blankLines));
+    element.toggleAttribute("data-osc-after-heading-blank", boundary.afterHeadingBlank);
+    this.readingSections ||= new Map();
+    const entry = {};
+    this.readingSections.set(element, entry);
+    const child = new MarkdownRenderChild(element);
+    child.onunload = () => {
+      if (this.readingSections.get(element) !== entry) return;
+      clearReadingSection(element);
+      this.readingSections.delete(element);
+    };
+    context.addChild(child);
   }
 
   isMclSnippetEnabled() {
@@ -1581,6 +1803,9 @@ function sanitizeProfile(profile, source = {}) {
     normalized.lineHeight = "";
   }
 
+  normalized.pdfMatchLivePreview = ["on", "off"].includes(normalized.pdfMatchLivePreview) ? normalized.pdfMatchLivePreview : "";
+  normalized.preserveExtraBlankLines = ["on", "off"].includes(normalized.preserveExtraBlankLines) ? normalized.preserveExtraBlankLines : "";
+  normalized.paragraphSpacing = ["matched", "document", "native"].includes(normalized.paragraphSpacing) ? normalized.paragraphSpacing : "";
   normalized.imageAlignment = normalizeImageAlignment(normalized.imageAlignment);
   normalized.imageWidth = normalizeCssSizeText(normalized.imageWidth);
   normalized.imageRespectExplicitSize = normalizeImageRespectExplicitSize(normalized.imageRespectExplicitSize);
@@ -2087,6 +2312,9 @@ function applyProfileStateClasses(element, profile) {
       hasRuntimeSelector && hasActiveValue(profileFieldCssValue(profile, field, variable))
     );
   });
+  element.toggleClass("style-controller-match-paragraph-spacing", profile.paragraphSpacing === "matched");
+  element.toggleClass("style-controller-match-reading-view", profile.paragraphSpacing === "document");
+  element.toggleClass("style-controller-preserve-blank-lines", profile.preserveExtraBlankLines === "on");
   applyEmphasisStateClasses(element, profile);
   applyTitleStateClasses(element, profile);
   STYLE_IMAGE_ALIGNMENT_CLASSES.forEach((className) => element.removeClass(className));
@@ -2272,6 +2500,16 @@ function buildCalloutViewSpacingCss(settings, type = "") {
   return CALLOUT_SPACING_VIEWS.map((view) =>
     buildCalloutSpacingCss(settings.spacingByView[view], calloutViewSelector(view, type))
   ).filter(Boolean).join("\n");
+}
+
+function buildPdfCalloutSpacingCss(settings) {
+  const selector = ".print.osc-style-scope.osc-pdf-export .callout";
+  return [
+    ...calloutSpacingLayers(settings, null, "live").map(layer => buildCalloutSpacingCss(layer, selector)),
+    ...[...effectiveCalloutPresets(settings?.presets)].flatMap(([type, preset]) =>
+      calloutSpacingLayers(null, preset, "live").map(layer =>
+        buildCalloutSpacingCss(layer, `${selector}[data-callout="${escapeCssAttributeValue(type)}" i]`)))
+  ].filter(Boolean).join("\n");
 }
 
 function calloutSpacingLayers(globalSettings, preset = null, view = null) {
@@ -2481,8 +2719,12 @@ function clearNoteStyleScope(container) {
     ...STYLE_TITLE_ACTIVE_CLASSES,
     STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS,
     ...STYLE_EMPHASIS_ACTIVE_CLASSES,
-    STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS
+    STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS,
+    "style-controller-match-paragraph-spacing",
+    "style-controller-match-reading-view",
+    "style-controller-preserve-blank-lines"
   );
+  clearReadingReference(container);
   clearProfileCssVariables(container);
   container.removeAttribute("data-osc-profile");
 }
@@ -2607,6 +2849,116 @@ function cssColorValue(value) {
 
 function cssFontValue(value, options = {}) {
   return validateFont(value, options).valid ? cssValue(value) : "";
+}
+
+// Renderer-provided ranges avoid parsing Markdown or injecting synthetic blocks.
+// Only whitespace immediately preceding a supported top-level section counts.
+function readingSourceBoundary(info, sourceLines = null) {
+  if (!info || typeof info.text !== "string" || !Number.isInteger(info.lineStart)) return null;
+  const lines = sourceLines || info.text.split(/\r?\n/);
+  if (info.lineStart < 0 || info.lineStart >= lines.length || /^\s/.test(lines[info.lineStart])) return null;
+  let previous = info.lineStart - 1;
+  while (previous >= 0 && /^[ \t]*$/.test(lines[previous])) previous--;
+  return {
+    blankLines: info.lineStart - previous - 1,
+    afterHeadingBlank: info.lineStart - previous === 2 && /^#{1,6}\s/.test(lines[previous] || "")
+  };
+}
+
+function clearReadingSection(element) {
+  element.classList.remove("osc-reading-block");
+  element.style.removeProperty("--osc-source-gap-lines");
+  element.removeAttribute("data-osc-after-heading-blank");
+}
+
+function isNativePdfRender(element, context) {
+  return element === context.containerEl
+    && !!context.sourcePath
+    && context.containerEl?.matches?.(".markdown-preview-view.markdown-rendered")
+    && context.containerEl.parentElement?.matches?.("body > .print");
+}
+
+function pdfBlockType(wrapper) {
+  if (wrapper.matches(".mod-ui,.mod-frontmatter")) return "yaml";
+  if (wrapper.matches("section.footnotes") || wrapper.firstElementChild?.matches("section.footnotes")) return "footnotes";
+  const block = wrapper.matches("hr") ? wrapper : wrapper.firstElementChild;
+  if (!block) return null;
+  if (/^H[1-6]$/.test(block.tagName)) return "heading";
+  if (block.matches(".math-block")) return "math";
+  if (block.matches(".callout")) return "callout";
+  return ({ P: "paragraph", UL: "list", OL: "list", TABLE: "table", BLOCKQUOTE: "blockquote", PRE: "code", HR: "thematicBreak" })[block.tagName] || null;
+}
+
+function pdfSourceSections(source, cache, blocks) {
+  const sections = cache?.sections?.filter(section => !["footnoteDefinition", "text", "element"].includes(section.type));
+  if (!sections) return null;
+  const roots = blocks.filter(block => pdfBlockType(block) !== "footnotes");
+  if (roots.length !== sections.length) return null;
+  const lines = source.split(/\r?\n/);
+  const result = [];
+  let index = 0;
+  for (const block of blocks) {
+    if (pdfBlockType(block) === "footnotes") { result.push(null); continue; }
+    const section = sections[index++], start = section.position?.start, end = section.position?.end;
+    if (!start || !end || start.line < 0 || end.line >= lines.length || start.line > end.line
+      || pdfBlockType(block) !== section.type
+      || source.slice(0, start.offset).split(/\r?\n/).length - 1 !== start.line) return null;
+    result.push(section);
+  }
+  return result;
+}
+
+const READING_REFERENCE_PROPERTIES = ["font-family", "font-size", "font-weight", "font-style", "color", "line-height", "letter-spacing"];
+function clearReadingReference(scope) {
+  for (const property of READING_REFERENCE_PROPERTIES) scope.style?.removeProperty(`--osc-reading-body-${property}`);
+  scope.style?.removeProperty("--osc-reading-table-padding-top");
+  scope.style?.removeProperty("--osc-reading-table-padding-bottom");
+  for (let level = 1; level <= 6; level++) {
+    for (const property of [...READING_REFERENCE_PROPERTIES, "padding-top", "after-heading-padding"]) {
+      scope.style?.removeProperty(`--osc-reading-h${level}-${property}`);
+    }
+  }
+}
+
+function measureReadingReference(scope) {
+  const doc = scope.ownerDocument;
+  if (!scope.isConnected || !doc?.defaultView) return;
+  const probe = doc.createElement("div");
+  probe.className = "markdown-source-view mod-cm6 is-live-preview osc-reading-metrics-probe";
+  const editor = probe.createDiv({ cls: "cm-editor cm-s-obsidian" });
+  const content = editor.createDiv({ cls: "cm-content" });
+  const headings = [];
+  for (let level = 1; level <= 6; level++) {
+    const line = content.createDiv({ cls: `cm-line HyperMD-header HyperMD-header-${level}` });
+    const text = line.createSpan({ cls: `cm-header cm-header-${level}`, text: "Heading" });
+    const blank = content.createDiv({ cls: "cm-line" });
+    blank.createEl("br");
+    const after = content.createDiv({ cls: `cm-line HyperMD-header HyperMD-header-${level}` });
+    after.createSpan({ cls: `cm-header cm-header-${level}`, text: "Heading" });
+    content.createDiv({ cls: "cm-line", text: "Paragraph" });
+    headings.push({ level, line, text, after });
+  }
+  const body = content.createDiv({ cls: "cm-line", text: "Paragraph" });
+  const table = content.createDiv({ cls: "cm-embed-block cm-table-widget" });
+  scope.appendChild(probe);
+  try {
+    const bodyStyle = doc.defaultView.getComputedStyle(body);
+    for (const property of READING_REFERENCE_PROPERTIES) scope.style.setProperty(`--osc-reading-body-${property}`, bodyStyle.getPropertyValue(property));
+    const tableBox = doc.defaultView.getComputedStyle(table);
+    scope.style.setProperty("--osc-reading-table-padding-top", tableBox.paddingTop);
+    scope.style.setProperty("--osc-reading-table-padding-bottom", tableBox.paddingBottom);
+    for (const { level, line, text, after } of headings) {
+      const semantic = doc.defaultView.getComputedStyle(text);
+      const box = doc.defaultView.getComputedStyle(line);
+      for (const property of READING_REFERENCE_PROPERTIES) {
+        scope.style.setProperty(`--osc-reading-h${level}-${property}`, (property === "line-height" ? box : semantic).getPropertyValue(property));
+      }
+      scope.style.setProperty(`--osc-reading-h${level}-padding-top`, box.paddingTop);
+      scope.style.setProperty(`--osc-reading-h${level}-after-heading-padding`, doc.defaultView.getComputedStyle(after).paddingTop);
+    }
+  } finally {
+    probe.remove();
+  }
 }
 
 let nativeSemanticProbeScope = null;
@@ -2972,14 +3324,15 @@ function cssDefaultWeightForField(field) {
 }
 
 function findScrollParent(element) {
+  const doc = element.ownerDocument;
   let current = element;
-  while (current && current !== document.body) {
-    const style = window.getComputedStyle(current);
+  while (current && current !== doc.body) {
+    const style = doc.defaultView.getComputedStyle(current);
     const canScroll = /(auto|scroll)/.test(`${style.overflowY}${style.overflow}`);
-    if (canScroll && current.scrollHeight > current.clientHeight) return current;
+    if (canScroll) return current;
     current = current.parentElement;
   }
-  return document.scrollingElement || document.documentElement;
+  return doc.scrollingElement || doc.documentElement;
 }
 
 function hasActiveValue(value) {
@@ -3482,6 +3835,10 @@ class StyleControllerSettingTab extends PluginSettingTab {
   }
 
   noteDraftMutation(value) {
+    if (value === this.calloutDraftView) {
+      this.calloutDraftContexts.forEach(context => this.drafts.mark(context.value));
+      return;
+    }
     return this.drafts.mark(value);
   }
 
@@ -3499,24 +3856,54 @@ class StyleControllerSettingTab extends PluginSettingTab {
     context.previewRoot = parent;
     context.updateUi = () => {
       const dirty = context.dirty;
+      const busy = context.applying;
       status.setText(dirty ? "Unsaved changes" : "Applied");
       status.toggleClass("is-dirty", dirty);
       parent.toggleClass("is-dirty", dirty);
-      applyButton.disabled = !dirty;
-      revertButton.disabled = !dirty;
+      applyButton.disabled = !dirty || busy;
+      revertButton.disabled = !dirty || busy;
     };
     applyButton.addEventListener("click", () => void this.applyDraftContext(context));
     revertButton.addEventListener("click", () => this.revertDraftContext(context));
     context.updateUi();
   }
 
+  async runSettingsAction(button, action) {
+    if (button.disabled || this.pendingSettingsActions?.has(button)) return;
+    this.pendingSettingsActions ||= new Set();
+    this.pendingSettingsActions.add(button);
+    button.disabled = true;
+    try {
+      await action();
+    } catch (error) {
+      new Notice(`Could not complete settings action: ${error.message}`);
+    } finally {
+      this.pendingSettingsActions.delete(button);
+      if (button.isConnected) button.disabled = false;
+    }
+  }
+
   async applyDraftContext(context) {
-    if (!context?.dirty) return;
+    if (!context?.dirty || context.applying) return;
+    context.applying = true;
+    context.updateUi?.();
+    const draft = cloneDraftValue(context.value);
+    const operation = (this.applyQueue || Promise.resolve()).then(() => this.commitDraftContext(context, draft));
+    this.applyQueue = operation.catch(() => {});
+    try {
+      await operation;
+    } finally {
+      context.applying = false;
+      context.updateUi?.();
+    }
+  }
+
+  async commitDraftContext(context, draft = cloneDraftValue(context.value)) {
     const settingsBefore = cloneDraftValue(this.plugin.settings);
     let result;
     try {
       result = await applyDraftAtomically({
-        draft: context.value,
+        draft,
         normalize: context.normalize,
         validate: context.validate,
         commit: context.commit,
@@ -3534,10 +3921,12 @@ class StyleControllerSettingTab extends PluginSettingTab {
       new Notice(`Could not apply ${context.label}: ${result.errors[0]}`);
       return;
     }
+    context.afterApply?.(draft);
     const current = context.target();
-    context.value = cloneDraftValue(current);
+    const editedDuringSave = !draftValuesEqual(context.value, draft);
+    if (!editedDuringSave) context.value = cloneDraftValue(current);
     context.baseline = cloneDraftValue(current);
-    context.dirty = false;
+    context.dirty = !draftValuesEqual(context.value, context.baseline);
     this.drafts.bind(context);
     context.updateUi?.();
     this.refreshPreservingScroll();
@@ -3545,7 +3934,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
   }
 
   revertDraftContext(context) {
-    if (!context?.dirty) return;
+    if (!context?.dirty || context.applying) return;
     const current = context.target();
     if (!current) return;
     this.drafts.revert(context.key, current);
@@ -3566,33 +3955,44 @@ class StyleControllerSettingTab extends PluginSettingTab {
   display() {
     const { containerEl } = this;
     this.clearScrollableTextFields();
-    containerEl.empty();
     containerEl.addClass("osc-settings");
-    this.renderTopNav(containerEl);
+    if (!this.sectionMenuEl?.isConnected || this.sectionMenuEl.parentElement !== containerEl) {
+      containerEl.empty();
+      this.renderTopNav(containerEl);
+      this.renderSubsectionNavigation(containerEl);
+      this.pageEl = containerEl.createDiv({ cls: "osc-settings-page" });
+    }
+    this.updateSettingsNavigation();
+    const page = this.pageEl;
+    page.empty();
 
     const activeTab = this.plugin.settings.activeSettingsTab || "global";
     if (activeTab === "global") {
-      this.renderProfileSection(containerEl, "Global defaults", this.plugin.settings.global);
+      this.renderProfileSection(page, "Global defaults", this.plugin.settings.global);
     }
 
     if (activeTab === "interface") {
-      this.renderInterfaceSection(containerEl);
+      this.renderInterfaceSection(page);
     }
 
     if (activeTab === "callouts") {
-      this.renderCalloutSection(containerEl, this.plugin.settings.callouts);
+      this.renderCalloutSection(page, this.plugin.settings.callouts);
     }
 
     if (activeTab === "overrides") {
-      this.renderOverridesSection(containerEl, false);
+      this.renderOverridesSection(page, false);
     }
 
     if (activeTab === "fileExplorer") {
-      this.renderOverridesSection(containerEl, true);
+      this.renderOverridesSection(page, true);
     }
 
     if (activeTab === "configurations") {
-      this.renderConfigurationsSection(containerEl);
+      this.renderConfigurationsSection(page);
+    }
+
+    if (activeTab === "viewsExport") {
+      this.renderViewsExportSection(page);
     }
   }
 
@@ -3601,42 +4001,132 @@ class StyleControllerSettingTab extends PluginSettingTab {
       new Notice("Unsaved Style Controller changes were not applied.");
     }
     this.drafts = new SectionDraftManager();
+    this.calloutItemRecords = null;
     this.clearScrollableTextFields();
     this.containerEl.empty();
+    this.containerEl.removeClass("osc-settings");
   }
 
   refreshPreservingScroll() {
-    const scrollParent = findScrollParent(this.containerEl);
+    const scrollParent = findScrollParent(this.pageEl || this.containerEl);
     const scrollTop = scrollParent ? scrollParent.scrollTop : 0;
     this.display();
-    window.requestAnimationFrame(() => {
-      if (scrollParent) scrollParent.scrollTop = scrollTop;
-    });
+    if (scrollParent) scrollParent.scrollTop = scrollTop;
   }
 
   refreshNativeDefaults() {
-    if (!this.containerEl?.isConnected) return;
+    if (!this.containerEl?.isConnected || !this.pageEl?.isConnected) return;
+    if (this.containerEl.contains(this.containerEl.ownerDocument.activeElement)) return;
     this.refreshPreservingScroll();
   }
 
+  rootSections() {
+    return [
+      ["global", "Global Defaults"], ["interface", "Interface"], ["callouts", "Callouts"],
+      ["overrides", "Overrides"], ["fileExplorer", "File Explorer"],
+      ["configurations", "Configurations"], ["viewsExport", "Views & Export"]
+    ];
+  }
+
   renderTopNav(parent) {
-    const nav = parent.createDiv({ cls: "osc-top-nav" });
-    [
-      ["global", "Style Controller"],
-      ["interface", "Interface"],
-      ["callouts", "Callouts"],
-      ["overrides", "Overrides"],
-      ["fileExplorer", "File Explorer"],
-      ["configurations", "Configurations"]
-    ].forEach(([id, label]) => {
-      const button = nav.createEl("button", { text: label });
-      button.toggleClass("is-active", (this.plugin.settings.activeSettingsTab || "global") === id);
-      button.addEventListener("click", async () => {
-        if (this.blockIfDirty("navigate away")) return;
-        this.plugin.settings.activeSettingsTab = id;
-        await this.plugin.saveSettings();
-        this.display();
+    // PluginSettingTab.navEl belongs to Obsidian's sidebar. Never replace it.
+    this.sectionMenuEl = parent.createEl("nav", {
+      cls: "osc-top-nav", attr: { "aria-label": "Style Controller main tabs" }
+    });
+    this.rootSections().forEach(([id, label]) => {
+      const button = this.sectionMenuEl.createEl("button", { text: label });
+      button.dataset.oscTab = id;
+      button.addEventListener("click", () => void this.selectSettingsTab(id));
+    });
+  }
+
+  updateSettingsNavigation() {
+    const tab = this.plugin.settings.activeSettingsTab || "global";
+    this.sectionMenuEl.querySelectorAll("button").forEach(button => {
+      const active = button.dataset.oscTab === tab;
+      button.toggleClass("is-active", active);
+      if (active) button.setAttribute("aria-current", "page");
+      else button.removeAttribute("aria-current");
+    });
+    this.updateSubsectionNavigation();
+  }
+
+  async selectSettingsTab(id) {
+    if (!this.rootSections().some(([key]) => key === id)) return;
+    const changed = (this.plugin.settings.activeSettingsTab || "global") !== id;
+    if (changed && this.blockIfDirty("navigate away")) return;
+    this.plugin.settings.activeSettingsTab = id;
+    if (changed) {
+      this.display();
+      this.pageEl.scrollTop = 0;
+      await this.plugin.saveSettings();
+    } else this.updateSettingsNavigation();
+  }
+
+  contextualSections(tab = this.plugin.settings.activeSettingsTab || "global") {
+    if (tab === "global") return [
+      ["baseText", "Base text", "text"], ["boldItalic", "Bold and italic", "bold"],
+      ["links", "Links", "link"], ["headings", "Headings", "heading"],
+      ["tables", "Tables", "table"], ["code", "Code", "code"],
+      ["quotes", "Quotes", "quote"], ["images", "Images", "image"],
+      ["advanced", "Advanced CSS", "file-code"]
+    ];
+    if (tab === "callouts") {
+      const sections = [["style", "Global Style", "palette"], ["spacing", "Spacing", "space"],
+        ["presets", "Named Types", "list"], ["layouts", "Layouts", "columns-2"]];
+      const advanced = this.drafts.entries.get("callouts:advanced")?.value || this.plugin.settings.callouts.advancedLayouts;
+      if (advanced.enabled && advanced.pinToTop) sections.splice(2, 0, sections.pop());
+      return sections;
+    }
+    return [];
+  }
+
+  selectedSubsection(tab = this.plugin.settings.activeSettingsTab || "global") {
+    const sections = this.contextualSections(tab);
+    const selected = this.subsections?.get(tab);
+    return sections.some(([key]) => key === selected) ? selected : sections[0]?.[0];
+  }
+
+  selectSubsection(key) {
+    const tab = this.plugin.settings.activeSettingsTab || "global";
+    if (!this.contextualSections(tab).some(([id]) => id === key)) return;
+    if (this.selectedSubsection(tab) === key) return;
+    this.subsections ||= new Map();
+    this.subsections.set(tab, key);
+    // SectionDraftManager retains independent drafts; navigation does not save them.
+    this.display();
+    this.pageEl.scrollTop = 0;
+  }
+
+  renderSubsectionNavigation(parent) {
+    this.subsectionNavEl = parent.createEl("nav", {
+      cls: "osc-subsection-nav", attr: { "aria-label": "Style Controller subsections" }
+    });
+  }
+
+  updateSubsectionNavigation() {
+    const tab = this.plugin.settings.activeSettingsTab || "global";
+    const sections = this.contextualSections(tab);
+    this.subsectionNavEl.hidden = !sections.length;
+    if (this.renderedSubsectionTab !== tab || (!this.subsectionNavEl.childElementCount && sections.length)) {
+      this.subsectionNavEl.empty();
+      sections.forEach(([id, label]) => {
+        const button = this.subsectionNavEl.createEl("button", { text: label });
+        button.dataset.oscSubsection = id;
+        button.addEventListener("click", () => this.selectSubsection(id));
       });
+      this.renderedSubsectionTab = tab;
+    }
+    // Preserve focused buttons while reflecting the existing layout pinning option.
+    sections.forEach(([id], index) => {
+      const button = [...this.subsectionNavEl.children].find(button => button.dataset.oscSubsection === id);
+      if (button && this.subsectionNavEl.children[index] !== button) this.subsectionNavEl.insertBefore(button, this.subsectionNavEl.children[index] || null);
+    });
+    this.subsectionNavEl.querySelectorAll("button").forEach(button => {
+      const active = button.dataset.oscSubsection === this.selectedSubsection(tab);
+      button.toggleClass("is-active", active);
+      if (active) button.setAttribute("aria-current", "page");
+      else button.removeAttribute("aria-current");
     });
   }
 
@@ -3683,7 +4173,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
       .addButton((button) => button
         .setButtonText("Save snapshot")
         .setCta()
-        .onClick(async () => {
+        .onClick(() => void this.runSettingsAction(button.buttonEl, async () => {
           const name = datedConfigurationName(`Configuration ${this.plugin.settings.storedConfigurations.length + 1}`);
           this.plugin.settings.storedConfigurations.push({
             id: `saved-${Date.now()}`,
@@ -3694,7 +4184,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
           this.refreshPreservingScroll();
           new Notice(`Saved ${name}.`);
-        }));
+        })));
 
     const importGroup = this.renderCollapsibleGroup(containerEl, "Import configuration");
     let importTextArea;
@@ -3710,7 +4200,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
       .addButton((button) => button
         .setButtonText("Import")
         .setCta()
-        .onClick(async () => {
+        .onClick(() => void this.runSettingsAction(button.buttonEl, async () => {
           try {
             const config = parseConfigurationImport(importTextArea?.value || "");
             this.plugin.settings.storedConfigurations.push(config);
@@ -3720,7 +4210,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
           } catch (error) {
             new Notice(`Import failed: ${error.message}`);
           }
-        }));
+        })));
 
     const list = containerEl.createDiv({ cls: "osc-config-list" });
     this.plugin.settings.storedConfigurations.forEach((config, index) => {
@@ -3743,20 +4233,23 @@ class StyleControllerSettingTab extends PluginSettingTab {
         this.showConfigurationEditor(card, config);
       });
     }
-    actions.createEl("button", { text: "Apply" }).addEventListener("click", async () => {
+    const applyButton = actions.createEl("button", { text: "Apply" });
+    applyButton.addEventListener("click", () => void this.runSettingsAction(applyButton, async () => {
       if (this.blockIfDirty("apply a stored configuration")) return;
       await this.applyStoredConfiguration(config);
-    });
+    }));
     actions.createEl("button", { text: "Export" }).addEventListener("click", () => {
       this.showConfigurationExport(card, config);
     });
     if (!isBuiltinConfigurationId(config.id)) {
       const deleteButton = actions.createEl("button", { text: "Delete", cls: "mod-warning" });
-      deleteButton.addEventListener("click", async () => {
-        this.plugin.settings.storedConfigurations.splice(index, 1);
+      deleteButton.addEventListener("click", () => void this.runSettingsAction(deleteButton, async () => {
+        const currentIndex = this.plugin.settings.storedConfigurations.findIndex(candidate => candidate.id === config.id);
+        if (currentIndex < 0) return;
+        this.plugin.settings.storedConfigurations.splice(currentIndex, 1);
         await this.plugin.saveSettings();
         this.refreshPreservingScroll();
-      });
+      }));
     }
   }
 
@@ -3778,12 +4271,13 @@ class StyleControllerSettingTab extends PluginSettingTab {
     descriptionInput.value = config.description || "";
     descriptionInput.rows = 4;
     const controls = editor.createDiv({ cls: "osc-config-editor-actions" });
-    controls.createEl("button", { text: "Save" }).addEventListener("click", async () => {
+    const saveButton = controls.createEl("button", { text: "Save" });
+    saveButton.addEventListener("click", () => void this.runSettingsAction(saveButton, async () => {
       config.name = nameInput.value.trim() || "Untitled configuration";
       config.description = descriptionInput.value.trim();
       await this.plugin.saveSettings();
       this.refreshPreservingScroll();
-    });
+    }));
     controls.createEl("button", { text: "Cancel" }).addEventListener("click", () => {
       editor.remove();
     });
@@ -3819,6 +4313,8 @@ class StyleControllerSettingTab extends PluginSettingTab {
     this.plugin.settings.callouts = snapshot.callouts;
     this.plugin.settings.overrides = snapshot.overrides;
     await this.plugin.saveSettings();
+    this.drafts = new SectionDraftManager();
+    this.calloutItemRecords = null;
     this.display();
     new Notice(`Applied ${config.name}.`);
   }
@@ -3831,7 +4327,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
       .addButton((button) => button
         .setButtonText("Add")
         .setCta()
-        .onClick(async () => {
+        .onClick(() => void this.runSettingsAction(button.buttonEl, async () => {
           if (this.blockIfDirty("add an override")) return;
           this.plugin.settings.overrides.push(normalizeOverride({
             id: String(Date.now()),
@@ -3844,7 +4340,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
           }));
           await this.plugin.saveSettings();
           this.refreshPreservingScroll();
-        }));
+        })));
 
     this.plugin.settings.overrides.forEach((override, index) => {
       this.renderOverride(containerEl, override, index, fileExplorerOnly);
@@ -3855,6 +4351,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
     const context = this.getOverrideContext(override);
     const draft = context.value;
     const card = parent.createDiv({ cls: `osc-override-card${draft.enabled ? "" : " is-disabled"}` });
+    card.dataset.oscDraft = context.key;
     const header = card.createDiv({ cls: "osc-override-card-header" });
     new Setting(header).setName(draft.name || `Override ${index + 1}`).setHeading();
     this.renderSectionActions(header, context);
@@ -3934,6 +4431,12 @@ class StyleControllerSettingTab extends PluginSettingTab {
         ["accentColor", "Accent color", "#4f8cff"]
       ]);
 
+      if (draft.modules.baseText) {
+        const viewsExport = this.renderCollapsibleGroup(card, "Views & Export");
+        viewsExport.addClass("osc-views-export");
+        this.renderViewsExportControls(viewsExport, draft.profile);
+      }
+
       this.renderOverrideModuleToggle(card, draft, "boldItalic", "Bold and italic");
       if (draft.modules.boldItalic) this.renderSettingGroup(card, "Bold and italic", draft.profile, [
         ["boldFontFamily", "Bold font", "Inter, Arial, sans-serif"],
@@ -3989,39 +4492,47 @@ class StyleControllerSettingTab extends PluginSettingTab {
   }
 
   renderOverrideActions(parent, index) {
+    const id = this.plugin.settings.overrides[index].id;
+    const currentIndex = () => this.plugin.settings.overrides.findIndex(override => override.id === id);
     new Setting(parent)
       .setClass("osc-override-actions")
       .addButton((button) => button
         .setButtonText("Move up")
         .setDisabled(index === 0)
-        .onClick(async () => {
+        .onClick(() => void this.runSettingsAction(button.buttonEl, async () => {
           if (this.blockIfDirty("reorder or delete an override")) return;
           const overrides = this.plugin.settings.overrides;
-          [overrides[index - 1], overrides[index]] = [overrides[index], overrides[index - 1]];
+          const position = currentIndex();
+          if (position <= 0) return;
+          [overrides[position - 1], overrides[position]] = [overrides[position], overrides[position - 1]];
           await this.plugin.saveSettings();
           this.refreshPreservingScroll();
-        }))
+        })))
       .addButton((button) => button
         .setButtonText("Move down")
         .setDisabled(index === this.plugin.settings.overrides.length - 1)
-        .onClick(async () => {
+        .onClick(() => void this.runSettingsAction(button.buttonEl, async () => {
           if (this.blockIfDirty("reorder or delete an override")) return;
           const overrides = this.plugin.settings.overrides;
-          [overrides[index + 1], overrides[index]] = [overrides[index], overrides[index + 1]];
+          const position = currentIndex();
+          if (position < 0 || position >= overrides.length - 1) return;
+          [overrides[position + 1], overrides[position]] = [overrides[position], overrides[position + 1]];
           await this.plugin.saveSettings();
           this.refreshPreservingScroll();
-        }))
+        })))
       .addButton((button) => button
         .setButtonText("Delete")
         .setDestructive()
-        .onClick(async () => {
+        .onClick(() => void this.runSettingsAction(button.buttonEl, async () => {
           if (this.blockIfDirty("reorder or delete an override")) return;
-          const override = this.plugin.settings.overrides[index];
-          this.plugin.settings.overrides.splice(index, 1);
+          const position = currentIndex();
+          if (position < 0) return;
+          const override = this.plugin.settings.overrides[position];
+          this.plugin.settings.overrides.splice(position, 1);
           if (override) this.drafts.remove(`override:${override.id}`);
           await this.plugin.saveSettings();
           this.refreshPreservingScroll();
-        }));
+        })));
   }
 
   renderOverrideModuleToggle(parent, override, key, label) {
@@ -4136,72 +4647,92 @@ class StyleControllerSettingTab extends PluginSettingTab {
     profileRoot.createEl("div", { text: title, cls: "osc-section-heading" });
 
     const target = () => this.plugin.settings.global;
-    const baseTextContext = this.getProfileSectionContext("global:baseText", "Base text settings", target, PROFILE_SECTION_FIELDS.baseText);
-    this.renderSettingGroup(profileRoot, "Base text", baseTextContext.value, [
-      ["fontFamily", "Font family", "Inter, Arial, sans-serif"],
-      ["textSize", "Text size", "16"],
-      ["textWeight", "Text weight", "400"],
-      ["lineHeight", "Line height", "1.65"],
-      ["textColor", "Text color", "Default"],
-      ["backgroundColor", "Note background", "Default"],
-      ["accentColor", "Accent color", "#4f8cff"]
-    ], baseTextContext);
+    const subsection = this.selectedSubsection("global");
+    if (subsection === "baseText") {
+      const baseTextContext = this.getProfileSectionContext("global:baseText", "Base text settings", target, PROFILE_SECTION_FIELDS.baseText);
+      this.renderSettingGroup(profileRoot, "Base text", baseTextContext.value, [
+        ["fontFamily", "Font family", "Inter, Arial, sans-serif"],
+        ["textSize", "Text size", "16"],
+        ["textWeight", "Text weight", "400"],
+        ["lineHeight", "Line height", "1.65"],
+        ["textColor", "Text color", "Default"],
+        ["backgroundColor", "Note background", "Default"],
+        ["accentColor", "Accent color", "#4f8cff"]
+      ], baseTextContext);
+    }
 
-    const boldItalicContext = this.getProfileSectionContext("global:boldItalic", "Bold and italic settings", target, PROFILE_SECTION_FIELDS.boldItalic);
-    this.renderSettingGroup(profileRoot, "Bold and italic", boldItalicContext.value, [
-      ["boldFontFamily", "Bold font", "Inter, Arial, sans-serif"],
-      ["boldFontStyle", "Bold style", "Native/default"],
-      ["boldWeight", "Bold weight", "700"],
-      ["boldColor", "Bold color", "Default"],
-      ["italicFontFamily", "Italic font", "Inter, Arial, sans-serif"],
-      ["italicFontStyle", "Italic style", "Native/default"],
-      ["italicSize", "Italic size", "16"],
-      ["italicWeight", "Italic weight", "inherit"],
-      ["italicColor", "Italic color", "Default"]
-    ], boldItalicContext);
+    if (subsection === "boldItalic") {
+      const boldItalicContext = this.getProfileSectionContext("global:boldItalic", "Bold and italic settings", target, PROFILE_SECTION_FIELDS.boldItalic);
+      this.renderSettingGroup(profileRoot, "Bold and italic", boldItalicContext.value, [
+        ["boldFontFamily", "Bold font", "Inter, Arial, sans-serif"],
+        ["boldFontStyle", "Bold style", "Native/default"],
+        ["boldWeight", "Bold weight", "700"],
+        ["boldColor", "Bold color", "Default"],
+        ["italicFontFamily", "Italic font", "Inter, Arial, sans-serif"],
+        ["italicFontStyle", "Italic style", "Native/default"],
+        ["italicSize", "Italic size", "16"],
+        ["italicWeight", "Italic weight", "inherit"],
+        ["italicColor", "Italic color", "Default"]
+      ], boldItalicContext);
+    }
 
-    const linksContext = this.getProfileSectionContext("global:links", "Links settings", target, PROFILE_SECTION_FIELDS.links);
-    this.renderSettingGroup(profileRoot, "Links", linksContext.value, [
-      ["linkColor", "Link", "#00ff33"],
-      ["linkHoverColor", "Hover", "#ff6b9f"],
-      ["internalLinkColor", "Internal", "#6eb47c"],
-      ["externalLinkColor", "External", "#66d9ef"]
-    ], linksContext);
+    if (subsection === "links") {
+      const linksContext = this.getProfileSectionContext("global:links", "Links settings", target, PROFILE_SECTION_FIELDS.links);
+      this.renderSettingGroup(profileRoot, "Links", linksContext.value, [
+        ["linkColor", "Link", "#00ff33"],
+        ["linkHoverColor", "Hover", "#ff6b9f"],
+        ["internalLinkColor", "Internal", "#6eb47c"],
+        ["externalLinkColor", "External", "#66d9ef"]
+      ], linksContext);
+    }
 
-    const headingsContext = this.getProfileSectionContext("global:headings", "Headings and title settings", target, PROFILE_SECTION_FIELDS.headings);
-    this.renderHeadingGroup(profileRoot, headingsContext.value, headingsContext);
+    if (subsection === "headings") {
+      const headingsContext = this.getProfileSectionContext("global:headings", "Headings and title settings", target, PROFILE_SECTION_FIELDS.headings);
+      this.renderHeadingGroup(profileRoot, headingsContext.value, headingsContext);
+    }
 
-    const tablesContext = this.getProfileSectionContext("global:tables", "Tables settings", target, PROFILE_SECTION_FIELDS.tables);
-    this.renderSettingGroup(profileRoot, "Tables", tablesContext.value, [
-      ["tableHeaderBackground", "Table header bg", "#1f2937"],
-      ["tableHeaderColor", "Table header text", "#ffffff"],
-      ["tableBorderColor", "Table border", "#3b4252"],
-      ["tableRowAltBackground", "Alt row bg", "#151b22"]
-    ], tablesContext, (content) => this.renderTablePreview(content, tablesContext.value));
+    if (subsection === "tables") {
+      const tablesContext = this.getProfileSectionContext("global:tables", "Tables settings", target, PROFILE_SECTION_FIELDS.tables);
+      this.renderSettingGroup(profileRoot, "Tables", tablesContext.value, [
+        ["tableHeaderBackground", "Table header bg", "#1f2937"],
+        ["tableHeaderColor", "Table header text", "#ffffff"],
+        ["tableBorderColor", "Table border", "#3b4252"],
+        ["tableRowAltBackground", "Alt row bg", "#151b22"]
+      ], tablesContext, (content) => this.renderTablePreview(content, tablesContext.value));
+    }
 
-    const codeContext = this.getProfileSectionContext("global:code", "Code settings", target, PROFILE_SECTION_FIELDS.code);
-    this.renderSettingGroup(profileRoot, "Code", codeContext.value, [
-      ["codeFontFamily", "Inline code font", "JetBrains Mono, Menlo, monospace"],
-      ["codeBackground", "Inline code bg", DEFAULT_CODE_BACKGROUND],
-      ["codeColor", "Inline code text", "#f8f8f2"],
-      ["codeBlockFontFamily", "Code block font", "JetBrains Mono, Menlo, monospace"],
-      ["codeBlockBackground", "Code block bg", DEFAULT_CODE_BACKGROUND],
-      ["codeBlockColor", "Code block base text", "#f8f8f2"]
-    ], codeContext, (content) => this.renderCodePreview(content, codeContext.value));
+    if (subsection === "code") {
+      const codeContext = this.getProfileSectionContext("global:code", "Code settings", target, PROFILE_SECTION_FIELDS.code);
+      this.renderSettingGroup(profileRoot, "Code", codeContext.value, [
+        ["codeFontFamily", "Inline code font", "JetBrains Mono, Menlo, monospace"],
+        ["codeBackground", "Inline code bg", DEFAULT_CODE_BACKGROUND],
+        ["codeColor", "Inline code text", "#f8f8f2"],
+        ["codeBlockFontFamily", "Code block font", "JetBrains Mono, Menlo, monospace"],
+        ["codeBlockBackground", "Code block bg", DEFAULT_CODE_BACKGROUND],
+        ["codeBlockColor", "Code block base text", "#f8f8f2"]
+      ], codeContext, (content) => this.renderCodePreview(content, codeContext.value));
+    }
 
-    const quotesContext = this.getProfileSectionContext("global:quotes", "Quotes settings", target, PROFILE_SECTION_FIELDS.quotes);
-    this.renderSettingGroup(profileRoot, "Quotes", quotesContext.value, [
-      ["blockquoteBorderColor", "Quote border", "#4f8cff"],
-      ["blockquoteBackground", "Quote bg", "#111827"]
-    ], quotesContext, (content) => this.renderQuotePreview(content, quotesContext.value));
+    if (subsection === "quotes") {
+      const quotesContext = this.getProfileSectionContext("global:quotes", "Quotes settings", target, PROFILE_SECTION_FIELDS.quotes);
+      this.renderSettingGroup(profileRoot, "Quotes", quotesContext.value, [
+        ["blockquoteBorderColor", "Quote border", "#4f8cff"],
+        ["blockquoteBackground", "Quote bg", "#111827"]
+      ], quotesContext, (content) => this.renderQuotePreview(content, quotesContext.value));
+    }
 
-    const imagesContext = this.getProfileSectionContext("global:images", "Images settings", target, PROFILE_SECTION_FIELDS.images);
-    this.renderImageGroup(profileRoot, imagesContext.value, imagesContext);
+    if (subsection === "images") {
+      const imagesContext = this.getProfileSectionContext("global:images", "Images settings", target, PROFILE_SECTION_FIELDS.images);
+      this.renderImageGroup(profileRoot, imagesContext.value, imagesContext);
+    }
 
-    const advanced = this.renderCollapsibleGroup(profileRoot, "Advanced CSS");
-    new Setting(advanced)
-      .setName("Advanced custom CSS")
-      .setDesc("Arbitrary CSS injection is unavailable in the Community version. Existing stored custom CSS is preserved but not applied.");
+    if (subsection === "advanced") {
+      const advanced = this.renderCollapsibleGroup(profileRoot, "Advanced CSS");
+      new Setting(advanced)
+        .setName("Advanced custom CSS")
+        .setDesc("Arbitrary CSS injection is unavailable in the Community version. Existing stored custom CSS is preserved but not applied.");
+    }
+
   }
 
   renderSettingGroup(parent, title, profile, fields, context = null, renderPreview = null) {
@@ -4297,6 +4828,62 @@ class StyleControllerSettingTab extends PluginSettingTab {
     const { content } = this.createCompactPreview(parent, "osc-rich-preview osc-quote-preview");
     content.createEl("blockquote", { text: "Blockquote preview text" });
     this.updateRichPreview(profile, parent);
+  }
+
+  renderViewsExportSection(parent) {
+    const context = this.getProfileSectionContext("global:viewsExport", "Views & Export settings",
+      () => this.plugin.settings.global, PROFILE_SECTION_FIELDS.viewsExport);
+    const root = parent.createDiv({ cls: "osc-profile" });
+    root.createEl("div", { text: "Views & Export", cls: "osc-section-heading" });
+    const content = root.createDiv({ cls: "osc-setting-group osc-views-export" });
+    this.renderSectionActions(content, context);
+    this.renderViewsExportControls(content, context.value);
+  }
+
+  renderViewsExportControls(parent, profile) {
+    new Setting(parent)
+      .setClass("osc-views-export-setting")
+      .setName("Match Reading View to Live Preview")
+      .setDesc("Match heading typography and supported block spacing. Paragraphs only keeps the 0.1.35 behavior.")
+      .addDropdown((dropdown) => dropdown
+        .addOption("", "Default / inherit")
+        .addOption("document", "On — match document appearance")
+        .addOption("matched", "Paragraphs only (0.1.35)")
+        .addOption("native", "Off — native paragraph spacing")
+        .setValue(profile.paragraphSpacing || "")
+        .onChange((value) => {
+          profile.paragraphSpacing = value;
+          this.noteDraftMutation(profile);
+          this.updateDraftPreview(profile);
+        }));
+    new Setting(parent)
+      .setClass("osc-views-export-setting")
+      .setName("Preserve extra blank lines")
+      .setDesc("Keep extra source blank lines between supported blocks. Soft line breaks and unsupported blocks stay unchanged.")
+      .addDropdown((dropdown) => dropdown
+        .addOption("", "Default / inherit")
+        .addOption("on", "On")
+        .addOption("off", "Off")
+        .setValue(profile.preserveExtraBlankLines || "")
+        .onChange((value) => {
+          profile.preserveExtraBlankLines = value;
+          this.noteDraftMutation(profile);
+          this.updateDraftPreview(profile);
+        }));
+    new Setting(parent)
+      .setClass("osc-views-export-setting")
+      .setName("Match PDF export to Live Preview")
+      .setDesc("Match this note's typography and supported spacing in native PDF export. Off by default; page size and scale still apply.")
+      .addDropdown((dropdown) => dropdown
+        .addOption("", "Default / inherit")
+        .addOption("on", "On")
+        .addOption("off", "Off — native PDF export")
+        .setValue(profile.pdfMatchLivePreview || "")
+        .onChange((value) => {
+          profile.pdfMatchLivePreview = value;
+          this.noteDraftMutation(profile);
+          this.updateDraftPreview(profile);
+        }));
   }
 
   renderBaseTextControls(parent, profile) {
@@ -4414,128 +5001,220 @@ class StyleControllerSettingTab extends PluginSettingTab {
     });
   }
 
-  renderCalloutSection(parent) {
-    const context = this.getSectionContext("callouts:root", () => this.plugin.settings.callouts, "Callouts settings", {
-      normalize: normalizeCallouts,
-      validate: validateCalloutSection,
-      commit: (candidate) => {
-        this.plugin.settings.callouts = candidate;
+  getCalloutFieldsContext(key, label, fields, advanced = false) {
+    const target = () => {
+      const source = advanced ? this.plugin.settings.callouts.advancedLayouts : this.plugin.settings.callouts;
+      return Object.fromEntries(fields.map(field => [field, source[field]]));
+    };
+    return this.getSectionContext(key, target, label, {
+      normalize: value => {
+        const normalized = advanced ? normalizeAdvancedLayouts(value) : normalizeCallouts(value);
+        return Object.fromEntries(fields.map(field => [field, normalized[field]]));
+      },
+      validate: value => advanced ? [] : validateCalloutSection({ ...value, presets: [], advancedLayouts: { enabled: false, layouts: [] } }),
+      commit: value => {
+        const target = advanced ? this.plugin.settings.callouts.advancedLayouts : this.plugin.settings.callouts;
+        fields.forEach(field => { target[field] = value[field]; });
       }
     });
-    const callouts = context.value;
+  }
+
+  getCalloutRecords(kind) {
+    this.calloutItemRecords ||= {};
+    if (!this.calloutItemRecords[kind]) {
+      const items = kind === "presets" ? this.plugin.settings.callouts.presets : this.plugin.settings.callouts.advancedLayouts.layouts;
+      this.calloutItemRecords[kind] = items.map((item, index) => ({ key: kind === "layouts" ? item.id : `preset-${index}`, index, initial: item }));
+    }
+    return this.calloutItemRecords[kind];
+  }
+
+  getCalloutItemContext(kind, record) {
+    const items = () => kind === "presets" ? this.plugin.settings.callouts.presets : this.plugin.settings.callouts.advancedLayouts.layouts;
+    const target = () => ({ present: record.index !== null, item: items()[record.index] || record.initial });
+    const context = this.getSectionContext(`callouts:${kind}:${record.key}`, target, kind === "presets" ? "Callout type" : "Callout layout", {
+      normalize: value => ({ present: value.present, item: kind === "presets" ? normalizeCalloutPreset(value.item) : normalizeAdvancedLayouts({ layouts: [value.item] }).layouts[0] }),
+      validate: value => {
+        if (!value.present) return [];
+        if (kind === "presets") return validateCalloutSection({ presets: [value.item], advancedLayouts: { enabled: false, layouts: [] } });
+        const errors = validateAdvancedLayouts({ enabled: true, layouts: [value.item] });
+        if (items().some((item, index) => index !== record.index && calloutTypeKey(item.markdownId) === calloutTypeKey(value.item.markdownId))) {
+          errors.push("Layout Markdown identifier duplicates another layout");
+        }
+        return errors;
+      },
+      commit: value => {
+        if (record.index === null) { if (value.present) items().push(value.item); }
+        else if (value.present) items()[record.index] = value.item;
+        else items().splice(record.index, 1);
+      }
+    });
+    context.afterApply = applied => {
+      if (record.index === null && applied.present) record.index = items().length - 1;
+      else if (record.index !== null && !applied.present) {
+        const removed = record.index;
+        this.getCalloutRecords(kind).forEach(other => { if (other.index !== null && other.index > removed) other.index--; });
+        record.index = null;
+      }
+    };
+    return context;
+  }
+
+  addCalloutItem(kind, item) {
+    const records = this.getCalloutRecords(kind);
+    const record = { key: item.id || `new-${this.calloutItemSerial = (this.calloutItemSerial || 0) + 1}`, index: null, initial: item };
+    records.push(record);
+    const context = this.getCalloutItemContext(kind, record);
+    context.value.present = true;
+    this.noteDraftMutation(context.value);
+    return item;
+  }
+
+  renderCalloutSection(parent) {
+    const styleFields = ["borderWidth", "radius", "titleSize", "titleFontFamily", "multiColumnBorderWidth", "multiColumnBorderStyle", "multiColumnBorderColor", "previewTitle", "previewBody"];
+    const spacingFields = [...CALLOUT_SPACING_FIELDS, "spacingByView"];
+    const styleContext = this.getCalloutFieldsContext("callouts:style", "Global callout style", styleFields);
+    const spacingContext = this.getCalloutFieldsContext("callouts:spacing", "Global callout spacing", spacingFields);
+    const advancedContext = this.getCalloutFieldsContext("callouts:advanced", "Layout settings", ["enabled", "pinToTop"], true);
+    const presetContexts = this.getCalloutRecords("presets").map(record => this.getCalloutItemContext("presets", record));
+    const layoutContexts = this.getCalloutRecords("layouts").map(record => this.getCalloutItemContext("layouts", record));
+    this.calloutDraftContexts = [styleContext, spacingContext, advancedContext, ...presetContexts, ...layoutContexts];
+    const callouts = this.calloutDraftView = { presets: presetContexts.filter(c => c.value.present).map(c => c.value.item), advancedLayouts: { ...advancedContext.value, layouts: layoutContexts.filter(c => c.value.present).map(c => c.value.item) } };
+    for (const context of [styleContext, spacingContext]) for (const field of Object.keys(context.value)) {
+      Object.defineProperty(callouts, field, { enumerable: true, get: () => context.value[field], set: value => { context.value[field] = value; } });
+    }
+    this.calloutAdvancedContext = advancedContext;
+    this.calloutPresetContexts = presetContexts;
+    this.calloutLayoutContexts = layoutContexts;
     const root = parent.createDiv({ cls: "osc-profile" });
     this.calloutSpacingGroups = [];
     this.calloutSpacingPreviews = [];
     this.calloutSpacingViewSelection ||= new Map();
     this.calloutSpacingOpen ||= new Map();
     root.createEl("div", { text: "Callouts", cls: "osc-section-heading" });
-    this.renderSectionActions(root, context);
-    context.previewRoot = root;
-
-    const global = this.renderCollapsibleGroup(root, "Global callout style");
-    new Setting(global)
-      .setName("Reset imported callouts")
-      .setDesc("Restore the bundled imported callout values.")
-      .addButton((button) => button
-        .setButtonText("Reset")
-        .onClick(() => {
-          Object.assign(callouts, cloneCalloutDefaults());
-          this.noteDraftMutation(callouts);
-          this.refreshPreservingScroll();
-        }));
-    const globalPreview = this.renderGlobalCalloutPreview(global, callouts);
+    const subsection = this.selectedSubsection("callouts");
+    let globalPreview;
     const presetPreviews = [];
     const updateGlobalPreview = () => {
-      this.updateGlobalCalloutPreview(globalPreview, callouts);
+      if (globalPreview) this.updateGlobalCalloutPreview(globalPreview, callouts);
       presetPreviews.forEach(({ preview, preset }) => this.updateCalloutPreview(preview, preset, callouts));
       this.refreshCalloutSpacingPreviews(callouts);
       this.refreshCalloutSpacingPlaceholders(callouts);
     };
-    const globalGrid = global.createDiv({ cls: "osc-setting-grid" });
-    this.addDirectSetting(globalGrid, callouts, "borderWidth", "Border width", "2", "size", "", updateGlobalPreview);
-    this.addDirectSetting(globalGrid, callouts, "radius", "Radius", "8", "size", "", updateGlobalPreview);
-    this.addDirectSetting(globalGrid, callouts, "titleSize", "Title size", "18", "size", "", updateGlobalPreview);
-    this.addDirectSetting(globalGrid, callouts, "titleFontFamily", "Title font", "Inter, Arial, sans-serif", "font", "", updateGlobalPreview)
-      .settingEl.classList.add("osc-callout-title-font-setting");
-    this.addDirectSetting(globalGrid, callouts, "multiColumnBorderWidth", "Multi-column border width", "1", "size", "", updateGlobalPreview);
-    this.addDirectSetting(globalGrid, callouts, "multiColumnBorderStyle", "Multi-column border style", "groove", "border-style", "", updateGlobalPreview);
-    this.addDirectSetting(globalGrid, callouts, "multiColumnBorderColor", "Multi-column border color", "#000000", "color", "", updateGlobalPreview);
-    this.renderCalloutSpacingControls(global, callouts, updateGlobalPreview);
-    const previewGrid = global.createDiv({ cls: "osc-setting-grid osc-callout-global-preview-controls" });
-    this.addDirectSetting(previewGrid, callouts, "previewTitle", "Preview title", "Global callout preview", "text", "", updateGlobalPreview)
-      .settingEl.classList.add("osc-callout-preview-text-setting");
-    this.addDirectSetting(previewGrid, callouts, "previewBody", "Preview body", "ss", "text", "", updateGlobalPreview)
-      .settingEl.classList.add("osc-callout-preview-text-setting");
-
-    const advanced = callouts.advancedLayouts;
-    if (advanced.enabled && advanced.pinToTop) this.renderAdvancedLayoutsSection(root, callouts);
-    const presets = this.renderCollapsibleGroup(root, "Named callout types");
-    const grid = presets.createDiv({ cls: "osc-callout-grid" });
-    callouts.presets.forEach((preset, index) => {
-      const card = grid.createDiv({ cls: "osc-callout-card" });
-      const title = card.createEl("div", { text: preset.type || `Callout ${index + 1}`, cls: "osc-callout-card-title" });
-      const preview = this.renderCalloutPreview(card, preset, callouts);
-      presetPreviews.push({ preview, preset });
-      const updateCallout = () => {
-        title.setText(preset.type || `Callout ${index + 1}`);
-        presetPreviews.forEach(({ preview, preset }) => this.updateCalloutPreview(preview, preset, callouts));
-        this.updateGlobalCalloutPreview(globalPreview, callouts);
-        this.refreshCalloutSpacingPreviews(callouts, preset);
-        this.refreshCalloutSpacingPlaceholders(callouts);
-      };
-      this.addDirectSetting(card, preset, "type", "Type", "email", "text", "", updateCallout);
-      this.addDirectSetting(card, preset, "color", "Callout color", "#008293", "color", "", updateCallout);
-      this.addDirectSetting(card, preset, "titleColor", "Title color", "#008293", "color", "", updateCallout);
-      this.addDirectSetting(card, preset, "backgroundColor", "Background", "#ecf6f3", "color", "", updateCallout);
-      this.addDirectSetting(card, preset, "icon", "Icon", "lucide-mail", "text", "", updateCallout);
-      this.renderCalloutSpacingControls(card, preset, updateCallout, true, callouts, `preset-${index}`);
-      this.addDirectSetting(card, preset, "previewTitle", "Preview title", "Hello", "text", "", updateCallout)
-        .settingEl.classList.add("osc-callout-preview-text-setting");
-      this.addDirectSetting(card, preset, "previewBody", "Preview body", "ss", "text", "", updateCallout)
-        .settingEl.classList.add("osc-callout-preview-text-setting");
-      new Setting(card)
-        .setName("Hide icon")
-        .addToggle((toggle) => toggle
-          .setValue(preset.hideIcon)
-          .onChange((value) => {
-            preset.hideIcon = value;
-            this.noteDraftMutation(callouts);
-            updateCallout();
-          }));
-      new Setting(card)
+    if (subsection === "style") {
+      const global = this.renderCollapsibleGroup(root, "Global callout style");
+      this.renderSectionActions(global, styleContext);
+      new Setting(global)
+        .setName("Reset global style")
+        .setDesc("Restore the bundled global style values.")
         .addButton((button) => button
-          .setButtonText("Delete")
-          .setWarning()
+          .setButtonText("Reset")
           .onClick(() => {
-            callouts.presets.splice(index, 1);
+            styleFields.forEach(field => { callouts[field] = cloneCalloutDefaults()[field]; });
             this.noteDraftMutation(callouts);
             this.refreshPreservingScroll();
           }));
-    });
+      globalPreview = this.renderGlobalCalloutPreview(global, callouts);
+      const globalGrid = global.createDiv({ cls: "osc-setting-grid" });
+      this.addDirectSetting(globalGrid, callouts, "borderWidth", "Border width", "2", "size", "", updateGlobalPreview);
+      this.addDirectSetting(globalGrid, callouts, "radius", "Radius", "8", "size", "", updateGlobalPreview);
+      this.addDirectSetting(globalGrid, callouts, "titleSize", "Title size", "18", "size", "", updateGlobalPreview);
+      this.addDirectSetting(globalGrid, callouts, "titleFontFamily", "Title font", "Inter, Arial, sans-serif", "font", "", updateGlobalPreview)
+        .settingEl.classList.add("osc-callout-title-font-setting");
+      this.addDirectSetting(globalGrid, callouts, "multiColumnBorderWidth", "Multi-column border width", "1", "size", "", updateGlobalPreview);
+      this.addDirectSetting(globalGrid, callouts, "multiColumnBorderStyle", "Multi-column border style", "groove", "border-style", "", updateGlobalPreview);
+      this.addDirectSetting(globalGrid, callouts, "multiColumnBorderColor", "Multi-column border color", "#000000", "color", "", updateGlobalPreview);
+      const previewGrid = global.createDiv({ cls: "osc-setting-grid osc-callout-global-preview-controls" });
+      this.addDirectSetting(previewGrid, callouts, "previewTitle", "Preview title", "Global callout preview", "text", "", updateGlobalPreview)
+        .settingEl.classList.add("osc-callout-preview-text-setting");
+      this.addDirectSetting(previewGrid, callouts, "previewBody", "Preview body", "ss", "text", "", updateGlobalPreview)
+        .settingEl.classList.add("osc-callout-preview-text-setting");
+    }
+    if (subsection === "spacing") {
+      const spacing = this.renderCollapsibleGroup(root, "Global callout spacing");
+      this.renderSectionActions(spacing, spacingContext);
+      this.renderCalloutSpacingControls(spacing, callouts, updateGlobalPreview);
+    }
+    if (subsection === "presets") {
+      const presets = this.renderCollapsibleGroup(root, "Named callout types");
+      const grid = presets.createDiv({ cls: "osc-callout-grid" });
+      presetContexts.filter(c => c.value.present || c.dirty).forEach((context, index) => {
+        const preset = context.value.item;
+        const card = grid.createDiv({ cls: "osc-callout-card" });
+        card.dataset.oscDraft = context.key;
+        this.renderSectionActions(card, context);
+        if (!context.value.present) {
+          card.createDiv({ text: `${preset.type}: pending deletion`, cls: "osc-section-status" });
+          return;
+        }
+        const title = card.createEl("div", { text: preset.type || `Callout ${index + 1}`, cls: "osc-callout-card-title" });
+        const preview = this.renderCalloutPreview(card, preset, callouts);
+        presetPreviews.push({ preview, preset });
+        const updateCallout = () => {
+          title.setText(preset.type || `Callout ${index + 1}`);
+          presetPreviews.forEach(({ preview, preset }) => this.updateCalloutPreview(preview, preset, callouts));
+          if (globalPreview) this.updateGlobalCalloutPreview(globalPreview, callouts);
+          this.refreshCalloutSpacingPreviews(callouts, preset);
+          this.refreshCalloutSpacingPlaceholders(callouts);
+        };
+        this.addDirectSetting(card, preset, "type", "Type", "email", "text", "", updateCallout);
+        this.addDirectSetting(card, preset, "color", "Callout color", "#008293", "color", "", updateCallout);
+        this.addDirectSetting(card, preset, "titleColor", "Title color", "#008293", "color", "", updateCallout);
+        this.addDirectSetting(card, preset, "backgroundColor", "Background", "#ecf6f3", "color", "", updateCallout);
+        this.addDirectSetting(card, preset, "icon", "Icon", "lucide-mail", "text", "", updateCallout);
+        this.renderCalloutSpacingControls(card, preset, updateCallout, true, callouts, `preset-${index}`);
+        this.addDirectSetting(card, preset, "previewTitle", "Preview title", "Hello", "text", "", updateCallout)
+          .settingEl.classList.add("osc-callout-preview-text-setting");
+        this.addDirectSetting(card, preset, "previewBody", "Preview body", "ss", "text", "", updateCallout)
+          .settingEl.classList.add("osc-callout-preview-text-setting");
+        new Setting(card)
+          .setName("Hide icon")
+          .addToggle((toggle) => toggle
+            .setValue(preset.hideIcon)
+            .onChange((value) => {
+              preset.hideIcon = value;
+              this.noteDraftMutation(callouts);
+              updateCallout();
+            }));
+        new Setting(card)
+          .addButton((button) => button
+            .setButtonText("Delete")
+            .setWarning()
+            .onClick(() => {
+              context.value.present = false;
+              this.noteDraftMutation(context.value);
+              this.refreshPreservingScroll();
+            }));
+      });
 
-    new Setting(presets)
-      .setName("Add callout type")
-      .addButton((button) => button
-        .setButtonText("Add")
-        .setCta()
-        .onClick(() => {
-          callouts.presets.push(normalizeCalloutPreset({
-            type: "custom",
-            color: "#008293",
-            backgroundColor: "#ecf6f3",
-            icon: "none",
-            previewTitle: "Hello",
-            previewBody: "ss"
+      new Setting(presets)
+        .setName("Add callout type")
+        .addButton((button) => button
+          .setButtonText("Add")
+          .setCta()
+          .onClick(() => {
+            this.addCalloutItem("presets", normalizeCalloutPreset({
+              type: "custom",
+              color: "#008293",
+              backgroundColor: "#ecf6f3",
+              icon: "none",
+              previewTitle: "Hello",
+              previewBody: "ss"
+            }));
+            this.noteDraftMutation(callouts);
+            this.refreshPreservingScroll();
           }));
-          this.noteDraftMutation(callouts);
-          this.refreshPreservingScroll();
-        }));
-    if (!advanced.enabled || !advanced.pinToTop) this.renderAdvancedLayoutsSection(root, callouts);
+    }
+    if (subsection === "layouts") this.renderAdvancedLayoutsSection(root, callouts);
   }
 
   renderAdvancedLayoutsSection(parent, callouts) {
     const advanced = callouts.advancedLayouts;
+    for (const field of ["enabled", "pinToTop"]) Object.defineProperty(advanced, field, {
+      configurable: true, enumerable: true, get: () => this.calloutAdvancedContext.value[field],
+      set: value => { this.calloutAdvancedContext.value[field] = value; }
+    });
     const root = parent.createDiv({ cls: "osc-advanced-layouts" });
+    this.renderSectionActions(root, this.calloutAdvancedContext);
     new Setting(root)
       .setName("Advanced Callout Layouts")
       .setDesc("Opt-in structural layouts for dedicated callout Markdown identifiers.")
@@ -4545,15 +5224,17 @@ class StyleControllerSettingTab extends PluginSettingTab {
         this.noteDraftMutation(callouts);
         this.refreshPreservingScroll();
       }));
-    if (!advanced.enabled) return;
+    const pendingLayoutDrafts = this.calloutLayoutContexts.some(context => context.dirty);
+    if (!advanced.enabled && !pendingLayoutDrafts) return;
+    if (!advanced.enabled) root.createDiv({ cls: "osc-callout-spacing-help", text: "Layouts are disabled. Apply or Revert the remaining layout drafts below." });
     const details = root.createEl("details", { cls: "osc-setting-group" });
-    details.open = this.advancedLayoutsOpen === true;
-    details.addEventListener("toggle", () => { this.advancedLayoutsOpen = details.open; });
+    details.open = this.advancedLayoutsOpen === true || (!advanced.enabled && pendingLayoutDrafts);
+    details.addEventListener("toggle", () => { if (details.isConnected) this.advancedLayoutsOpen = details.open; });
     details.createEl("summary", { text: "Layouts" });
     const content = details.createDiv({ cls: "osc-setting-group-content" });
     new Setting(content)
       .setName("Pin to top")
-      .setDesc("Show this section above Named callout types.")
+      .setDesc("Show Layouts before Named types in the section menu.")
       .addToggle((toggle) => toggle.setValue(advanced.pinToTop).onChange((pinned) => {
         advanced.pinToTop = pinned;
         this.advancedLayoutsOpen = true;
@@ -4563,7 +5244,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
     if (this.plugin.isMclSnippetEnabled()) {
       content.createDiv({ cls: "osc-layout-warning", text: "MCLMultiColumn is enabled. Style Controller leaves [!multi-column] to MCL; custom identifiers remain available." });
     }
-    advanced.layouts.forEach((layout, index) => this.renderAdvancedLayoutCard(content, callouts, layout, index));
+    this.calloutLayoutContexts.filter(c => c.value.present || c.dirty).forEach((context, index) => this.renderAdvancedLayoutCard(content, callouts, context.value.item, index, context));
     new Setting(content)
       .setName("Add layout")
       .setDesc("Choose a template and create an independent Markdown identifier.")
@@ -4571,7 +5252,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
         new LayoutTemplateModal(this.app, (template) => {
           const layout = createAdvancedLayout(template, advanced.layouts);
           if (!layout) return;
-          advanced.layouts.push(layout);
+          this.addCalloutItem("layouts", layout);
           this.advancedLayoutsOpen = true;
           this.noteDraftMutation(callouts);
           this.refreshPreservingScroll();
@@ -4579,15 +5260,24 @@ class StyleControllerSettingTab extends PluginSettingTab {
       }));
   }
 
-  renderAdvancedLayoutCard(parent, callouts, layout, index) {
+  renderAdvancedLayoutCard(parent, callouts, layout, index, context = null) {
     const advanced = callouts.advancedLayouts;
     const card = parent.createDiv({ cls: "osc-layout-card" });
+    if (context) {
+      card.dataset.oscDraft = context.key;
+      this.renderSectionActions(card, context);
+      if (!context.value.present) {
+        card.createDiv({ text: `${layout.displayName}: pending deletion`, cls: "osc-section-status" });
+        return;
+      }
+    }
     const header = new Setting(card)
       .setName(layout.displayName || `Layout ${index + 1}`)
       .setDesc(`[!${layout.markdownId || "?"}] · ${layout.template}`);
     const editor = card.createEl("details", { cls: "osc-setting-group" });
     editor.open = this.openLayoutEditors?.has(layout.id) === true;
     editor.addEventListener("toggle", () => {
+      if (!editor.isConnected) return;
       this.openLayoutEditors ||= new Set();
       if (editor.open) this.openLayoutEditors.add(layout.id);
       else this.openLayoutEditors.delete(layout.id);
@@ -4606,18 +5296,22 @@ class StyleControllerSettingTab extends PluginSettingTab {
       this.noteDraftMutation(callouts);
       card.toggleClass("is-disabled", !enabled);
     }));
-    header.addButton((button) => button.setButtonText("Edit").onClick(() => { editor.open = !editor.open; }));
+    header.addButton((button) => button.setButtonText("Edit").onClick(() => {
+      editor.open = !editor.open;
+      this.openLayoutEditors ||= new Set();
+      if (editor.open) this.openLayoutEditors.add(layout.id); else this.openLayoutEditors.delete(layout.id);
+    }));
     header.addButton((button) => button.setButtonText("Duplicate").onClick(() => {
       const created = createAdvancedLayout(layout.template, advanced.layouts);
       if (!created) return;
       const duplicate = { ...cloneDraftValue(layout), id: created.id, markdownId: created.markdownId,
         displayName: `${layout.displayName} copy`, builtIn: false, enabled: false };
-      advanced.layouts.splice(index + 1, 0, duplicate);
+      this.addCalloutItem("layouts", duplicate);
       this.advancedLayoutsOpen = true;
       this.noteDraftMutation(callouts);
       this.refreshPreservingScroll();
     }));
-    header.addButton((button) => button.setButtonText("Copy Markdown").onClick(async () => {
+    header.addButton((button) => button.setButtonText("Copy Markdown").onClick(() => void this.runSettingsAction(button.buttonEl, async () => {
       const markdown = layoutMarkdownSample(layout);
       if (!markdown) return new Notice("Use a valid Markdown identifier before copying.");
       try {
@@ -4626,11 +5320,11 @@ class StyleControllerSettingTab extends PluginSettingTab {
       } catch {
         new Notice("Clipboard access failed; try again from the desktop app.");
       }
-    }));
+    })));
     header.addButton((button) => button.setButtonText("Delete").setWarning().onClick(() => {
       this.openLayoutEditors?.delete(layout.id);
-      advanced.layouts.splice(index, 1);
-      this.noteDraftMutation(callouts);
+      context.value.present = false;
+      this.noteDraftMutation(context.value);
       this.refreshPreservingScroll();
     }));
     card.toggleClass("is-disabled", !layout.enabled);
@@ -4655,8 +5349,8 @@ class StyleControllerSettingTab extends PluginSettingTab {
         .onChange((value) => {
           options.columnCount = Number(value);
           this.noteDraftMutation(callouts);
-          this.advancedLayoutsOpen = true;
-          this.refreshPreservingScroll();
+          renderWidths();
+          onChange?.();
         });
     });
     this.addDirectSetting(grid, options, "gap", "Column gap", "1em", "size", "", onChange);
@@ -4675,106 +5369,122 @@ class StyleControllerSettingTab extends PluginSettingTab {
         });
       });
     }
-    const count = normalizeLayoutOptions(options).columnCount;
     parent.createEl("div", { text: "Individual column widths", cls: "osc-control-subheading" });
     const widthGrid = parent.createDiv({ cls: "osc-setting-grid" });
-    for (let index = 0; index < count; index += 1) {
-      const width = options.widths[index] || { ...DEFAULT_LAYOUT_WIDTH };
-      const setting = new Setting(widthGrid).setName(`Column ${index + 1}`);
-      setting.addDropdown((dropdown) => {
-        dropdown.addOption("ratio", "Ratio (fr)").addOption("percent", "Percent (%)").addOption("fixed", "Fixed (px)")
-          .setValue(width.mode)
-          .onChange((value) => {
-            const current = options.widths[index] || width;
-            options.widths[index] = { mode: value, value: current.value || "1" };
-            this.noteDraftMutation(callouts);
-            onChange?.();
-          });
-      });
-      setting.addText((text) => {
-        text.inputEl.type = "number";
-        text.inputEl.min = "0.1";
-        text.inputEl.step = "0.1";
-        text.setPlaceholder("1")
-          .setValue(width.value)
-          .onChange((value) => {
-            const current = options.widths[index] || width;
-            options.widths[index] = { mode: current.mode, value };
-            this.noteDraftMutation(callouts);
-            onChange?.();
-          });
-      });
-    }
+    const renderWidths = () => {
+      widthGrid.empty();
+      const count = normalizeLayoutOptions(options).columnCount;
+      for (let index = 0; index < count; index += 1) {
+        const width = options.widths[index] || { ...DEFAULT_LAYOUT_WIDTH };
+        const setting = new Setting(widthGrid).setName(`Column ${index + 1}`);
+        setting.addDropdown((dropdown) => {
+          dropdown.addOption("ratio", "Ratio (fr)").addOption("percent", "Percent (%)").addOption("fixed", "Fixed (px)")
+            .setValue(width.mode)
+            .onChange((value) => {
+              const current = options.widths[index] || width;
+              options.widths[index] = { mode: value, value: current.value || "1" };
+              this.noteDraftMutation(callouts);
+              onChange?.();
+            });
+        });
+        setting.addText((text) => {
+          text.inputEl.type = "number";
+          text.inputEl.min = "0.1";
+          text.inputEl.step = "0.1";
+          text.setPlaceholder("1")
+            .setValue(width.value)
+            .onChange((value) => {
+              const current = options.widths[index] || width;
+              options.widths[index] = { mode: current.mode, value };
+              this.noteDraftMutation(callouts);
+              onChange?.();
+            });
+        });
+      }
+    };
+    renderWidths();
   }
 
   async updateLayoutPreview(preview, layout) {
-    preview.empty();
+    const generation = preview.oscRenderGeneration = (preview.oscRenderGeneration || 0) + 1;
     const markdown = layoutMarkdownSample(layout);
     if (!markdown) {
+      preview.empty();
       preview.createDiv({ text: "Enter a valid Markdown identifier to preview this layout." });
       return;
     }
     const scope = `.osc-layout-preview:where([data-osc-layout-id="${escapeCssAttributeValue(layout.id)}"])`;
     const css = this.plugin.isMclSnippetEnabled() && calloutTypeKey(layout.markdownId) === "multi-column"
       ? "" : ADVANCED_LAYOUT_TEMPLATES.find((template) => template.id === layout.template)?.buildCss(layout, scope) || "";
+    const elements = [];
     if (css) {
       const style = preview.ownerDocument.createElement("style");
       style.textContent = css;
-      preview.appendChild(style);
+      elements.push(style);
     }
-    const target = preview.createDiv();
+    const target = preview.ownerDocument.createElement("div");
     await MarkdownRenderer.renderMarkdown(markdown, target, "Style Controller Layout Preview.md", this.plugin);
+    if (preview.oscRenderGeneration !== generation) return;
+    preview.replaceChildren(...elements, target);
   }
 
   renderCalloutSpacingControls(parent, settings, onChange, inherited = false, callouts = settings, key = "global") {
-    const view = this.calloutSpacingViewSelection.get(key) || "reading";
-    const separate = settings.spacingByView?.enabled === true;
-    const values = separate ? settings.spacingByView[view] : settings;
-    const group = { view, separate, inherited, settings, callouts, controls: [] };
-    group.measurements = { [view]: measureCalloutSpacingMode(parent.ownerDocument, view,
-      calloutSpacingInheritedLayers(callouts, inherited ? settings : null, view, separate), inherited ? settings.type : "note") };
-    this.calloutSpacingGroups.push(group);
     const details = parent.createEl("details", { cls: "osc-setting-group osc-callout-spacing-group" });
     details.open = this.calloutSpacingOpen.has(key) ? this.calloutSpacingOpen.get(key) : !parent.classList.contains("osc-callout-card");
-    details.addEventListener("toggle", () => this.calloutSpacingOpen.set(key, details.open));
+    details.addEventListener("toggle", () => { if (details.isConnected) this.calloutSpacingOpen.set(key, details.open); });
     details.createEl("summary", { text: "Spacing" });
     const content = details.createDiv({ cls: "osc-setting-group-content" });
     const toolbar = content.createDiv({ cls: "osc-callout-spacing-toolbar" });
     new Setting(toolbar).setName("Preview view").addDropdown((dropdown) => dropdown
       .addOption("reading", "Reading View")
       .addOption("live", "Live Preview")
-      .setValue(view)
+      .setValue(this.calloutSpacingViewSelection.get(key) || "reading")
       .onChange((selected) => {
         this.calloutSpacingViewSelection.set(key, selected);
-        this.refreshPreservingScroll();
+        renderBody();
       }));
     new Setting(toolbar).setName("Separate settings by view").addToggle((toggle) => toggle
-      .setValue(separate)
+      .setValue(settings.spacingByView?.enabled === true)
       .onChange((enabled) => {
         settings.spacingByView.enabled = enabled;
         this.noteDraftMutation(settings);
-        this.refreshPreservingScroll();
+        renderBody();
       }));
-    const preview = inherited
-      ? this.renderCalloutPreview(content, settings, callouts, true, view)
-      : this.renderGlobalCalloutPreview(content, callouts, true, view);
-    this.calloutSpacingPreviews.push({ preview, preset: inherited ? settings : null });
-    content.createEl("div", { text: separate
-      ? "Empty inherits shared, global, or native spacing."
-      : "Empty inherits global or native spacing; shared values apply to both views.", cls: "osc-callout-spacing-help" });
-    const commonGrid = content.createDiv({ cls: "osc-setting-grid" });
-    CALLOUT_SPACING_COMMON.forEach(([field, label]) => this.addCalloutSpacingSetting(commonGrid, values, field, label, group, onChange));
-    const advanced = content.createEl("details", { cls: "osc-setting-group osc-callout-spacing-advanced" });
-    advanced.createEl("summary", { text: "Advanced spacing" });
-    const advancedGrid = advanced.createDiv({ cls: "osc-setting-group-content osc-setting-grid" });
-    CALLOUT_SPACING_ADVANCED.forEach(([field, label]) => this.addCalloutSpacingSetting(advancedGrid, values, field, label, group, onChange));
-    const activeLegacy = CALLOUT_SPACING_LEGACY.filter(([field]) => hasActiveValue(values[field]));
-    if (activeLegacy.length) {
-      const legacy = content.createEl("details", { cls: "osc-setting-group osc-callout-spacing-legacy" });
-      legacy.createEl("summary", { text: "Existing detailed overrides" });
-      const legacyGrid = legacy.createDiv({ cls: "osc-setting-group-content osc-setting-grid" });
-      activeLegacy.forEach(([field, label]) => this.addCalloutSpacingSetting(legacyGrid, values, field, label, group, onChange));
-    }
+    const body = content.createDiv();
+    const renderBody = () => {
+      body.empty();
+      const view = this.calloutSpacingViewSelection.get(key) || "reading";
+      const separate = settings.spacingByView?.enabled === true;
+      const values = separate ? settings.spacingByView[view] : settings;
+      const group = { view, separate, inherited, settings, callouts, controls: [] };
+      group.measurements = { [view]: measureCalloutSpacingMode(parent.ownerDocument, view,
+        calloutSpacingInheritedLayers(callouts, inherited ? settings : null, view, separate), inherited ? settings.type : "note") };
+      group.element = body;
+      this.calloutSpacingGroups = this.calloutSpacingGroups.filter(entry => entry.element !== body && entry.element?.isConnected);
+      this.calloutSpacingGroups.push(group);
+      this.calloutSpacingPreviews = this.calloutSpacingPreviews.filter(entry => entry.preview.isConnected);
+      const preview = inherited
+        ? this.renderCalloutPreview(body, settings, callouts, true, view)
+        : this.renderGlobalCalloutPreview(body, callouts, true, view);
+      this.calloutSpacingPreviews.push({ preview, preset: inherited ? settings : null });
+      body.createEl("div", { text: separate
+        ? "Empty inherits shared, global, or native spacing."
+        : "Empty inherits global or native spacing; shared values apply to both views.", cls: "osc-callout-spacing-help" });
+      const commonGrid = body.createDiv({ cls: "osc-setting-grid" });
+      CALLOUT_SPACING_COMMON.forEach(([field, label]) => this.addCalloutSpacingSetting(commonGrid, values, field, label, group, onChange));
+      const advanced = body.createEl("details", { cls: "osc-setting-group osc-callout-spacing-advanced" });
+      advanced.createEl("summary", { text: "Advanced spacing" });
+      const advancedGrid = advanced.createDiv({ cls: "osc-setting-group-content osc-setting-grid" });
+      CALLOUT_SPACING_ADVANCED.forEach(([field, label]) => this.addCalloutSpacingSetting(advancedGrid, values, field, label, group, onChange));
+      const activeLegacy = CALLOUT_SPACING_LEGACY.filter(([field]) => hasActiveValue(values[field]));
+      if (activeLegacy.length) {
+        const legacy = body.createEl("details", { cls: "osc-setting-group osc-callout-spacing-legacy" });
+        legacy.createEl("summary", { text: "Existing detailed overrides" });
+        const legacyGrid = legacy.createDiv({ cls: "osc-setting-group-content osc-setting-grid" });
+        activeLegacy.forEach(([field, label]) => this.addCalloutSpacingSetting(legacyGrid, values, field, label, group, onChange));
+      }
+    };
+    renderBody();
   }
 
   addCalloutSpacingSetting(parent, values, field, label, group, onChange) {
@@ -4855,14 +5565,16 @@ class StyleControllerSettingTab extends PluginSettingTab {
   }
 
   async updateGlobalCalloutPreview(preview, callouts = this.plugin.settings.callouts) {
-    preview.empty();
-    const renderTarget = this.createCalloutPreviewRenderTarget(preview);
+    const generation = preview.oscRenderGeneration = (preview.oscRenderGeneration || 0) + 1;
+    const staging = preview.cloneNode(false);
+    const renderTarget = this.createCalloutPreviewRenderTarget(staging);
     const spacing = preview.classList.contains("osc-callout-spacing-preview");
     const title = spacing ? CALLOUT_SPACING_PREVIEW_TITLE : String(callouts.previewTitle || "").trim() || "Global callout preview";
     const body = spacing ? CALLOUT_SPACING_PREVIEW_BODY : String(callouts.previewBody || "").trim() || "ss";
     const bodyLines = calloutPreviewBodyMarkdown(body);
     await MarkdownRenderer.renderMarkdown(`> [!note] ${title}\n${bodyLines}`, renderTarget, "", this.plugin);
-    if (!preview.contains(renderTarget)) return;
+    if (preview.oscRenderGeneration !== generation) return;
+    preview.replaceChildren(...staging.childNodes);
     applyCalloutCssVariables(preview, callouts);
     const preset = spacing ? null : effectiveCalloutPresets(callouts.presets).get("note");
     applyCalloutPresetToPreview(preview, preset);
@@ -4870,15 +5582,17 @@ class StyleControllerSettingTab extends PluginSettingTab {
   }
 
   async updateCalloutPreview(preview, preset, callouts = this.plugin.settings.callouts) {
-    preview.empty();
-    const renderTarget = this.createCalloutPreviewRenderTarget(preview);
+    const generation = preview.oscRenderGeneration = (preview.oscRenderGeneration || 0) + 1;
+    const staging = preview.cloneNode(false);
+    const renderTarget = this.createCalloutPreviewRenderTarget(staging);
     const type = String(preset.type || "note").trim() || "note";
     const spacing = preview.classList.contains("osc-callout-spacing-preview");
     const title = spacing ? CALLOUT_SPACING_PREVIEW_TITLE : String(preset.previewTitle || "").trim() || "Hello";
     const body = spacing ? CALLOUT_SPACING_PREVIEW_BODY : String(preset.previewBody || "").trim() || "ss";
     const bodyLines = calloutPreviewBodyMarkdown(body);
     await MarkdownRenderer.renderMarkdown(`> [!${type}] ${title}\n${bodyLines}`, renderTarget, "", this.plugin);
-    if (!preview.contains(renderTarget)) return;
+    if (preview.oscRenderGeneration !== generation) return;
+    preview.replaceChildren(...staging.childNodes);
     applyCalloutCssVariables(preview, callouts);
     const effectivePreset = effectiveCalloutPresets(callouts.presets).get(calloutTypeKey(type)) || preset;
     applyCalloutPresetToPreview(preview, effectivePreset);
@@ -4889,6 +5603,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
     if (title === "Base text") {
       const { content } = this.createCompactPreview(parent, "osc-base-preview");
       content.createEl("p", { text: "Regular body text preview with enough words to judge spacing and readability." });
+      content.createEl("p", { text: "A second paragraph demonstrates paragraph spacing." });
       this.updateBasePreview(profile, parent);
       return;
     }
@@ -4959,8 +5674,11 @@ class StyleControllerSettingTab extends PluginSettingTab {
   }
 
   renderCollapsibleGroup(parent, title) {
+    this.sectionOpen ||= new Map();
+    const key = `${this.plugin.settings.activeSettingsTab}:${parent.dataset.oscDraft || "root"}:${title}`;
     const details = parent.createEl("details", { cls: "osc-setting-group" });
-    details.open = true;
+    details.open = this.sectionOpen.get(key) ?? true;
+    details.addEventListener("toggle", () => { if (details.isConnected) this.sectionOpen.set(key, details.open); });
     details.createEl("summary", { text: title });
     return details.createDiv({ cls: "osc-setting-group-content" });
   }
@@ -5399,6 +6117,12 @@ class StyleControllerSettingTab extends PluginSettingTab {
 }
 
 export {
+  buildPdfCalloutSpacingCss,
+  validateProfileSection,
+  isNativePdfRender,
+  pdfSourceSections,
+  readingSourceBoundary,
+  measureReadingReference,
   StyleControllerSettingTab,
   ADVANCED_LAYOUT_TEMPLATES,
   BORDER_STYLES,

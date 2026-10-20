@@ -1,5 +1,7 @@
 # Style Controller
 
+Latest release: **0.1.39**. See [release notes](RELEASE_NOTES.md) for the changes since 0.1.34.
+
 Style Controller is an Obsidian plugin for managing reusable style profiles, path overrides, and visual settings through a native settings interface. It applies profile values as CSS custom properties consumed by the plugin's static stylesheet; it does not edit theme files, snippets, or notes.
 
 Obsidian Appearance owns the base text font family and font size. Style Controller preserves legacy stored values for compatibility but no longer applies or exposes those overlapping controls. Its Line height control uses an explicit numeric value and unit, including a unitless ratio option.
@@ -45,7 +47,9 @@ Image settings include alignment, width, and a control for respecting explicit i
 
 ## Callouts and layouts
 
-**Global callout style** and each **Named callout type** have shared spacing controls for outer margins, inner padding, title/body gap, and paragraph spacing. The advanced spacing group exposes directional adjustments. The spacing example switches between Reading View and Live Preview; **Separate settings by view** is optional and leaves existing shared values intact. Empty fields stay Off and show the selected view's measured native or inherited value without saving an override. Changes appear in the settings preview immediately, but affect notes only after **Apply**; **Revert** restores the last applied values.
+Global callout style, global callout spacing, each named type, layout settings, and each advanced layout have independent Apply/Revert actions. Saving or reverting one leaves other drafts intact. New types/layouts and deletions remain drafts until their own Apply action; Revert cancels them. Existing IDs and note Markdown are preserved.
+
+**Global callout spacing** and each **Named callout type** have shared spacing controls for outer margins, inner padding, title/body gap, and paragraph spacing. The advanced spacing group exposes directional adjustments. The spacing example switches between Reading View and Live Preview; **Separate settings by view** is optional and leaves existing shared values intact. Empty fields stay Off and show the selected view's measured native or inherited value without saving an override. Changes appear in the settings preview immediately, but affect notes only after **Apply**; **Revert** restores the last applied values.
 
 CSS snippets and themes can intentionally take precedence. In particular, Obsidian Pro's optional `reading-view-match-editor` snippet uses `!important` on Reading View paragraph margins, so negative title/body or trailing paragraph margins cannot take effect there while that snippet is enabled. Style Controller does not override it with `!important`.
 
@@ -180,3 +184,37 @@ The optional browser fixtures use the active Obsidian runtime CSS, not the app b
 ## License
 
 MIT License. See [LICENSE](LICENSE).
+
+### Match Reading View to Live Preview
+
+**Views & Export → Match Reading View to Live Preview** offers **On — match document appearance**, **Paragraphs only (0.1.35)**, native spacing, and inheritance. It is off by default. Saved 0.1.35 paragraph matching stays paragraphs only; it never opts users into document matching. Both controls use normal Base Text profile/path overrides and Apply/Revert.
+
+Document matching measures native Live Preview heading typography and padding under the note's resolved profile and theme. Custom H1–H6 sizes are applied to the owning CodeMirror heading line, so Obsidian's inherited semantic text size honors the profile. Document matching follows the computed text typography under that same profile. Safe top-level paragraphs, headings, tables, lists and blockquotes use source-derived boundary spacing, with one blank line by default. Table boundaries also account for the editor widget's vertical padding. Markdown files remain unchanged.
+
+The independent **Preserve extra blank lines** option retains additional whitespace-only source lines between supported top-level blocks. It works with document matching, paragraphs only, or native spacing. Renderer section ranges and the note buffer (or the hover target's cached source) supply line positions. Ordinary soft/hard line breaks remain native. Nested content, code, display math, callouts, images/embeds, footnotes and unsupported/missing source ranges retain native boundary rendering. Extra lines inside these structures and leading/trailing blank lines are deliberately not reproduced.
+
+This is visual matching, not pixel equivalence: editor syntax, collapsed content, footnotes, table cell editing, wrapping widths, and complex plugin widgets can differ. No MutationObservers or `!important` overrides are added. Snippet `!important` margins still take precedence. Pro's backed-up `reading-view-match-editor` snippet now excludes only full-matching annotated top-level blocks; its nested, disabled and paragraph-only behavior remains intact. Other installations should make the same narrow exclusion, or disable that snippet, instead of increasing plugin CSS priority. The plugin never edits snippets itself.
+
+Native verification: `npm run test:reading-pro` uses the active Pro note, temporary in-memory overrides and theme styles, restores the original panes/settings, and records before/after screenshots and computed measurements. It does not save `data.json`.
+
+Heading regression verification: `node tests/heading-size-obsidian.mjs` compares actual H1–H6 text and the separate inline document title in equal-width Pro panes, with saved and alternate profile sizes in light/dark appearance. It captures computed styles and screenshots, then restores the original note, settings and panes.
+
+### Live Preview-matched PDF export (0.1.38)
+
+Under **Views & Export**, set **Match PDF export to Live Preview** to **On**, then **Apply**. Use Obsidian's normal **Export to PDF** dialog. The option defaults to native export and supports the same profile/path overrides and Apply/Revert as other Base Text fields. Existing saved configurations are not opted in. Use 100% export scale for the same CSS font sizes; page size, margins and filename inclusion remain native options.
+
+The native exporter renders the entire Markdown document, including offscreen content. Style Controller scopes the exported document to its own resolved profile, measures Live Preview typography in the application document, and reuses Reading/View matching for headings and supported top-level spacing. The separate filename title uses Live Preview's inline-title typography. Body, emphasis, tables, callouts, code, links and image settings use existing profile variables and callout/layout styles. Current light/dark appearance is retained instead of the native forced-light print palette. No editor controls or virtualized editor DOM are printed.
+
+Intentional extra blank lines are retained between supported top-level blocks unless **Preserve extra blank lines** explicitly resolves to **Off**. Native PDF lacks renderer section ranges, so export uses cached root source ranges only when they align with the complete native output. Missing/stale/unsupported metadata falls back to native boundary spacing; it never guesses blank-line positions or inserts line breaks. Ordinary soft breaks, nested content, math, callouts, embeds and footnotes keep native Markdown semantics. Filenames and source Markdown are never edited.
+
+Pagination stays with Chromium/Obsidian. Tables can span pages with repeated headers, paragraphs have widow/orphan protection, and headings prefer to remain with following content. Oversized unbreakable equations, exceptionally wide tables, images taller than a printable page, raw HTML, third-party widgets and forceful snippet rules can still require source layout or print-option adjustments. Different printable widths inevitably change wrapping and page breaks. Export snapshots formatting at the start; settings changes apply to the next export. No PDF monkey-patches, new rendering engine, observers, or external snippet edits are used.
+
+Pro verification: `node tests/pdf-export-obsidian.mjs` exercises native off/on export of the reference chemistry report in an isolated tab and a temporary comprehensive fixture, restores the original note/settings/panes, and writes real PDFs plus DOM measurements. `python3 tests/pdf-render-check.py <evidence-directory>` requires PyMuPDF, renders every page, checks page bounds, figures, heading sizes/colors and complete fixture sentinels. PDF text extraction may list MathJax glyph runs in a different paint order after pagination; validation also checks their complete character inventory.
+
+The **Views & Export** tab follows **Configurations** and groups Reading View matching, extra blank lines, and PDF matching with shared Apply/Revert actions. These remain Base Text profile fields for inheritance; path overrides expose the same choices in their own Views & Export group. Ordinary Base Text typography and its preview are unchanged.
+
+The seven main tabs stay visible above a compact subsection row. The active main tab uses the existing purple filled style; the active subsection uses purple text and a thin underline. The rows are 5 px apart, wrap at narrow widths, and remain stationary while the settings panel scrolls. Sections without subsections hide the second row. There are no breadcrumb paths or navigation headings.
+
+Global Defaults and Callouts initialize only their selected subsection's controls and previews. Tab buttons remain mounted while browsing within a section, and repeated selection does not rebuild the panel. Subsection selection is session state; existing saved main-section preferences, independent Apply/Revert, and unsaved-change guards remain in place. Layouts' “Pin to top” option orders it before Named Types in the Callouts subsection row. The plugin's Obsidian sidebar item remains Style Controller, and its selection is managed by Obsidian.
+
+The single content scroller extends to the panel bottom on long pages; compact end spacing scrolls with the controls rather than reserving a blank footer. Short pages retain their natural height. `SC_EVIDENCE_DIR=<directory> node tests/settings-bottom-layout-obsidian.mjs` verifies the layout in Obsidian Pro at 620, 720, and 1000 px. `SC_EVIDENCE_DIR=<directory> node tests/settings-interactions-obsidian.mjs` checks native sidebar selection, both tab rows and active states, independent drafts, persistence, and reload; temporary test settings are restored byte-for-byte.

@@ -26,11 +26,11 @@ const bundle = await build({
         contents: `
           export class Plugin {} export class MarkdownRenderChild { constructor(containerEl) { this.containerEl = containerEl; } }
           export class PluginSettingTab {}
-          export class Modal {}
+          export class Modal {} export class Menu {}
           export class Notice {}
           export class Setting {}
           export class TFolder {}
-          export const MarkdownRenderer = { renderMarkdown: async (markdown) => { globalThis.__obsidianMarkdownCalls.push(markdown); } };
+          export const MarkdownRenderer = { renderMarkdown: async (markdown) => { globalThis.__obsidianMarkdownCalls.push(markdown); await globalThis.__obsidianRenderHook?.(markdown); } };
           export const prepareFuzzySearch = () => () => null;
           export const normalizePath = (value) => value;
           export const setIcon = () => {};
@@ -429,7 +429,12 @@ test("math source and rendered MathJax have no Style Controller color owner", ()
   const directMathRules = cssRules(css).filter((rule) => {
     if (rule.selectors.includes(STYLE_HEADING_COLOR_ACTIVE_CLASS)) return false;
     const selectorsWithoutExclusions = rule.selectors.replace(/:not\([^)]*\)/g, "");
-    return /(?:^|[ ,>])(?:\.cm-math|\.cm-formatting-math|\.MathJax|\.mjx-container|\.math(?:[-. ]|$))/i.test(selectorsWithoutExclusions);
+    const isMath = /(?:^|[ ,>])(?:\.cm-math|\.cm-formatting-math|\.MathJax|\.mjx-container|\.math(?:[-. ]|$))/i.test(selectorsWithoutExclusions);
+    if (isMath && rule.selectors.includes(".print.osc-style-scope.osc-pdf-export")) {
+      assert.doesNotMatch(rule.declarations, /(?:color|font|line-height)\s*:/);
+      return false; // PDF pagination/overflow geometry does not own math color.
+    }
+    return isMath;
   });
   assert.equal(directMathRules.length, 0);
   const mathProtection = cssRules(css).find((rule) => rule.selectors.includes(STYLE_HEADING_COLOR_ACTIVE_CLASS)
@@ -1049,7 +1054,8 @@ test("settings UI exposes section Apply/Revert actions and navigation guard", ()
   assert.match(source, /global:boldItalic/);
   assert.match(source, /global:code/);
   assert.match(source, /override:\$\{override\.id\}/);
-  assert.match(source, /callouts:root/);
+  assert.match(source, /callouts:style/);
+  assert.match(source, /callouts:spacing/);
   assert.deepEqual(PROFILE_SECTION_FIELDS.baseText.includes("boldColor"), false);
   assert.deepEqual(PROFILE_SECTION_FIELDS.boldItalic.includes("boldColor"), true);
 });
@@ -1959,6 +1965,7 @@ test("unload cleanup removes plugin variables and scope classes", () => {
   let presetStyleRemoved = false;
   const presetStyles = new Map([[{}, { remove: () => { presetStyleRemoved = true; } }]]);
 
+  element.classList.add("style-controller-match-paragraph-spacing");
   StyleControllerPlugin.prototype.removeStyles.call({
     calloutPresetStyleEls: presetStyles,
     calloutPresetIconTypes: new Set(["email"]),
@@ -1974,6 +1981,7 @@ test("unload cleanup removes plugin variables and scope classes", () => {
   assert.equal(element.css.has("--osc-h5-space-above"), false);
   assert.equal(element.classList.contains(STYLE_SCOPE_CLASS), false);
   assert.equal(element.classList.contains("osc-scope-0"), false);
+  assert.equal(element.classList.contains("style-controller-match-paragraph-spacing"), false);
   assert.equal(element.classList.contains("style-controller-image-width"), false);
   assert.equal(element.classList.contains(STYLE_HEADING_COLOR_ACTIVE_CLASS), false);
   assert.equal(element.classList.contains(STYLE_CODE_BLOCK_COLOR_ACTIVE_CLASS), false);
@@ -2016,13 +2024,13 @@ test("preview, reading view, and Live Preview use the same dedicated block varia
   assert.equal(element.css.has("--osc-code-block-background"), false);
 });
 
-test("code preview keeps native fallback and runtime CSS is limited to callout presets and opt-in layouts", () => {
+test("code preview keeps native fallback and runtime CSS is limited to callout presets, opt-in layouts and PDF export", () => {
   const codeRules = cssRules(css).filter((rule) => /osc-(?:inline-code-preview|code-block-rendered-preview)/.test(rule.selectors));
   codeRules.forEach((rule) => {
     assert.doesNotMatch(rule.declarations, /background(?:-color)?:\s*(?:#fff(?:fff)?\b|white\b)/i);
     assert.doesNotMatch(rule.declarations, /background(?:-color)?:\s*(?:transparent|inherit|unset)\b/i);
   });
-  assert.equal([...source.matchAll(/create(?:El|Element)\(\s*["']style["']/g)].length, 3);
+  assert.equal([...source.matchAll(/create(?:El|Element)\(\s*["']style["']/g)].length, 4);
   assert.match(source, /style\.id = CALLOUT_PRESET_STYLE_ID/);
   assert.match(source, /style\.id = ADVANCED_LAYOUT_STYLE_ID/);
   assert.doesNotMatch(source, /CSSStyleSheet|adoptedStyleSheets|insertRule|replaceSync/);
@@ -2611,7 +2619,7 @@ test("per-layout column counts use only their own active widths", () => {
 test("advanced settings contain only section controls and template-specific editors", () => {
   const section = source.slice(source.indexOf("  renderAdvancedLayoutsSection("), source.indexOf("  renderAdvancedLayoutCard("));
   assert.match(section, /"Pin to top"/);
-  assert.match(section, /advanced\.layouts\.forEach/);
+  assert.match(section, /this\.calloutLayoutContexts\.filter/);
   assert.match(section, /"Add layout"/);
   assert.doesNotMatch(section, /Global layout defaults|renderMultiColumnOptions/);
   assert.match(source, /definition\?\.renderOptions\(this, editContent, layout, callouts, update\)/);
@@ -2762,9 +2770,11 @@ test("spacing UI prioritizes common controls and preserves legacy overrides", ()
 test("integrated spacing previews render fixed two-paragraph Markdown through the existing callout renderer", async () => {
   const calls = context.__obsidianMarkdownCalls;
   const preview = (spacing) => ({
-    classList: { contains: (name) => spacing && name === "osc-callout-spacing-preview" },
-    getAttribute: () => "reading",
-    empty() {}, createDiv() { return {}; }, contains() { return false; }
+    ...fakeElement(),
+    classList: new FakeClassList(spacing ? ["osc-callout-spacing-preview"] : []),
+    cloneNode() { return { childNodes: [] }; },
+    replaceChildren() {}, getAttribute: () => "reading",
+    querySelector: () => null, querySelectorAll: () => []
   });
   const tab = { createCalloutPreviewRenderTarget: () => ({}) };
   const preset = { type: "std", previewTitle: "Saved title", previewBody: "Saved body", marginTop: "19px" };
@@ -2802,7 +2812,7 @@ test("spacing preview registry refreshes all inherited drafts or only the edited
   assert.match(source, /this\.refreshCalloutSpacingPreviews\(callouts\);[\s\S]*this\.refreshCalloutSpacingPlaceholders\(callouts\)/);
   assert.match(source, /this\.refreshCalloutSpacingPreviews\(callouts, preset\)/);
   const section = source.slice(source.indexOf("  renderCalloutSpacingControls("), source.indexOf("  addCalloutSpacingSetting("));
-  assert.match(section, /details\.createEl\("summary", \{ text: "Spacing" \}\);[\s\S]*setName\("Preview view"\)[\s\S]*renderGlobalCalloutPreview\(content, callouts, true, view\)/);
+  assert.match(section, /details\.createEl\("summary", \{ text: "Spacing" \}\);[\s\S]*setName\("Preview view"\)[\s\S]*renderGlobalCalloutPreview\(body, callouts, true, view\)/);
   assert.match(css, /\.osc-callout-spacing-preview\s*\{[^}]*border:[^}]*overflow: visible;[^}]*padding: 24px;/s);
 });
 
@@ -2878,7 +2888,7 @@ test("spacing preview builds the selected Obsidian view wrapper without persisti
   assert.deepEqual(createRoot("live"), ["markdown-source-view mod-cm6", "cm-content", "cm-embed-block"]);
   const ui = source.slice(source.indexOf("  renderCalloutSpacingControls("), source.indexOf("  addCalloutSpacingSetting("));
   assert.match(ui, /setName\("Preview view"\)[\s\S]*\.addOption\("reading", "Reading View"\)[\s\S]*\.addOption\("live", "Live Preview"\)/);
-  assert.match(ui, /this\.calloutSpacingViewSelection\.set\(key, selected\);\s*this\.refreshPreservingScroll\(\)/);
+  assert.match(ui, /this\.calloutSpacingViewSelection\.set\(key, selected\);\s*renderBody\(\)/);
   assert.match(ui, /settings\.spacingByView\.enabled = enabled;\s*this\.noteDraftMutation\(settings\)/);
 });
 
@@ -2932,7 +2942,7 @@ test("layout Edit panel remains open when changing column count", () => {
   const method = source.slice(source.indexOf("  renderAdvancedLayoutCard("), source.indexOf("  renderMultiColumnOptions("));
   assert.match(method, /editor\.open = this\.openLayoutEditors\?\.has\(layout\.id\) === true/);
   assert.match(method, /editor\.addEventListener\("toggle"/);
-  assert.match(source, /options\.columnCount = Number\(value\);[\s\S]*this\.refreshPreservingScroll\(\)/);
+  assert.match(source, /options\.columnCount = Number\(value\);[\s\S]*renderWidths\(\)/);
 });
 
 function hoverFixture(plugin, path, native = true) {
@@ -3016,4 +3026,557 @@ test("plugin unload clears an open Page Preview and late renderer cleanup is saf
   assert.equal(container.css.size, 0);
   assert.equal(plugin.hoverPreviewScopes.size, 0);
   assert.doesNotThrow(() => children[0].onunload());
+});
+
+test("paragraph matching is opt-in, inherits through Base Text path profiles, and permits native overrides", () => {
+  assert.equal(normalizeProfile({}).paragraphSpacing, "");
+  assert.equal(normalizeOptionalProfile({}).paragraphSpacing, "");
+  assert.equal(normalizeProfile({ paragraphSpacing: "invalid" }).paragraphSpacing, "");
+  const plugin = new StyleControllerPlugin();
+  plugin.settings = normalizeSettings({ global: { paragraphSpacing: "matched" }, overrides: [{
+    id: "spacing", name: "Native", type: "folder", pattern: "Native", enabled: true,
+    modules: { baseText: true }, profile: { paragraphSpacing: "native" }
+  }] });
+  assert.equal(plugin.getProfileForPath("Work/Note.md").profile.paragraphSpacing, "matched");
+  assert.equal(plugin.getProfileForPath("Native/Note.md").profile.paragraphSpacing, "native");
+  plugin.settings.overrides[0].modules.baseText = false;
+  assert.equal(plugin.getProfileForPath("Native/Note.md").profile.paragraphSpacing, "matched");
+  const element = fakeElement();
+  applyProfileStateClasses(element, { paragraphSpacing: "matched" });
+  assert.equal(element.classList.contains("style-controller-match-paragraph-spacing"), true);
+  applyProfileStateClasses(element, { paragraphSpacing: "native" });
+  assert.equal(element.classList.contains("style-controller-match-paragraph-spacing"), false);
+  assert.ok(PROFILE_SECTION_FIELDS.viewsExport.includes("paragraphSpacing"));
+});
+
+test("paragraph matching uses the shared profile draft and only adjacent Reading View prose boundaries", () => {
+  assert.match(source, /setName\("Match Reading View to Live Preview"\)/);
+  assert.match(source, /profile\.paragraphSpacing = value;\s*this\.noteDraftMutation\(profile\);\s*this\.updateDraftPreview\(profile\)/);
+  const rules = cssRules(css.replace(/\/\*[\s\S]*?\*\//g, "")).filter(rule => rule.selectors.includes("style-controller-match-paragraph-spacing"));
+  assert.equal(rules.length, 2);
+  for (const rule of rules) {
+    assert.match(rule.selectors, /\.markdown-preview-sizer > \.el-p/);
+    assert.doesNotMatch(rule.selectors, /cm-line|callout|h[1-6]|table|blockquote|\bpre\b/);
+    assert.doesNotMatch(rule.declarations, /!important|--p-spacing/);
+  }
+});
+
+test("Views & Export paragraph spacing applies and reverts through the existing section draft", async () => {
+  const persisted = normalizeProfile({ paragraphSpacing: "" });
+  const tab = new pluginModule.StyleControllerSettingTab({}, {});
+  const context = tab.getProfileSectionContext("global:viewsExport", "Views & Export", () => persisted, PROFILE_SECTION_FIELDS.viewsExport);
+  context.value.paragraphSpacing = "matched";
+  tab.noteDraftMutation(context.value);
+  assert.equal(context.dirty, true);
+  assert.equal(persisted.paragraphSpacing, "");
+  const result = await applyDraftAtomically({ draft: context.value, normalize: context.normalize, validate: context.validate, commit: context.commit, persist: async () => {} });
+  assert.equal(result.applied, true);
+  assert.equal(persisted.paragraphSpacing, "matched");
+  context.value.paragraphSpacing = "native";
+  tab.noteDraftMutation(context.value);
+  tab.drafts.revert("global:viewsExport", persisted);
+  assert.equal(context.value.paragraphSpacing, "matched");
+  assert.equal(context.dirty, false);
+});
+
+
+test("document matching is distinct from saved paragraph-only mode and blank lines are independent", () => {
+  const legacy = normalizeSettings({ global: { paragraphSpacing: "matched" } });
+  assert.equal(legacy.global.paragraphSpacing, "matched");
+  assert.equal(legacy.global.preserveExtraBlankLines, "");
+  const element = fakeElement();
+  applyProfileStateClasses(element, legacy.global);
+  assert.equal(element.classList.contains("style-controller-match-reading-view"), false);
+  applyProfileStateClasses(element, normalizeProfile({ paragraphSpacing: "document", preserveExtraBlankLines: "on" }));
+  assert.equal(element.classList.contains("style-controller-match-paragraph-spacing"), false);
+  assert.equal(element.classList.contains("style-controller-match-reading-view"), true);
+  assert.equal(element.classList.contains("style-controller-preserve-blank-lines"), true);
+  const plugin = new StyleControllerPlugin();
+  plugin.settings = normalizeSettings({ global: { paragraphSpacing: "document", preserveExtraBlankLines: "on" }, overrides: [{
+    id: "native", name: "Native", type: "file", pattern: "Native.md", enabled: true,
+    modules: { baseText: true }, profile: { paragraphSpacing: "matched", preserveExtraBlankLines: "off" }
+  }] });
+  assert.equal(plugin.getProfileForPath("Other.md").profile.paragraphSpacing, "document");
+  assert.equal(plugin.getProfileForPath("Native.md").profile.paragraphSpacing, "matched");
+  assert.equal(plugin.getProfileForPath("Native.md").profile.preserveExtraBlankLines, "off");
+});
+
+test("source boundaries count whitespace without interpreting soft breaks, code or nested syntax", () => {
+  const boundary = pluginModule.readingSourceBoundary;
+  assert.equal(boundary(null), null);
+  assert.equal(boundary({ text: "", lineStart: 2 }), null);
+  assert.equal(boundary({ text: "Paragraph\n\n    indented", lineStart: 2 }), null);
+  assert.deepEqual(JSON.parse(JSON.stringify(boundary({ text: "## Heading\n\nParagraph\nsoft continuation\n\n\t\nNext", lineStart: 6 }))), { blankLines: 2, afterHeadingBlank: false });
+  assert.equal(boundary({ text: "## Heading\r\n\r\n### Next", lineStart: 2 }).afterHeadingBlank, true);
+  assert.equal(boundary({ text: "## Heading\nText", lineStart: 1 }).blankLines, 0);
+  assert.match(source, /getSectionInfo\(element\)/);
+  assert.match(source, /view\?\.getViewData\?\.\(\)/);
+  assert.doesNotMatch(source, /new MutationObserver/);
+});
+
+test("Views & Export choices share Apply and Revert and reject invalid blank-line values", async () => {
+  const persisted = normalizeProfile({ paragraphSpacing: "matched" });
+  const tab = new pluginModule.StyleControllerSettingTab({}, {});
+  const context = tab.getProfileSectionContext("global:viewsExport", "Views & Export", () => persisted, PROFILE_SECTION_FIELDS.viewsExport);
+  context.value.paragraphSpacing = "document";
+  context.value.preserveExtraBlankLines = "on";
+  context.value.pdfMatchLivePreview = "on";
+  tab.noteDraftMutation(context.value);
+  tab.drafts.revert("global:viewsExport", persisted);
+  assert.equal(context.value.paragraphSpacing, "matched");
+  assert.equal(context.value.preserveExtraBlankLines, "");
+  assert.equal(context.value.pdfMatchLivePreview, "");
+  context.value.paragraphSpacing = "document";
+  context.value.preserveExtraBlankLines = "on";
+  context.value.pdfMatchLivePreview = "on";
+  const result = await applyDraftAtomically({ draft: context.value, normalize: context.normalize, validate: context.validate, commit: context.commit, persist: async () => {} });
+  assert.equal(result.applied, true);
+  assert.equal(persisted.paragraphSpacing, "document");
+  assert.equal(persisted.preserveExtraBlankLines, "on");
+  assert.equal(persisted.pdfMatchLivePreview, "on");
+  assert.equal(normalizeProfile({ preserveExtraBlankLines: "invalid" }).preserveExtraBlankLines, "");
+});
+
+
+test("custom heading sizes reach CodeMirror's inherited semantic text without important", () => {
+  for (let level = 1; level <= 6; level++) {
+    const rule = cssRules(css).find(rule => rule.declarations.includes(`font-size: var(--osc-h${level}-size);`)
+      && rule.selectors.includes(`style-controller-field-h${level}-size-active`));
+    assert.ok(rule);
+    assert.ok(rule.selectors.endsWith(`.markdown-source-view.mod-cm6 .cm-line.HyperMD-header-${level}`));
+    assert.doesNotMatch(rule.declarations, /!important/);
+  }
+});
+
+test("PDF matching is an inherited Base Text opt-in and survives profile resolution", () => {
+  assert.equal(normalizeProfile({}).pdfMatchLivePreview, "");
+  assert.equal(normalizeProfile({ pdfMatchLivePreview: "invalid" }).pdfMatchLivePreview, "");
+  assert.equal(normalizeOptionalProfile({ pdfMatchLivePreview: "off" }).pdfMatchLivePreview, "off");
+  assert.equal(STYLE_FIELD_REGISTRY.pdfMatchLivePreview.emitsCss, false);
+  assert.ok(PROFILE_SECTION_FIELDS.viewsExport.includes("pdfMatchLivePreview"));
+  const plugin = new StyleControllerPlugin();
+  plugin.settings = normalizeSettings({ global: { pdfMatchLivePreview: "on" }, overrides: [
+    { enabled: true, type: "file", pattern: "Native.md", modules: { baseText: true }, profile: { pdfMatchLivePreview: "off" } }
+  ] });
+  assert.equal(plugin.getProfileForPath("Styled.md").profile.pdfMatchLivePreview, "on");
+  assert.equal(plugin.getProfileForPath("Native.md").profile.pdfMatchLivePreview, "off");
+  assert.ok(pluginModule.validateProfileSection({ pdfMatchLivePreview: "invalid" }, ["pdfMatchLivePreview"]).length);
+});
+
+test("PDF processing requires the native top-level print renderer", () => {
+  const container = { matches: selector => selector === ".markdown-preview-view.markdown-rendered", parentElement: { matches: selector => selector === "body > .print" } };
+  assert.equal(pluginModule.isNativePdfRender(container, { containerEl: container, sourcePath: "Target.md" }), true);
+  assert.equal(pluginModule.isNativePdfRender({}, { containerEl: container, sourcePath: "Target.md" }), false);
+  assert.equal(pluginModule.isNativePdfRender(container, { containerEl: container, sourcePath: "" }), false);
+  container.parentElement.matches = () => false;
+  assert.equal(pluginModule.isNativePdfRender(container, { containerEl: container, sourcePath: "Target.md" }), false);
+});
+
+test("PDF source ranges require exact native root block alignment, excluding footnote definitions", () => {
+  const block = (tag, className = "") => ({
+    tagName: tag,
+    matches: selector => selector === ".math-block" ? className === "math-block" : selector === "section.footnotes" && className === "footnotes"
+  });
+  const wrapper = child => ({ firstElementChild: child, matches: () => false });
+  const blocks = [wrapper(block("H1")), wrapper(block("P")), wrapper(block("SECTION", "footnotes"))];
+  const section = (type, line, offset) => ({ type, position: { start: { line, offset }, end: { line } } });
+  const cache = { sections: [section("heading", 0, 0), section("paragraph", 3, 10), section("footnoteDefinition", 5, 18)] };
+  const source = "# Title\n\n\nBody\n\n[^1]: footnote";
+  const result = pluginModule.pdfSourceSections(source, cache, blocks);
+  assert.deepEqual(Array.from(result), [cache.sections[0], cache.sections[1], null]);
+  assert.equal(pluginModule.pdfSourceSections(source, null, blocks), null);
+  assert.equal(pluginModule.pdfSourceSections(source, cache, blocks.slice(1)), null);
+  assert.equal(pluginModule.pdfSourceSections(source, { sections: [cache.sections[0], section("table", 3, 10)] }, blocks), null);
+  assert.equal(pluginModule.pdfSourceSections(source, { sections: [cache.sections[0], section("paragraph", 2, 10)] }, blocks), null);
+});
+
+test("disabled PDF matching does not mutate native DOM or read the note", async () => {
+  const plugin = new StyleControllerPlugin();
+  plugin.getProfileForPath = () => ({ profile: { pdfMatchLivePreview: "off" } });
+  const element = Object.freeze({});
+  await plugin.stylePdfExport(element, { sourcePath: "Native.md" });
+  assert.equal(plugin.pdfExportScopes, undefined);
+});
+
+
+test("PDF callouts use the existing Live Preview spacing layers, including presets", () => {
+  const settings = { marginTop: "3px", spacingByView: { enabled: true, reading: { marginTop: "11px" }, live: { marginTop: "23px" } },
+    presets: [{ type: "note", paddingTop: "7px", spacingByView: { enabled: true, reading: { paddingTop: "9px" }, live: { paddingTop: "13px" } } }] };
+  const css = pluginModule.buildPdfCalloutSpacingCss(settings);
+  assert.match(css, /margin-top: 23px/);
+  assert.match(css, /padding-top: 13px/);
+  assert.doesNotMatch(css, /(?:11|9)px/);
+  assert.ok(css.indexOf("7px") < css.indexOf("13px"));
+  assert.ok(cssRules(css).every(rule => rule.selectors.startsWith(".print.osc-style-scope.osc-pdf-export")));
+});
+
+
+test("Views & Export drafts commit only their fields without overwriting typography", async () => {
+  const persisted = normalizeProfile({ paragraphSpacing: "matched", textWeight: "400" });
+  const tab = new StyleControllerSettingTab({}, {});
+  const target = () => persisted;
+  const base = tab.getProfileSectionContext("global:baseText", "Base text", target, PROFILE_SECTION_FIELDS.baseText);
+  const views = tab.getProfileSectionContext("global:viewsExport", "Views & Export", target, PROFILE_SECTION_FIELDS.viewsExport);
+  views.value.paragraphSpacing = "document";
+  views.value.preserveExtraBlankLines = "on";
+  views.value.pdfMatchLivePreview = "on";
+  const apply = async context => applyDraftAtomically({ draft: context.value, normalize: context.normalize, validate: context.validate, commit: context.commit, persist: async () => {} });
+  assert.equal((await apply(views)).applied, true);
+  base.value.textWeight = "500";
+  assert.equal((await apply(base)).applied, true);
+  assert.equal(persisted.paragraphSpacing, "document");
+  assert.equal(persisted.preserveExtraBlankLines, "on");
+  assert.equal(persisted.pdfMatchLivePreview, "on");
+  views.value.pdfMatchLivePreview = "off";
+  assert.equal((await apply(views)).applied, true);
+  assert.equal(persisted.textWeight, "500");
+  assert.equal(persisted.pdfMatchLivePreview, "off");
+});
+
+function independentCalloutTab() {
+  const tab = new StyleControllerSettingTab();
+  tab.plugin = {
+    settings: normalizeSettings({ callouts: { borderWidth: "2px", marginTop: "8px", presets: [
+      { type: "first", color: "#112233" }, { type: "second", color: "#445566" }
+    ], advancedLayouts: { enabled: true, layouts: [
+      createAdvancedLayout("multi-column", []), createAdvancedLayout("multi-column", [createAdvancedLayout("multi-column", [])])
+    ] } } }),
+    async saveSettings() { this.settings = normalizeSettings(this.settings); this.persisted = JSON.stringify(this.settings); this.saves = (this.saves || 0) + 1; },
+    applyStyles() {}
+  };
+  tab.refreshPreservingScroll = () => {};
+  return tab;
+}
+
+test("global callout style and spacing apply and revert independently", async () => {
+  const tab = independentCalloutTab();
+  const style = tab.getCalloutFieldsContext("callouts:style", "Style", ["borderWidth"]);
+  const spacing = tab.getCalloutFieldsContext("callouts:spacing", "Spacing", ["marginTop", "spacingByView"]);
+  style.value.borderWidth = "7px";
+  spacing.value.marginTop = "19px";
+  spacing.value.spacingByView.reading.marginTop = "29px";
+  tab.noteDraftMutation(style.value); tab.noteDraftMutation(spacing.value);
+  await tab.applyDraftContext(style);
+  assert.equal(tab.plugin.settings.callouts.borderWidth, "7px");
+  assert.equal(tab.plugin.settings.callouts.marginTop, "8px");
+  assert.equal(spacing.value.marginTop, "19px");
+  assert.equal(spacing.dirty, true);
+  tab.revertDraftContext(spacing);
+  assert.equal(spacing.value.marginTop, "8px");
+  assert.equal(style.dirty, false);
+  assert.equal(tab.plugin.saves, 1);
+});
+
+test("named callout drafts retain identity across rename, deletion, creation and other applies", async () => {
+  const tab = independentCalloutTab();
+  const [firstRecord, secondRecord] = tab.getCalloutRecords("presets");
+  const first = tab.getCalloutItemContext("presets", firstRecord);
+  const second = tab.getCalloutItemContext("presets", secondRecord);
+  first.value.item.type = "renamed";
+  second.value.item.color = "#abcdef";
+  tab.noteDraftMutation(first.value); tab.noteDraftMutation(second.value);
+  await tab.applyDraftContext(first);
+  assert.equal(tab.plugin.settings.callouts.presets[0].type, "renamed");
+  assert.equal(tab.plugin.settings.callouts.presets[1].color, "#445566");
+  assert.equal(second.dirty, true);
+  first.value.present = false; tab.noteDraftMutation(first.value);
+  await tab.applyDraftContext(first);
+  assert.equal(secondRecord.index, 0);
+  assert.equal(tab.getCalloutItemContext("presets", secondRecord), second);
+  await tab.applyDraftContext(second);
+  assert.equal(tab.plugin.settings.callouts.presets[0].color, "#abcdef");
+  tab.addCalloutItem("presets", { type: "new", color: "#123456" });
+  const created = tab.getCalloutItemContext("presets", tab.getCalloutRecords("presets").at(-1));
+  assert.equal(created.dirty, true);
+  tab.revertDraftContext(created);
+  assert.equal(created.value.present, false);
+  assert.equal(tab.plugin.settings.callouts.presets.length, 1);
+  tab.addCalloutItem("presets", { type: "saved-new", color: "#123456" });
+  const saved = tab.getCalloutItemContext("presets", tab.getCalloutRecords("presets").at(-1));
+  await tab.applyDraftContext(saved);
+  assert.equal(saved.dirty, false);
+  assert.equal(tab.plugin.settings.callouts.presets.at(-1).type, "saved-new");
+});
+
+test("layout applies preserve IDs and other dirty layouts and reject only relevant validation errors", async () => {
+  const tab = independentCalloutTab();
+  const [a, b] = tab.getCalloutRecords("layouts").map(record => tab.getCalloutItemContext("layouts", record));
+  const id = a.value.item.id;
+  a.value.item.displayName = "Independent";
+  a.value.item.options.columnCount = 3;
+  b.value.item.options.gap = "invalid-css";
+  tab.noteDraftMutation(a.value); tab.noteDraftMutation(b.value);
+  await tab.applyDraftContext(a);
+  assert.equal(tab.plugin.settings.callouts.advancedLayouts.layouts[0].id, id);
+  assert.equal(tab.plugin.settings.callouts.advancedLayouts.layouts[0].options.columnCount, 3);
+  assert.equal(b.dirty, true);
+  await tab.applyDraftContext(b);
+  assert.equal(b.dirty, true, "invalid layout must stay unapplied");
+  assert.equal(tab.plugin.saves, 1);
+  tab.revertDraftContext(b);
+  assert.equal(b.dirty, false);
+  assert.equal(a.value.item.displayName, "Independent");
+});
+
+test("Apply queues independent sections, suppresses duplicate activation and retains edits during persistence", async () => {
+  const tab = independentCalloutTab();
+  let release;
+  const save = tab.plugin.saveSettings.bind(tab.plugin);
+  tab.plugin.saveSettings = async () => { await new Promise(resolve => { release = resolve; }); await save(); };
+  const style = tab.getCalloutFieldsContext("style", "Style", ["borderWidth"]);
+  const spacing = tab.getCalloutFieldsContext("spacing", "Spacing", ["marginTop"]);
+  style.value.borderWidth = "4px"; spacing.value.marginTop = "21px";
+  tab.noteDraftMutation(style.value); tab.noteDraftMutation(spacing.value);
+  const first = tab.applyDraftContext(style);
+  await tab.applyDraftContext(style);
+  const second = tab.applyDraftContext(spacing);
+  await Promise.resolve();
+  style.value.borderWidth = "6px"; tab.noteDraftMutation(style.value);
+  release(); await first;
+  assert.equal(style.value.borderWidth, "6px");
+  assert.equal(style.baseline.borderWidth, "4px");
+  assert.equal(style.dirty, true);
+  await Promise.resolve(); release(); await second;
+  assert.equal(tab.plugin.settings.callouts.borderWidth, "4px");
+  assert.equal(tab.plugin.settings.callouts.marginTop, "21px");
+  assert.equal(tab.plugin.saves, 2);
+  assert.equal(spacing.dirty, false);
+});
+
+test("a failed callout save leaves all item records and independent drafts intact", async () => {
+  const tab = independentCalloutTab();
+  const records = tab.getCalloutRecords("presets");
+  const a = tab.getCalloutItemContext("presets", records[0]);
+  const b = tab.getCalloutItemContext("presets", records[1]);
+  a.value.present = false; b.value.item.color = "#abcdef";
+  tab.noteDraftMutation(a.value); tab.noteDraftMutation(b.value);
+  tab.plugin.saveSettings = async () => { throw Error("disk unavailable"); };
+  await tab.applyDraftContext(a);
+  assert.equal(tab.plugin.settings.callouts.presets.length, 2);
+  assert.deepEqual(records.map(record => record.index), [0, 1]);
+  assert.equal(a.dirty, true); assert.equal(b.dirty, true);
+  assert.equal(b.value.item.color, "#abcdef");
+});
+
+test("async preview updates retain existing content and discard stale completions", async () => {
+  const pending = [];
+  context.__obsidianRenderHook = () => new Promise(resolve => pending.push(resolve));
+  const preview = { ...fakeElement(), childNodes: ["existing"],
+    cloneNode() { return { childNodes: ["render-" + pending.length] }; },
+    replaceChildren(...nodes) { this.childNodes = nodes; }, querySelector: () => null, querySelectorAll: () => [] };
+  const tab = { createCalloutPreviewRenderTarget: () => ({}) };
+  try {
+    const first = StyleControllerSettingTab.prototype.updateGlobalCalloutPreview.call(tab, preview, { previewTitle: "first", presets: [] });
+    const second = StyleControllerSettingTab.prototype.updateGlobalCalloutPreview.call(tab, preview, { previewTitle: "second", presets: [] });
+    assert.deepEqual(preview.childNodes, ["existing"]);
+    pending[1](); await second;
+    assert.deepEqual(preview.childNodes, ["render-1"]);
+    pending[0](); await first;
+    assert.deepEqual(preview.childNodes, ["render-1"]);
+  } finally { delete context.__obsidianRenderHook; }
+});
+
+test("async structural actions disable immediately, run once and unlock after completion or failure", async () => {
+  const tab = new StyleControllerSettingTab();
+  const button = { disabled: false, isConnected: true };
+  let calls = 0, release;
+  const action = async () => { calls++; await new Promise(resolve => { release = resolve; }); };
+  const first = tab.runSettingsAction(button, action);
+  assert.equal(button.disabled, true);
+  await tab.runSettingsAction(button, action);
+  assert.equal(calls, 1);
+  release(); await first;
+  assert.equal(button.disabled, false);
+  await tab.runSettingsAction(button, async () => { throw Error("unavailable"); });
+  assert.equal(button.disabled, false);
+  assert.equal(tab.pendingSettingsActions.size, 0);
+});
+
+test("a layout validates its own options and identifier without validating other saved layout options", async () => {
+  const tab = independentCalloutTab();
+  tab.plugin.settings.callouts.advancedLayouts.layouts[1].options.gap = "invalid-css";
+  const first = tab.getCalloutItemContext("layouts", tab.getCalloutRecords("layouts")[0]);
+  first.value.item.displayName = "Valid independent edit"; tab.noteDraftMutation(first.value);
+  await tab.applyDraftContext(first);
+  assert.equal(first.dirty, false);
+  assert.equal(tab.plugin.settings.callouts.advancedLayouts.layouts[0].displayName, "Valid independent edit");
+  first.value.item.markdownId = tab.plugin.settings.callouts.advancedLayouts.layouts[1].markdownId;
+  tab.noteDraftMutation(first.value);
+  await tab.applyDraftContext(first);
+  assert.equal(first.dirty, true, "identifiers still must remain unique across saved layouts");
+  assert.equal(tab.plugin.saves, 1);
+});
+
+test("applying a stored configuration rebuilds callout item identities from its saved lists", async () => {
+  const tab = independentCalloutTab();
+  tab.display = () => {};
+  tab.getCalloutRecords("presets"); tab.getCalloutRecords("layouts");
+  const next = normalizeSettings({ callouts: { presets: [{ type: "configuration-type" }], advancedLayouts: { enabled: false, layouts: [] } } });
+  await tab.applyStoredConfiguration({ id: "test-configuration", name: "Different lists", data: {
+    global: next.global, callouts: next.callouts, overrides: next.overrides
+  } });
+  assert.equal(tab.getCalloutRecords("presets").length, 1);
+  assert.equal(tab.getCalloutRecords("presets")[0].initial.type, "configuration-type");
+  assert.equal(tab.getCalloutRecords("layouts").length, 0);
+  assert.equal(tab.hasDirtyDrafts(), false);
+});
+
+
+test("contextual navigation keeps subsection selection separate from saved settings", () => {
+  const tab = independentCalloutTab();
+  tab.plugin.settings.activeSettingsTab = "global";
+  const before = JSON.stringify(tab.plugin.settings);
+  let renders = 0;
+  tab.display = () => { renders++; };
+  tab.pageEl = { scrollTop: 100 };
+  assert.equal(tab.selectedSubsection(), "baseText");
+  tab.selectSubsection("headings");
+  assert.equal(tab.selectedSubsection(), "headings");
+  assert.equal(tab.pageEl.scrollTop, 0);
+  tab.selectSubsection("headings"); tab.selectSubsection("invalid");
+  assert.equal(renders, 1);
+  assert.equal(JSON.stringify(tab.plugin.settings), before);
+  assert.equal(tab.plugin.saves, undefined);
+  assert.equal(tab.selectedSubsection("callouts"), "style");
+  assert.equal(tab.contextualSections("interface").length, 0);
+});
+
+test("Global Defaults initializes exactly the selected typography section", () => {
+  for (const key of ["baseText", "boldItalic", "links", "headings", "tables", "code", "quotes", "images"]) {
+    const tab = independentCalloutTab();
+    tab.subsections = new Map([["global", key]]);
+    const calls = [];
+    const root = { createEl() {} };
+    tab.renderSettingGroup = (...args) => calls.push(args[1]);
+    tab.renderHeadingGroup = () => calls.push("Headings");
+    tab.renderImageGroup = () => calls.push("Images");
+    tab.renderProfileSection({ createDiv: () => root }, "Global defaults", tab.plugin.settings.global);
+    assert.equal(calls.length, 1, key);
+    assert.equal(tab.drafts.entries.size, 1, key);
+    assert.ok(tab.drafts.entries.has(`global:${key}`), key);
+  }
+});
+
+test("multiple callout drafts survive subsection navigation and still apply independently", async () => {
+  const tab = independentCalloutTab();
+  tab.plugin.settings.activeSettingsTab = "callouts";
+  tab.display = () => {};
+  tab.pageEl = { scrollTop: 0 };
+  const style = tab.getCalloutFieldsContext("callouts:style", "Style", ["borderWidth"]);
+  const spacing = tab.getCalloutFieldsContext("callouts:spacing", "Spacing", ["marginTop"]);
+  style.value.borderWidth = "7px"; tab.noteDraftMutation(style.value);
+  tab.selectSubsection("spacing");
+  spacing.value.marginTop = "27px"; tab.noteDraftMutation(spacing.value);
+  tab.selectSubsection("layouts"); tab.selectSubsection("presets"); tab.selectSubsection("style");
+  assert.equal(tab.hasDirtyDrafts(), true);
+  assert.equal(tab.getCalloutFieldsContext("callouts:style", "Style", ["borderWidth"]), style);
+  assert.equal(style.value.borderWidth, "7px");
+  assert.equal(spacing.value.marginTop, "27px");
+  assert.equal(tab.plugin.saves, undefined);
+  await tab.applyDraftContext(style);
+  assert.equal(tab.plugin.settings.callouts.borderWidth, "7px");
+  assert.equal(tab.plugin.settings.callouts.marginTop, "8px");
+  assert.equal(spacing.dirty, true);
+  tab.selectSubsection("spacing"); tab.revertDraftContext(spacing);
+  assert.equal(spacing.value.marginTop, "8px");
+  assert.equal(tab.plugin.saves, 1);
+});
+
+test("layout pinning orders the contextual menu without losing the saved option", () => {
+  const tab = independentCalloutTab();
+  tab.plugin.settings.callouts.advancedLayouts.pinToTop = true;
+  assert.deepEqual(Array.from(tab.contextualSections("callouts"), item => item[0]), ["style", "spacing", "layouts", "presets"]);
+  const advanced = tab.getCalloutFieldsContext("callouts:advanced", "Layouts", ["enabled", "pinToTop"], true);
+  advanced.value.pinToTop = false; tab.noteDraftMutation(advanced.value);
+  assert.deepEqual(Array.from(tab.contextualSections("callouts"), item => item[0]), ["style", "spacing", "presets", "layouts"]);
+  assert.equal(tab.plugin.settings.callouts.advancedLayouts.pinToTop, true);
+});
+
+test("internal settings menu never replaces Obsidian's sidebar navEl", () => {
+  const tab = independentCalloutTab();
+  const sidebar = tab.navEl = { role: "Obsidian sidebar item" };
+  const menu = navigationElement();
+  tab.renderTopNav({ createEl: () => menu });
+  assert.equal(tab.navEl, sidebar);
+  assert.equal(tab.sectionMenuEl, menu);
+  assert.equal(tab.rootSections().length, 7);
+  assert.equal(tab.rootSections()[0][1], "Global Defaults");
+});
+
+function navigationElement() {
+  const element = { ...fakeElement(), children: [], dataset: {}, handlers: {},
+    get childElementCount() { return this.children.length; },
+    empty() { this.children = []; },
+    createEl(_tag, options = {}) {
+      const child = navigationElement(); child.text = options.text; this.children.push(child); return child;
+    },
+    addEventListener(type, action) { this.handlers[type] = action; },
+    querySelectorAll() { return this.children; },
+    insertBefore(child, reference) {
+      this.children = this.children.filter(item => item !== child);
+      const index = reference ? this.children.indexOf(reference) : this.children.length;
+      this.children.splice(index, 0, child);
+    }
+  };
+  return element;
+}
+
+test("seven main tabs remain mounted and selected alongside the active subsection", () => {
+  const tab = independentCalloutTab(), parent = navigationElement();
+  tab.plugin.settings.activeSettingsTab = "global";
+  tab.renderTopNav(parent); tab.renderSubsectionNavigation(parent); tab.updateSettingsNavigation();
+  const main = [...tab.sectionMenuEl.children], secondary = [...tab.subsectionNavEl.children];
+  assert.equal(main.length, 7); assert.equal(secondary.length, 9);
+  assert.equal(main[0].classList.contains("is-active"), true);
+  assert.equal(secondary[0].classList.contains("is-active"), true);
+  tab.subsections = new Map([["global", "headings"]]); tab.updateSettingsNavigation();
+  assert.deepEqual(tab.sectionMenuEl.children, main);
+  assert.deepEqual(tab.subsectionNavEl.children, secondary);
+  assert.equal(secondary.find(button => button.dataset.oscSubsection === "headings").classList.contains("is-active"), true);
+  tab.plugin.settings.activeSettingsTab = "callouts"; tab.updateSettingsNavigation();
+  assert.deepEqual(tab.sectionMenuEl.children, main);
+  assert.equal(main[2].classList.contains("is-active"), true);
+  assert.equal(main[0].classList.contains("is-active"), false);
+  assert.equal(tab.subsectionNavEl.children.length, 4);
+  assert.equal(tab.subsectionNavEl.children[0].classList.contains("is-active"), true);
+  tab.plugin.settings.activeSettingsTab = "interface"; tab.updateSettingsNavigation();
+  assert.equal(tab.subsectionNavEl.hidden, true);
+  assert.equal(tab.subsectionNavEl.children.length, 0);
+  assert.deepEqual(tab.sectionMenuEl.children, main);
+});
+
+test("main tab changes preserve the independent-draft guard and repeated selections avoid rebuilding content", async () => {
+  const tab = independentCalloutTab();
+  tab.plugin.settings.activeSettingsTab = "global";
+  let renders = 0;
+  tab.display = () => { renders++; }; tab.updateSettingsNavigation = () => {};
+  tab.pageEl = { scrollTop: 50 };
+  await tab.selectSettingsTab("callouts");
+  assert.equal(tab.selectedSubsection(), "style"); assert.equal(renders, 1);
+  const draft = tab.getCalloutFieldsContext("callouts:style", "Style", ["borderWidth"]);
+  draft.value.borderWidth = "12px"; tab.noteDraftMutation(draft.value);
+  await tab.selectSettingsTab("interface");
+  assert.equal(tab.plugin.settings.activeSettingsTab, "callouts");
+  await tab.selectSettingsTab("callouts"); tab.selectSubsection("style");
+  assert.equal(renders, 1); assert.equal(draft.dirty, true); assert.equal(tab.plugin.saves, 1);
+});
+
+test("both tab rows dispatch one direct action without breadcrumb navigation", () => {
+  const tab = independentCalloutTab(), parent = navigationElement(), targets = [];
+  tab.plugin.settings.activeSettingsTab = "callouts";
+  tab.selectSettingsTab = id => targets.push(id);
+  tab.selectSubsection = id => targets.push(id);
+  tab.renderTopNav(parent); tab.renderSubsectionNavigation(parent); tab.updateSettingsNavigation();
+  tab.sectionMenuEl.children[0].handlers.click();
+  tab.subsectionNavEl.children.find(button => button.dataset.oscSubsection === "layouts").handlers.click();
+  assert.deepEqual(targets, ["global", "layouts"]);
+  assert.equal(tab.subsectionNavEl.children.some(button => button.text === "SC"), false);
+});
+
+test("native-default refresh cannot render an inactive settings panel", () => {
+  const tab = independentCalloutTab();
+  tab.containerEl = { isConnected: true, contains: () => false, ownerDocument: { activeElement: null } };
+  tab.pageEl = { isConnected: false };
+  tab.refreshPreservingScroll = () => { throw Error("Inactive panel refreshed"); };
+  tab.refreshNativeDefaults();
 });

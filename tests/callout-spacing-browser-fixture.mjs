@@ -170,7 +170,7 @@ try {
   writeFileSync(fixturePath, html);
   const output = execFileSync(process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     ["--headless=new", "--no-sandbox", "--disable-gpu", "--dump-dom", `file://${fixturePath}`],
-    { encoding: "utf8", timeout: 30000, stdio: ["ignore", "pipe", "ignore"] });
+    { encoding: "utf8", timeout: 30000, maxBuffer: 8 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] });
   const encoded = output.match(/data-result="([^"]+)"/)?.[1];
   assert.ok(encoded, `Chrome did not return computed spacing data: ${output.slice(-2000)}`);
   const result = JSON.parse(decodeURIComponent(encoded));

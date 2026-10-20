@@ -58,7 +58,7 @@ const code = String.raw`(async () => {
     await app.vault.create(folder + "/Nested.md", "## Nested heading\n\nNested body\n");
     await new Promise(resolve => setTimeout(resolve, 1800));
     plugin.settings = JSON.parse(JSON.stringify(originalSettings));
-    const override = (name, color, font, size) => ({ id: name, name, enabled: true, type: "file", pattern: folder + "/" + name + ".md", modules: { headings: true, boldItalic: true, baseText: true }, profile: { h2Color: color, h2FontFamily: font, h2Size: size, textColor: color, lineHeight: "1.8", boldColor: color, italicColor: color } });
+    const override = (name, color, font, size) => ({ id: name, name, enabled: true, type: "file", pattern: folder + "/" + name + ".md", modules: { headings: true, boldItalic: true, baseText: true }, profile: { paragraphSpacing: __READING_MODE__, preserveExtraBlankLines: "on", h2Color: color, h2FontFamily: font, h2Size: size, textColor: color, lineHeight: "1.8", boldColor: color, italicColor: color } });
     plugin.settings.overrides.push(override("Source", "#ff0000", "Arial", "19px"), override("Target", "#123456", "Georgia, serif", "33px"), override("Nested", "#654321", "Verdana", "29px"));
     plugin.applyStyles();
     const note = await open(target);
@@ -93,6 +93,10 @@ const code = String.raw`(async () => {
       callout.querySelector(".callout-fold").click();
       const scope = el.querySelector(".osc-style-scope");
       check(scope.getAttribute("data-osc-profile") === "Target", "Source profile leaked");
+      if (scope.classList.contains("style-controller-match-reading-view")) {
+        check(scope.style.getPropertyValue("--osc-reading-h2-color") === "rgb(18, 52, 86)", "Preview reference uses another note's profile");
+        check(el.querySelector(".osc-reading-block"), "Preview source boundaries missing");
+      }
       check(!scope.classList.contains("style-controller-matched-document-layout"), "Preview geometry changed");
       const scroller = el.querySelector(".markdown-preview-view");
       const before = { width: el.offsetWidth, height: el.offsetHeight, overflow: getComputedStyle(scroller).overflowY };
@@ -135,11 +139,12 @@ const code = String.raw`(async () => {
     leaves.reverse().forEach(leaf => leaf.detach());
     plugin.settings = originalSettings;
     plugin.applyStyles();
+    plugin.getMarkdownViews().forEach(view => view.previewMode?.rerender(true));
     if (originalLeaf.parent) app.workspace.setActiveLeaf(originalLeaf, { focus: true });
     const temporary = app.vault.getAbstractFileByPath(folder);
     if (temporary) await app.vault.delete(temporary, true);
   }
 })()`;
-const output = execFileSync("obsidian", ["vault=Obsidian Pro", "eval", `code=${code}`], { encoding: "utf8", timeout: 60000 });
+const output = execFileSync("obsidian", ["vault=Obsidian Pro", "eval", `code=${code.replace("__READING_MODE__", JSON.stringify(process.env.SC_DOCUMENT_MATCH ? "document" : ""))}`], { encoding: "utf8", timeout: 60000 });
 process.stdout.write(output);
 assert.ok(output.includes('"cleanup":true'), "Native Page Preview integration failed");

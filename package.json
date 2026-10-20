@@ -1,6 +1,6 @@
 {
   "name": "style-controller",
-  "version": "0.1.34",
+  "version": "0.1.39",
   "description": "Manage reusable style profiles, path overrides, and visual settings through a native settings interface.",
   "main": "main.js",
   "scripts": {
@@ -9,7 +9,9 @@
     "test": "node --test tests/*.test.mjs",
     "lint": "eslint .",
     "check": "npm run lint && tsc -noEmit -skipLibCheck",
-    "test:obsidian-pro": "node tests/page-preview-obsidian.mjs"
+    "test:obsidian-pro": "node tests/page-preview-obsidian.mjs",
+    "test:paragraphs-pro": "node tests/paragraph-spacing-obsidian.mjs",
+    "test:reading-pro": "node tests/reading-match-obsidian.mjs"
   },
   "keywords": [
     "obsidian",
