@@ -17,7 +17,8 @@ const setup = String.raw`(async()=>{
  await leaf.openFile(file);await leaf.view.setState({...leaf.view.getState(),mode:'source',source:false},{history:false});
  plugin.settings=JSON.parse(JSON.stringify(plugin.settings));
  t.profile=plugin.getProfileForPath(file.path).profile;
- t.override={id:'pdf-test',name:'PDF test',enabled:true,type:'file',pattern:file.path,modules:{baseText:true},profile:{pdfMatchLivePreview:'off'}};
+ // Keep expected PDF metrics independent of the user's saved heading sizes.
+ t.override={id:'pdf-test',name:'PDF test',enabled:true,type:'file',pattern:file.path,modules:{baseText:true,headings:true},profile:{pdfMatchLivePreview:'off',h2Size:'27px',h3Size:'25px',h4Size:'23px',h5Size:'21px',h6Size:'20px',h3Color:'#08005c',h4Color:'#046c06'}};
  plugin.settings.overrides.push(t.override);
  return JSON.stringify({path:file.path});
 })()`;
@@ -38,7 +39,10 @@ try {
         p.settings.callouts.spacingByView={enabled:true,reading:{marginTop:'11px',paddingTop:'9px'},live:{marginTop:'23px',paddingTop:'13px'}};
         await t.leaf.openFile(t.fixture);await t.leaf.view.setState({...t.leaf.view.getState(),mode:'source',source:false},{history:false});
       }
-      const liveSnapshot=()=>[...t.leaf.view.containerEl.querySelectorAll('.inline-title,.cm-content,.cm-line:not(.HyperMD-header):not(:has(br)),.HyperMD-header > .cm-header:not(.cm-formatting)')].map(e=>{const c=getComputedStyle(e);return {text:e.textContent,...Object.fromEntries(['fontFamily','fontSize','fontWeight','fontStyle','lineHeight','letterSpacing','marginTop','marginBottom','paddingTop','paddingBottom'].map(k=>[k,c[k]]))}});
+      // Opening the native export dialog blurs the editor and hides active-line
+      // Markdown markers. Compare semantic text and every typography/spacing
+      // metric; the source-byte check below separately guards note integrity.
+      const liveSnapshot=()=>[...t.leaf.view.containerEl.querySelectorAll('.inline-title,.cm-content,.cm-line:not(.HyperMD-header):not(:has(br)),.HyperMD-header > .cm-header:not(.cm-formatting)')].map(e=>{const c=getComputedStyle(e),text=e.cloneNode(true);text.querySelectorAll('.cm-formatting').forEach(marker=>marker.remove());return {text:text.textContent,...Object.fromEntries(['fontFamily','fontSize','fontWeight','fontStyle','lineHeight','letterSpacing','marginTop','marginBottom','paddingTop','paddingBottom'].map(k=>[k,c[k]]))}});
       const liveBefore=liveSnapshot();
       const result=window.__scPdfLastResult={mode:${JSON.stringify(mode)},file:t.leaf.view.file?.path};
       let done,fail;const completed=new Promise((resolve,reject)=>{done=resolve;fail=reject});

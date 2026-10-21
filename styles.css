@@ -307,6 +307,12 @@
   padding: 8px 10px 10px;
 }
 
+/* Each draft owner bounds its own native sticky action row. */
+.osc-action-group:not(.osc-callout-card) {
+  position: relative;
+  isolation: isolate;
+}
+
 .osc-section-actions {
   align-items: center;
   display: flex;
@@ -314,6 +320,59 @@
   gap: 8px;
   justify-content: flex-end;
   margin: 0 0 8px;
+}
+
+/* Named types keep their published grid and ordinary in-card actions. */
+.osc-callout-card > .osc-section-actions > .osc-section-name {
+  display: none;
+}
+
+.osc-action-group:not(.osc-callout-card) > .osc-section-actions {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  align-items: center;
+  background: var(--background-primary);
+  border-bottom: 1px solid var(--background-modifier-border);
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  height: 34px;
+  margin: 0 0 8px;
+  padding: 3px 6px;
+}
+
+.osc-section-name {
+  color: var(--text-muted);
+  flex: 1 1 auto;
+  font-size: var(--font-ui-small);
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.osc-section-actions.is-dirty .osc-section-name {
+  color: var(--text-normal);
+}
+
+.osc-action-group:not(.osc-callout-card) > .osc-section-actions > button {
+  flex: none;
+  font-size: var(--font-ui-small);
+  height: 26px;
+  min-height: 0;
+  padding: 0 8px;
+}
+
+/* Keep state announcements without crowding the compact row. */
+.osc-action-group:not(.osc-callout-card) > .osc-section-actions > .osc-section-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
 }
 
 .osc-section-status {
@@ -1019,6 +1078,7 @@
   min-width: 0;
 }
 
+/* Portaled into the input's own document so settings/card scrollers cannot clip it. */
 .osc-path-dropdown {
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
@@ -1026,52 +1086,44 @@
   box-sizing: border-box;
   box-shadow: var(--shadow-s);
   display: none;
-  left: 0;
-  margin-top: 4px;
+  overflow-x: hidden;
   overflow-y: auto;
-  position: absolute;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  position: fixed;
   text-align: left;
-  top: 100%;
-  z-index: 1000;
+  z-index: 10000;
 }
-
-.osc-path-dropdown.is-visible {
+.osc-path-dropdown.is-visible { display: block; }
+.osc-path-dropdown .osc-path-option {
   display: block;
-}
-
-.osc-path-option {
-  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
   box-sizing: border-box;
-  cursor: pointer;
-  display: grid;
-  gap: 8px;
-  grid-template-columns: minmax(0, 1fr) auto;
-  min-width: 0;
-  padding: 7px 9px;
-  text-align: left;
-}
-
-.osc-path-option.is-selected,
-.osc-path-option:hover {
-  background: var(--background-modifier-hover);
-}
-
-.osc-path-option-title {
   color: var(--text-normal);
+  cursor: pointer;
   font-size: var(--font-ui-small);
+  height: auto;
+  min-height: 30px;
+  min-width: 0;
+  width: 100%;
+  margin: 0;
+  padding: 6px 9px;
+  text-align: left;
+  overflow: hidden;
+}
+.osc-path-dropdown .osc-path-option.is-selected,
+.osc-path-dropdown .osc-path-option:hover { background: var(--background-modifier-hover); }
+.osc-path-option-title {
+  display: block;
   min-width: 0;
   overflow: hidden;
-  justify-self: start;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.osc-path-option-note {
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
-  justify-self: end;
-  white-space: nowrap;
-}
+.osc-path-option .suggestion-highlight { color: var(--text-accent); font-weight: 600; }
 
 .osc-preview-table {
   --table-column-min-width: 0;
@@ -1706,8 +1758,11 @@
   max-width: 100%;
 }
 
+/* Live Preview table editors need the native shrink-to-fit wrapper. A definite
+   wrapper width becomes a new column minimum when a rendered cell enters edit mode.
+   The image itself still receives the configured width and native max-width. */
 .osc-style-scope.style-controller-image-width.style-controller-respect-explicit-image-size .markdown-preview-view .image-embed:not([width]):not([height]):not([style*="width" i]):not([style*="height" i]) .image-wrapper:has(> img:not([width]):not([height]):not([style*="width" i]):not([style*="height" i])),
-.osc-style-scope.style-controller-image-width.style-controller-respect-explicit-image-size .markdown-source-view.mod-cm6 .image-embed:not([width]):not([height]):not([style*="width" i]):not([style*="height" i]) .image-wrapper:has(> img:not([width]):not([height]):not([style*="width" i]):not([style*="height" i])) {
+.osc-style-scope.style-controller-image-width.style-controller-respect-explicit-image-size .markdown-source-view.mod-cm6 .image-embed:not([width]):not([height]):not([style*="width" i]):not([style*="height" i]) .image-wrapper:has(> img:not([width]):not([height]):not([style*="width" i]):not([style*="height" i])):not(table .image-wrapper) {
   width: var(--osc-image-width);
   max-width: 100%;
 }
@@ -1899,7 +1954,8 @@ body.style-controller-bottom-left-controls-left .workspace-split.mod-primary-spl
   padding: 4px 8px;
 }
 
-.osc-advanced-layouts > .setting-item {
+.osc-advanced-layouts > .setting-item,
+.osc-layout-settings > .setting-item {
   border: 0;
 }
 
@@ -2167,7 +2223,10 @@ body.style-controller-bottom-left-controls-left .workspace-split.mod-primary-spl
   padding-bottom: max(var(--keyboard-height, 0px), var(--size-4-4, 16px));
   min-height: 0;
   overflow-y: auto;
+  /* Draft refresh restores scroll explicitly; async previews must not anchor it again. */
+  overflow-anchor: none;
   scrollbar-gutter: stable;
+  scroll-padding-top: 42px;
   flex: 0 1 auto;
 }
 .osc-settings-page > .setting-item {
@@ -2175,4 +2234,18 @@ body.style-controller-bottom-left-controls-left .workspace-split.mod-primary-spl
   border-radius: 6px;
   margin: 8px 0 12px;
   padding: 12px 18px;
+}
+
+.osc-image-rules { margin-top: 12px; }
+.osc-image-rule .osc-path-suggest { flex-wrap: wrap; gap: 6px; }
+.osc-image-rule .osc-path-suggest input { flex: 1 1 200px; min-width: 0; }
+.osc-image-rule .osc-current-note { flex: 0 0 auto; width: auto; font-size: var(--font-ui-small); padding: 0 8px; }
+.osc-image-rule .osc-path-pattern-setting { flex-direction: column; align-items: stretch; }
+.osc-image-rule .osc-path-pattern-setting .setting-item-control { width: 100%; justify-content: flex-start; }
+.osc-image-rule .osc-override-actions .setting-item-control { flex-direction: row; gap: 6px; }
+.osc-settings .osc-image-rule .osc-override-actions .setting-item-control > button {
+  width: fit-content;
+  min-width: 0;
+  flex: 0 0 auto;
+  padding: 0 8px;
 }

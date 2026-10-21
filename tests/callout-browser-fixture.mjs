@@ -23,7 +23,7 @@ const bundle = await build({
     setup(api) {
       api.onResolve({ filter: /^obsidian$/ }, () => ({ path: "obsidian", namespace: "stub" }));
       api.onLoad({ filter: /.*/, namespace: "stub" }, () => ({
-        contents: "export class Plugin {} export class MarkdownRenderChild { constructor(containerEl) { this.containerEl = containerEl; } } export class PluginSettingTab {} export class Modal {} export class Notice {} export class Setting {} export class TFolder {} export const MarkdownRenderer = {}; export const prepareFuzzySearch = () => () => null; export const normalizePath = (value) => value; export const setIcon = () => {};",
+        contents: "export class Plugin {} export class MarkdownRenderChild { constructor(containerEl) { this.containerEl = containerEl; } } export class PluginSettingTab {} export class Modal {} export class Notice {} export class Setting {} export class TFolder {} export const MarkdownRenderer = {}; export const prepareFuzzySearch = () => () => null; export const renderMatches = () => {}; export const normalizePath = (value) => value; export const setIcon = () => {};",
         loader: "js"
       }));
     }

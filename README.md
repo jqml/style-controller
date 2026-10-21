@@ -1,6 +1,6 @@
 # Style Controller
 
-Latest release: **0.1.39**. See [release notes](RELEASE_NOTES.md) for the changes since 0.1.34.
+Latest release: **0.1.40**. See [release notes](RELEASE_NOTES.md) for the changes since 0.1.39.
 
 Style Controller is an Obsidian plugin for managing reusable style profiles, path overrides, and visual settings through a native settings interface. It applies profile values as CSS custom properties consumed by the plugin's static stylesheet; it does not edit theme files, snippets, or notes.
 
@@ -44,6 +44,10 @@ Each major settings section has one **Apply** button and one **Revert** button. 
 ## Image controls
 
 Image settings include alignment, width, and a control for respecting explicit image sizes. Blank image settings do not emit image CSS.
+
+Under **Global Defaults → Images**, **Image rules** provides compact Note/Folder rules using the existing path-override engine. Each rule has independent Apply/Revert, width, alignment, and explicit-size handling. Empty fields inherit from earlier matching overrides/global settings; **Native** alignment and **On** explicit-size handling can explicitly replace inherited choices. Later matching overrides retain their existing precedence. Rules also appear in Overrides and are included in saved configurations.
+
+Overrides, File Explorer Overrides, and Image Rules share fuzzy path autocomplete. Image Rules filter by Markdown note or folder and provide **Use current note**. The owner-window dropdown opens above or below as space permits, highlights matches, truncates long paths with full-path tooltips, and supports arrows, Page Up/Down, Home/End, Enter, and Escape. Only twelve results render; path indexing is deferred until the field is used.
 
 ## Callouts and layouts
 
@@ -218,3 +222,16 @@ The seven main tabs stay visible above a compact subsection row. The active main
 Global Defaults and Callouts initialize only their selected subsection's controls and previews. Tab buttons remain mounted while browsing within a section, and repeated selection does not rebuild the panel. Subsection selection is session state; existing saved main-section preferences, independent Apply/Revert, and unsaved-change guards remain in place. Layouts' “Pin to top” option orders it before Named Types in the Callouts subsection row. The plugin's Obsidian sidebar item remains Style Controller, and its selection is managed by Obsidian.
 
 The single content scroller extends to the panel bottom on long pages; compact end spacing scrolls with the controls rather than reserving a blank footer. Short pages retain their natural height. `SC_EVIDENCE_DIR=<directory> node tests/settings-bottom-layout-obsidian.mjs` verifies the layout in Obsidian Pro at 620, 720, and 1000 px. `SC_EVIDENCE_DIR=<directory> node tests/settings-interactions-obsidian.mjs` checks native sidebar selection, both tab rows and active states, independent drafts, persistence, and reload; temporary test settings are restored byte-for-byte.
+
+Independently saved settings groups have a compact Revert/Apply row at the top. Native CSS sticky positioning keeps it beneath the existing navigation while its group is in view, then releases it at the group boundary. Named callout cards retain their original responsive grid and ordinary non-sticky actions, with their own saved-state indicators. Layout-wide options and individual layout cards keep separate sticky rows and draft boundaries.
+
+Apply/Revert report their saved state in the action row instead of stacking success popups over settings buttons. Validation and error notices remain available.
+
+
+## 0.1.40 regression checks
+
+Run `npm test`, `npm run lint`, `npm run check`, `npm run build`, and `node --check main.js`. Computed-style browser fixtures use `OBSIDIAN_ASAR_PATH` for the active Obsidian runtime; the spacing and Reading View fixtures also use `OBSIDIAN_PRO_SNIPPETS` for the active snippet directory.
+
+With Obsidian Pro open and no unsaved settings drafts, set `SC_EVIDENCE_DIR` to a temporary directory and run `tests/settings-sticky-actions-obsidian.mjs`, `tests/named-callout-grid-obsidian.mjs`, `tests/path-autocomplete-obsidian.mjs`, `tests/settings-interactions-obsidian.mjs`, and `tests/settings-bottom-layout-obsidian.mjs` with Node. They cover 620/720/1000px layouts, first-click actions, independent drafts, persistence, and cleanup. Native settings tests snapshot the latest live `data.json` at entry and restore those exact bytes, including existing Image Rules; never substitute an older development backup.
+
+`SC_EVIDENCE_DIR=<temporary-directory> node tests/table-images-obsidian.mjs` checks the open `Cambridge/Appendix/pKa` note without editing it, including real image/cell selection, stable dimensions, resize handles, and lightbox. The test verifies note, settings, and linked attachment bytes remain unchanged. Its optional `SC_BASELINE_CSS` records a pre-fix comparison. Keep generated screenshots, PDFs, and measurement output outside the repository.

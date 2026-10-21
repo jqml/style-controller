@@ -39,7 +39,7 @@ jobs:
             main.js
             manifest.json
             styles.css
-      - name: Create release
+      - name: Create release (0.1.40 — sticky actions, image rules, and shared path autocomplete)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

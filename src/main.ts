@@ -8,6 +8,7 @@ import {
   Setting,
   TFolder,
   prepareFuzzySearch,
+  renderMatches,
   normalizePath,
   Modal,
   setIcon
@@ -1814,11 +1815,12 @@ function sanitizeProfile(profile, source = {}) {
 
 function normalizeImageAlignment(value) {
   const alignment = String(value || "").trim().toLowerCase();
-  return ["left", "center", "right"].includes(alignment) ? alignment : "";
+  return ["left", "center", "right", "native"].includes(alignment) ? alignment : "";
 }
 
 function normalizeImageRespectExplicitSize(value) {
   if (value === false || String(value || "").trim().toLowerCase() === "false") return "false";
+  if (value === true || String(value || "").trim().toLowerCase() === "true") return "true";
   return "";
 }
 
@@ -2171,6 +2173,11 @@ function buildAdvancedLayoutCss(advanced, mclEnabled = false, scope = ".osc-styl
     }).filter(Boolean).join("\n");
 }
 
+function isImageOnlyOverride(override) {
+  return ["file", "folder"].includes(override.type) && override.modules?.images === true
+    && Object.entries(override.modules).every(([key, enabled]) => key === "images" || !enabled);
+}
+
 function normalizeOverride(override) {
   const sourceModules = override.modules || {};
   const modules = { ...DEFAULT_OVERRIDE_MODULES, ...sourceModules };
@@ -2319,7 +2326,7 @@ function applyProfileStateClasses(element, profile) {
   applyTitleStateClasses(element, profile);
   STYLE_IMAGE_ALIGNMENT_CLASSES.forEach((className) => element.removeClass(className));
   const alignment = normalizeImageAlignment(profile.imageAlignment);
-  if (alignment) element.addClass(`style-controller-image-align-${alignment}`);
+  if (["left", "center", "right"].includes(alignment)) element.addClass(`style-controller-image-align-${alignment}`);
 
   const hasWidth = hasActiveValue(normalizeCssSizeText(profile.imageWidth));
   element.toggleClass(STYLE_IMAGE_WIDTH_CLASS, hasWidth);
@@ -3642,140 +3649,205 @@ function isFontAvailable(fontName) {
   return available;
 }
 
-class OverridePathSuggest {
-  constructor(app, inputEl, onChoosePath) {
+// One owner-window popup for every path field. Matching stays independent of
+// property autocomplete: normalized vault paths + Obsidian's fuzzy search.
+function pathDropdownLayout(rect, viewportWidth, viewportHeight, contentHeight = 260) {
+  const padding = 8;
+  const width = Math.min(Math.max(rect.width, 300), 460, Math.max(0, viewportWidth - padding * 2));
+  const left = Math.max(padding, Math.min(rect.left, viewportWidth - padding - width));
+  const below = Math.max(0, viewportHeight - rect.bottom - padding - 4);
+  const above = Math.max(0, rect.top - padding - 4);
+  const opensUp = below < Math.min(120, contentHeight) && above > below;
+  const maxHeight = Math.floor(Math.min(260, viewportHeight * 0.55, opensUp ? above : below));
+  const top = opensUp ? rect.top - 4 - Math.min(contentHeight, maxHeight) : rect.bottom + 4;
+  return { left, top, width, maxHeight, opensUp };
+}
+
+class PathSuggest {
+  constructor(app, inputEl, onChoosePath, options = {}) {
     this.app = app;
     this.inputEl = inputEl;
     this.onChoosePath = onChoosePath;
+    this.options = options;
+    this.ownerDocument = inputEl.ownerDocument;
+    this.ownerWindow = this.ownerDocument.defaultView;
     this.suggestions = [];
     this.selectedIndex = 0;
     this.limit = 12;
-    this.containerEl = inputEl.parentElement;
-    this.containerEl?.addClass("osc-path-suggest");
-    this.dropdownEl = this.containerEl.createDiv({ cls: "osc-path-dropdown" });
+    this.listeners = [];
+    this.inputEl.parentElement?.addClass("osc-path-suggest");
+    this.dropdownEl = this.ownerDocument.createElement("div");
+    this.dropdownEl.className = "osc-path-dropdown";
+    this.dropdownEl.id = `osc-path-list-${++PathSuggest.nextId}`;
+    this.dropdownEl.setAttribute("role", "listbox");
+    this.dropdownEl.setAttribute("aria-label", "Matching paths");
+    this.previousAttributes = new Map(["role", "aria-autocomplete", "aria-controls", "aria-expanded", "aria-activedescendant"].map(name => [name, inputEl.getAttribute(name)]));
+    inputEl.setAttribute("role", "combobox");
+    inputEl.setAttribute("aria-autocomplete", "list");
+    inputEl.setAttribute("aria-controls", this.dropdownEl.id);
+    inputEl.setAttribute("aria-expanded", "false");
+    this.listen(inputEl, "input", () => { if (!this.composing) this.render(); });
+    this.listen(inputEl, "focus", () => { this.paths = null; this.render(); });
+    this.listen(inputEl, "keydown", event => this.handleKeydown(event));
+    this.listen(inputEl, "blur", () => this.close());
+    this.listen(inputEl, "compositionstart", () => { this.composing = true; this.close(); });
+    this.listen(inputEl, "compositionend", () => { this.composing = false; this.render(); });
+    this.handleOutsidePointer = event => {
+      if (event.target !== this.inputEl && !this.dropdownEl.contains(event.target)) this.close();
+    };
+    this.handleLayout = event => {
+      if (event?.type === "scroll" && this.dropdownEl.contains(event.target)) return;
+      this.fitDropdownToInput();
+    };
+  }
 
-    this.inputEl.addEventListener("input", () => this.render());
-    this.inputEl.addEventListener("focus", () => this.render());
-    this.inputEl.addEventListener("keydown", (event) => this.handleKeydown(event));
-    this.inputEl.addEventListener("blur", () => {
-      window.setTimeout(() => this.close(), 150);
-    });
+  listen(target, type, listener) {
+    target.addEventListener(type, listener);
+    this.listeners.push(() => target.removeEventListener(type, listener));
+  }
+
+  getVaultPaths() {
+    if (!this.paths) {
+      const files = this.app.vault.getAllLoadedFiles();
+      this.paths = files.filter(file => file.path && file.path !== "/")
+        .map(file => ({ path: normalizeUserPathPattern(file.path), folder: file instanceof TFolder }))
+        .sort((a, b) => a.path.localeCompare(b.path));
+    }
+    const scope = this.options.getScope?.();
+    return this.paths.filter(item => (!scope || scope === "path-contains" || item.folder === (scope === "folder"))
+      && (!this.options.markdownOnly || item.folder || item.path.toLowerCase().endsWith(".md")));
   }
 
   getSuggestions(query) {
     const normalizedQuery = normalizeUserPathPattern(query);
     if (!normalizedQuery) return [];
     const fuzzySearch = prepareFuzzySearch(normalizedQuery);
-    return this.getVaultPaths()
-      .filter((path) => fuzzySearch(path))
-      .slice(0, this.limit);
+    const suggestions = [];
+    for (const item of this.getVaultPaths()) {
+      const match = fuzzySearch(item.path);
+      if (match) suggestions.push({ ...item, matches: match.matches });
+      if (suggestions.length === this.limit) break;
+    }
+    return suggestions;
   }
 
   render() {
     this.suggestions = this.getSuggestions(this.inputEl.value);
     this.selectedIndex = 0;
     this.dropdownEl.empty();
-
-    if (this.suggestions.length === 0) {
-      this.close();
-      return;
-    }
-
-    this.fitDropdownToInput();
-    this.dropdownEl.addClass("is-visible");
-    this.suggestions.forEach((path, index) => {
-      const itemEl = this.dropdownEl.createDiv({ cls: "osc-path-option" });
-      itemEl.toggleClass("is-selected", index === this.selectedIndex);
-      itemEl.createDiv({ cls: "osc-path-option-title", text: path });
-      itemEl.createDiv({
-        cls: "osc-path-option-note",
-        text: this.isFolderPath(path) ? "Folder" : "File"
+    if (!this.suggestions.length) { this.close(); return; }
+    this.suggestions.forEach((suggestion, index) => {
+      const item = this.dropdownEl.createEl("button", {
+        cls: "osc-path-option", type: "button",
+        attr: { id: `${this.dropdownEl.id}-${index}`, role: "option", tabindex: "-1", title: suggestion.path }
       });
-      itemEl.addEventListener("mousedown", (event) => {
-        event.preventDefault();
-        void this.choose(path);
+      const title = item.createSpan({ cls: "osc-path-option-title" });
+      renderMatches(title, suggestion.path, suggestion.matches || null);
+      item.addEventListener("mousedown", event => { if (event.button === 0) event.preventDefault(); });
+      item.addEventListener("click", event => {
+        event.preventDefault(); event.stopPropagation(); this.choose(suggestion.path);
+      });
+      item.addEventListener("mousemove", () => {
+        if (this.selectedIndex !== index) { this.selectedIndex = index; this.renderSelection(false); }
       });
     });
+    if (!this.dropdownEl.isConnected) {
+      this.ownerDocument.body.append(this.dropdownEl);
+      this.ownerWindow.addEventListener("resize", this.handleLayout);
+      this.ownerDocument.addEventListener("scroll", this.handleLayout, true);
+      this.ownerDocument.addEventListener("pointerdown", this.handleOutsidePointer, true);
+      this.resizeObserver = new this.ownerWindow.ResizeObserver(() => this.fitDropdownToInput());
+      this.resizeObserver.observe(this.inputEl);
+      this.resizeObserver.observe(this.ownerDocument.documentElement);
+      this.detachObserver = new this.ownerWindow.MutationObserver(() => {
+        if (!this.inputEl.isConnected) this.close();
+      });
+      this.detachObserver.observe(this.ownerDocument.body, { childList: true, subtree: true });
+    }
+    this.dropdownEl.addClass("is-visible");
+    this.inputEl.setAttribute("aria-expanded", "true");
+    this.renderSelection(false);
+    this.fitDropdownToInput();
   }
 
   handleKeydown(event) {
-    if (event.key === "Enter" && this.suggestions.length > 0) {
-      event.preventDefault();
-      void this.choose(this.suggestions[this.selectedIndex]);
-      return;
-    }
+    if (event.isComposing || this.composing || !this.suggestions.length) return;
+    if (!["Enter", "Escape", "ArrowDown", "ArrowUp", "PageDown", "PageUp", "Home", "End"].includes(event.key)) return;
+    event.preventDefault(); event.stopPropagation();
+    if (event.key === "Enter") { this.choose(this.suggestions[this.selectedIndex].path); return; }
+    if (event.key === "Escape") { this.close(); return; }
+    const step = Math.max(1, Math.floor(this.dropdownEl.clientHeight / 30));
+    if (event.key === "Home") this.selectedIndex = 0;
+    else if (event.key === "End") this.selectedIndex = this.suggestions.length - 1;
+    else this.selectedIndex = Math.max(0, Math.min(this.suggestions.length - 1, this.selectedIndex
+      + ({ ArrowDown: 1, ArrowUp: -1, PageDown: step, PageUp: -step }[event.key] || 0)));
+    this.renderSelection();
+  }
 
-    if (event.key === "Escape") {
-      this.close();
-      return;
-    }
-
-    if (this.suggestions.length === 0) return;
-
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      this.selectedIndex = Math.min(this.selectedIndex + 1, this.suggestions.length - 1);
-      this.renderSelection();
-    }
-
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      this.selectedIndex = Math.max(this.selectedIndex - 1, 0);
-      this.renderSelection();
+  renderSelection(scroll = true) {
+    [...this.dropdownEl.children].forEach((item, index) => {
+      item.toggleClass("is-selected", index === this.selectedIndex);
+      item.setAttribute("aria-selected", String(index === this.selectedIndex));
+    });
+    const selected = this.dropdownEl.children[this.selectedIndex];
+    if (!selected) return;
+    this.inputEl.setAttribute("aria-activedescendant", selected.id);
+    if (scroll) {
+      const top = selected.offsetTop, bottom = top + selected.offsetHeight;
+      if (top < this.dropdownEl.scrollTop) this.dropdownEl.scrollTop = top;
+      else if (bottom > this.dropdownEl.scrollTop + this.dropdownEl.clientHeight) this.dropdownEl.scrollTop = bottom - this.dropdownEl.clientHeight;
     }
   }
 
-  renderSelection() {
-    const items = this.dropdownEl.querySelectorAll(".osc-path-option");
-    items.forEach((item, index) => item.toggleClass("is-selected", index === this.selectedIndex));
-  }
-
-  async choose(path) {
-    this.inputEl.value = path;
-    await this.onChoosePath(path);
+  choose(path) {
+    // Close synchronously before the callback can rerender or receive Enter again.
     this.close();
+    this.inputEl.value = path;
+    void this.onChoosePath(path);
   }
 
   close() {
-    this.dropdownEl.removeClass("is-visible");
+    this.ownerWindow.removeEventListener("resize", this.handleLayout);
+    this.ownerDocument.removeEventListener("scroll", this.handleLayout, true);
+    this.ownerDocument.removeEventListener("pointerdown", this.handleOutsidePointer, true);
+    this.resizeObserver?.disconnect();
+    this.detachObserver?.disconnect();
+    this.dropdownEl.remove();
     this.dropdownEl.empty();
     this.dropdownEl.removeAttribute("style");
+    this.dropdownEl.removeClass("is-visible");
+    this.inputEl.setAttribute("aria-expanded", "false");
+    this.inputEl.removeAttribute("aria-activedescendant");
     this.suggestions = [];
     this.selectedIndex = 0;
   }
 
   fitDropdownToInput() {
-    const inputRect = this.inputEl.getBoundingClientRect();
-    const viewportWidth = document.documentElement.clientWidth;
-    const rightPadding = 16;
-    const availableWidth = Math.max(180, viewportWidth - inputRect.left - rightPadding);
-    this.dropdownEl.setCssStyles({
-      left: "0",
-      width: `${Math.min(Math.max(inputRect.width, 260), availableWidth)}px`,
-      maxWidth: `${availableWidth}px`,
-      maxHeight: "260px"
-    });
+    const rect = this.inputEl.getBoundingClientRect();
+    const width = this.ownerDocument.documentElement.clientWidth;
+    const height = this.ownerDocument.documentElement.clientHeight;
+    // Scrollers round scrollTop to whole pixels; allow fractional edge rounding.
+    if (!this.inputEl.isConnected || rect.top < -1 || rect.bottom > height + 1) { this.close(); return; }
+    for (let parent = this.inputEl.parentElement; parent && parent !== this.ownerDocument.body; parent = parent.parentElement) {
+      if (!/(auto|scroll|hidden|clip)/.test(this.ownerWindow.getComputedStyle(parent).overflowY)) continue;
+      const clip = parent.getBoundingClientRect();
+      if (rect.top < clip.top - 1 || rect.bottom > clip.bottom + 1) { this.close(); return; }
+    }
+    const layout = pathDropdownLayout(rect, width, height, this.dropdownEl.scrollHeight);
+    if (layout.maxHeight < 28) { this.close(); return; }
+    this.dropdownEl.setCssStyles({ left: `${layout.left}px`, top: `${layout.top}px`, width: `${layout.width}px`, maxHeight: `${layout.maxHeight}px` });
+    this.dropdownEl.toggleClass("opens-up", layout.opensUp);
   }
 
-  getVaultPaths() {
-    const paths = new Set();
-    for (const file of this.app.vault.getAllLoadedFiles()) {
-      if (file instanceof TFolder && file.path !== "/") {
-        const path = normalizeUserPathPattern(file.path);
-        if (path) paths.add(path);
-      }
+  destroy() {
+    this.close();
+    this.listeners.forEach(remove => remove());
+    for (const [name, value] of this.previousAttributes) {
+      if (value === null) this.inputEl.removeAttribute(name); else this.inputEl.setAttribute(name, value);
     }
-    for (const file of this.app.vault.getFiles()) {
-      const path = normalizeUserPathPattern(file.path);
-      if (path) paths.add(path);
-    }
-    return [...paths].sort((a, b) => a.localeCompare(b));
-  }
-
-  isFolderPath(path) {
-    return this.app.vault.getAbstractFileByPath(path) instanceof TFolder;
   }
 }
+PathSuggest.nextId = 0;
 
 class StyleControllerSettingTab extends PluginSettingTab {
   constructor(app, plugin) {
@@ -3783,6 +3855,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
     this.plugin = plugin;
     this.drafts = new SectionDraftManager();
     this.scrollTextFields = [];
+    this.pathSuggests = [];
   }
 
   addScrollableTextField(input, displayValue = input.placeholder) {
@@ -3792,6 +3865,8 @@ class StyleControllerSettingTab extends PluginSettingTab {
   }
 
   clearScrollableTextFields() {
+    this.pathSuggests?.forEach(suggest => suggest.destroy());
+    this.pathSuggests = [];
     this.scrollTextFields.forEach((field) => field.destroy());
     this.scrollTextFields = [];
   }
@@ -3847,16 +3922,26 @@ class StyleControllerSettingTab extends PluginSettingTab {
     this.updatePreview(profile, context?.previewRoot || this.containerEl);
   }
 
-  renderSectionActions(parent, context) {
+  renderSectionActions(parent, context, sectionName = () => context.label.replace(/ settings$/i, "")) {
     if (!context) return;
+    // The existing draft owner is also the sticky containing block.
+    parent.addClass("osc-action-group");
+    parent.dataset.oscActionGroup = context.key;
     const actions = parent.createDiv({ cls: "osc-section-actions" });
-    const status = actions.createSpan({ cls: "osc-section-status", text: "Applied" });
-    const applyButton = actions.createEl("button", { text: "Apply", cls: "mod-cta" });
+    actions.setAttribute("role", "group");
+    const name = actions.createSpan({ cls: "osc-section-name" });
+    const status = actions.createSpan({ cls: "osc-section-status", attr: { role: "status", "aria-live": "polite" } });
     const revertButton = actions.createEl("button", { text: "Revert" });
+    const applyButton = actions.createEl("button", { text: "Apply", cls: "mod-cta" });
     context.previewRoot = parent;
     context.updateUi = () => {
       const dirty = context.dirty;
       const busy = context.applying;
+      const label = sectionName();
+      name.setText(label);
+      name.setAttribute("title", label);
+      actions.setAttribute("aria-label", `${label} actions`);
+      actions.toggleClass("is-dirty", dirty);
       status.setText(dirty ? "Unsaved changes" : "Applied");
       status.toggleClass("is-dirty", dirty);
       parent.toggleClass("is-dirty", dirty);
@@ -3930,7 +4015,6 @@ class StyleControllerSettingTab extends PluginSettingTab {
     this.drafts.bind(context);
     context.updateUi?.();
     this.refreshPreservingScroll();
-    new Notice(`${context.label} applied.`);
   }
 
   revertDraftContext(context) {
@@ -3939,7 +4023,6 @@ class StyleControllerSettingTab extends PluginSettingTab {
     if (!current) return;
     this.drafts.revert(context.key, current);
     this.refreshPreservingScroll();
-    new Notice(`${context.label} reverted.`);
   }
 
   hasDirtyDrafts() {
@@ -4319,6 +4402,87 @@ class StyleControllerSettingTab extends PluginSettingTab {
     new Notice(`Applied ${config.name}.`);
   }
 
+  renderImageRules(parent) {
+    const section = parent.createDiv({ cls: "osc-image-rules" });
+    new Setting(section)
+      .setName("Image rules")
+      .setDesc("Note and folder overrides. Blank fields inherit; later matching overrides take precedence.")
+      .addButton(button => button.setButtonText("Add rule").onClick(() => void this.runSettingsAction(button.buttonEl, async () => {
+        if (this.blockIfDirty("add an image rule")) return;
+        this.plugin.settings.overrides.push(normalizeOverride({
+          id: `image-${Date.now()}`, name: "Image rule", type: "file", pattern: "",
+          enabled: true, modules: { images: true }, profile: {}
+        }));
+        await this.plugin.saveSettings();
+        this.refreshPreservingScroll();
+      })));
+    this.plugin.settings.overrides.forEach((override, index) => {
+      if (!isImageOnlyOverride(override)) return;
+      const context = this.getOverrideContext(override), draft = context.value;
+      const card = section.createDiv({ cls: "osc-override-card osc-image-rule" });
+      card.dataset.oscDraft = context.key;
+      this.renderSectionActions(card, context, () => draft.name || "Image rule");
+      const header = card.createDiv({ cls: "osc-override-card-header" });
+      this.renderOverrideActions(header, index, true);
+      new Setting(card).setName("Enabled").addToggle(toggle => toggle.setValue(draft.enabled).onChange(value => {
+        draft.enabled = value; this.noteDraftMutation(draft);
+      }));
+      new Setting(card).setName("Name").addText(text => text.setValue(draft.name).onChange(value => {
+        draft.name = value; this.noteDraftMutation(draft);
+      }));
+      let scopeControl;
+      new Setting(card).setName("Scope").addDropdown(dropdown => {
+        scopeControl = dropdown;
+        dropdown.addOption("file", "Note").addOption("folder", "Folder").setValue(draft.type).onChange(value => {
+          draft.type = value; this.noteDraftMutation(draft);
+          this.pathSuggests.forEach(suggest => suggest.close());
+        });
+      });
+      this.renderOverridePathSetting(card, draft, {
+        imageRule: true,
+        onUseCurrentNote: () => { draft.type = "file"; scopeControl.setValue("file"); }
+      });
+      const controls = card.createDiv({ cls: "osc-images-grid" });
+      this.addImageAlignmentControl(controls, draft.profile, true);
+      this.addImageRespectExplicitSizeControl(controls, draft.profile, true);
+      this.addTextSetting(controls.createDiv({ cls: "osc-image-width-row" }), draft.profile, "imageWidth", "Image width", "Inherit", "Inherit");
+    });
+  }
+
+  renderOverridePathSetting(parent, draft, options = {}) {
+    new Setting(parent)
+      .setClass("osc-path-pattern-setting")
+      .setName(options.imageRule ? "Path" : "Path pattern")
+      .setDesc(options.imageRule ? "Choose a Markdown note or folder." : "Folder prefix, exact file path, or text contained in the note path.")
+      .addText(text => {
+        text.setPlaceholder(options.imageRule ? "Search note or folder paths" : "Projects/Client A")
+          .setValue(draft.pattern).onChange(value => {
+            draft.pattern = normalizeUserPathPattern(value); this.noteDraftMutation(draft);
+          });
+        const status = createValueStatus(text.inputEl.parentElement, hasActiveValue(draft.pattern));
+        const choose = path => {
+          draft.pattern = path; text.setValue(path);
+          updateValueStatus(status, hasActiveValue(path)); this.noteDraftMutation(draft);
+        };
+        const suggest = new PathSuggest(this.app, text.inputEl, choose, options.imageRule
+          ? { getScope: () => draft.type, markdownOnly: true } : {});
+        this.pathSuggests.push(suggest);
+        text.inputEl.addEventListener("input", () => updateValueStatus(status, hasActiveValue(text.inputEl.value)));
+        if (options.imageRule) {
+          const current = text.inputEl.ownerDocument.createElement("button");
+          current.type = "button"; current.textContent = "Use current note";
+          current.className = "osc-current-note";
+          const activeNote = () => this.app.workspace.getActiveFile();
+          current.disabled = activeNote()?.extension !== "md";
+          current.addEventListener("click", () => {
+            const note = activeNote(); if (note?.extension !== "md") return;
+            options.onUseCurrentNote?.(); suggest.close(); choose(note.path);
+          });
+          text.inputEl.parentElement.append(current);
+        }
+      });
+  }
+
   renderOverridesSection(containerEl, fileExplorerOnly) {
     containerEl.createEl("div", { text: fileExplorerOnly ? "File Explorer Overrides" : "Overrides", cls: "osc-section-heading" });
     new Setting(containerEl)
@@ -4352,9 +4516,9 @@ class StyleControllerSettingTab extends PluginSettingTab {
     const draft = context.value;
     const card = parent.createDiv({ cls: `osc-override-card${draft.enabled ? "" : " is-disabled"}` });
     card.dataset.oscDraft = context.key;
+    this.renderSectionActions(card, context, () => context.value.name || "Override");
     const header = card.createDiv({ cls: "osc-override-card-header" });
     new Setting(header).setName(draft.name || `Override ${index + 1}`).setHeading();
-    this.renderSectionActions(header, context);
     this.renderOverrideActions(header, index);
 
     new Setting(card)
@@ -4393,28 +4557,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(card)
-      .setClass("osc-path-pattern-setting")
-      .setName("Path pattern")
-      .setDesc("Folder prefix, exact file path, or text contained in the note path.")
-      .addText((text) => {
-        text
-          .setPlaceholder("Projects/Client A")
-          .setValue(draft.pattern)
-          .onChange((value) => {
-            draft.pattern = normalizeUserPathPattern(value);
-            this.noteDraftMutation(draft);
-          });
-        let status;
-        new OverridePathSuggest(this.app, text.inputEl, async (path) => {
-          draft.pattern = path;
-          text.setValue(path);
-          if (status) updateValueStatus(status, hasActiveValue(path));
-          this.noteDraftMutation(draft);
-        });
-        status = createValueStatus(text.inputEl.parentElement, hasActiveValue(draft.pattern));
-        text.inputEl.addEventListener("input", () => updateValueStatus(status, hasActiveValue(text.inputEl.value)));
-      });
+    this.renderOverridePathSetting(card, draft);
 
     if (fileExplorerOnly) {
       this.renderOverrideModuleToggle(card, draft, "fileExplorer", "Enable file explorer styling");
@@ -4478,7 +4621,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
       ]);
 
       this.renderOverrideModuleToggle(card, draft, "images", "Images");
-      if (draft.modules.images) this.renderImageGroup(card, draft.profile);
+      if (draft.modules.images) this.renderImageGroup(card, draft.profile, null, true);
 
       this.renderOverrideModuleToggle(card, draft, "advancedCss", "Advanced CSS");
       if (draft.modules.advancedCss) {
@@ -4491,13 +4634,13 @@ class StyleControllerSettingTab extends PluginSettingTab {
 
   }
 
-  renderOverrideActions(parent, index) {
+  renderOverrideActions(parent, index, compact = false) {
     const id = this.plugin.settings.overrides[index].id;
     const currentIndex = () => this.plugin.settings.overrides.findIndex(override => override.id === id);
     new Setting(parent)
       .setClass("osc-override-actions")
       .addButton((button) => button
-        .setButtonText("Move up")
+        .setButtonText(compact ? "Up" : "Move up")
         .setDisabled(index === 0)
         .onClick(() => void this.runSettingsAction(button.buttonEl, async () => {
           if (this.blockIfDirty("reorder or delete an override")) return;
@@ -4509,7 +4652,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
           this.refreshPreservingScroll();
         })))
       .addButton((button) => button
-        .setButtonText("Move down")
+        .setButtonText(compact ? "Down" : "Move down")
         .setDisabled(index === this.plugin.settings.overrides.length - 1)
         .onClick(() => void this.runSettingsAction(button.buttonEl, async () => {
           if (this.blockIfDirty("reorder or delete an override")) return;
@@ -4724,6 +4867,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
     if (subsection === "images") {
       const imagesContext = this.getProfileSectionContext("global:images", "Images settings", target, PROFILE_SECTION_FIELDS.images);
       this.renderImageGroup(profileRoot, imagesContext.value, imagesContext);
+      this.renderImageRules(profileRoot);
     }
 
     if (subsection === "advanced") {
@@ -4937,7 +5081,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
     }
   }
 
-  renderImageGroup(parent, profile, context = null) {
+  renderImageGroup(parent, profile, context = null, optional = false) {
     const content = this.renderCollapsibleGroup(parent, "Images");
     this.renderSectionActions(content, context);
     context && (context.previewRoot = content);
@@ -4951,18 +5095,19 @@ class StyleControllerSettingTab extends PluginSettingTab {
     });
     this.updateRichPreview(profile, content);
     const grid = content.createDiv({ cls: "osc-images-grid" });
-    this.addImageAlignmentControl(grid, profile);
-    this.addImageRespectExplicitSizeControl(grid, profile);
+    this.addImageAlignmentControl(grid, profile, optional);
+    this.addImageRespectExplicitSizeControl(grid, profile, optional);
     const widthRow = grid.createDiv({ cls: "osc-image-width-row" });
     this.addTextSetting(widthRow, profile, "imageWidth", "Default width", "300");
   }
 
-  addImageAlignmentControl(parent, profile) {
+  addImageAlignmentControl(parent, profile, optional = false) {
     const setting = new Setting(parent).setName("Alignment");
     setting.settingEl.addClass("osc-image-card", "osc-image-alignment-card");
     setting.addDropdown((dropdown) => {
+      dropdown.addOption("", optional ? "Inherit" : "Native/default");
+      if (optional) dropdown.addOption("native", "Native");
       dropdown
-        .addOption("", "Native/default")
         .addOption("left", "Left")
         .addOption("center", "Center")
         .addOption("right", "Right")
@@ -4980,11 +5125,19 @@ class StyleControllerSettingTab extends PluginSettingTab {
     bindControlInactiveState(setting, () => hasActiveValue(normalizeImageAlignment(profile.imageAlignment)));
   }
 
-  addImageRespectExplicitSizeControl(parent, profile) {
+  addImageRespectExplicitSizeControl(parent, profile, optional = false) {
     const setting = new Setting(parent)
       .setName("Respect explicit image size")
       .setDesc("When on, default width only targets rendered note images without explicit width, height, or inline sizing.");
     setting.settingEl.addClass("osc-image-card", "osc-image-respect-card");
+    if (optional) {
+      setting.addDropdown(dropdown => dropdown.addOption("", "Inherit").addOption("true", "On").addOption("false", "Off")
+        .setValue(normalizeImageRespectExplicitSize(profile.imageRespectExplicitSize)).onChange(value => {
+          profile.imageRespectExplicitSize = value;
+          this.noteDraftMutation(profile); this.updateDraftPreview(profile);
+        }));
+      return;
+    }
     let status;
     setting.addToggle((toggle) => toggle
       .setValue(normalizeImageRespectExplicitSize(profile.imageRespectExplicitSize) !== "false")
@@ -5141,7 +5294,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
         const preset = context.value.item;
         const card = grid.createDiv({ cls: "osc-callout-card" });
         card.dataset.oscDraft = context.key;
-        this.renderSectionActions(card, context);
+        this.renderSectionActions(card, context, () => context.value.item.type || "Callout type");
         if (!context.value.present) {
           card.createDiv({ text: `${preset.type}: pending deletion`, cls: "osc-section-status" });
           return;
@@ -5214,8 +5367,9 @@ class StyleControllerSettingTab extends PluginSettingTab {
       set: value => { this.calloutAdvancedContext.value[field] = value; }
     });
     const root = parent.createDiv({ cls: "osc-advanced-layouts" });
-    this.renderSectionActions(root, this.calloutAdvancedContext);
-    new Setting(root)
+    const settingsGroup = root.createDiv({ cls: "osc-layout-settings" });
+    this.renderSectionActions(settingsGroup, this.calloutAdvancedContext);
+    new Setting(settingsGroup)
       .setName("Advanced Callout Layouts")
       .setDesc("Opt-in structural layouts for dedicated callout Markdown identifiers.")
       .addToggle((toggle) => toggle.setValue(advanced.enabled).onChange((enabled) => {
@@ -5227,12 +5381,8 @@ class StyleControllerSettingTab extends PluginSettingTab {
     const pendingLayoutDrafts = this.calloutLayoutContexts.some(context => context.dirty);
     if (!advanced.enabled && !pendingLayoutDrafts) return;
     if (!advanced.enabled) root.createDiv({ cls: "osc-callout-spacing-help", text: "Layouts are disabled. Apply or Revert the remaining layout drafts below." });
-    const details = root.createEl("details", { cls: "osc-setting-group" });
-    details.open = this.advancedLayoutsOpen === true || (!advanced.enabled && pendingLayoutDrafts);
-    details.addEventListener("toggle", () => { if (details.isConnected) this.advancedLayoutsOpen = details.open; });
-    details.createEl("summary", { text: "Layouts" });
-    const content = details.createDiv({ cls: "osc-setting-group-content" });
-    new Setting(content)
+    // These two options share one draft; individual layout cards do not.
+    new Setting(settingsGroup)
       .setName("Pin to top")
       .setDesc("Show Layouts before Named types in the section menu.")
       .addToggle((toggle) => toggle.setValue(advanced.pinToTop).onChange((pinned) => {
@@ -5241,6 +5391,11 @@ class StyleControllerSettingTab extends PluginSettingTab {
         this.noteDraftMutation(callouts);
         this.refreshPreservingScroll();
       }));
+    const details = root.createEl("details", { cls: "osc-setting-group" });
+    details.open = this.advancedLayoutsOpen === true || (!advanced.enabled && pendingLayoutDrafts);
+    details.addEventListener("toggle", () => { if (details.isConnected) this.advancedLayoutsOpen = details.open; });
+    details.createEl("summary", { text: "Layouts" });
+    const content = details.createDiv({ cls: "osc-setting-group-content" });
     if (this.plugin.isMclSnippetEnabled()) {
       content.createDiv({ cls: "osc-layout-warning", text: "MCLMultiColumn is enabled. Style Controller leaves [!multi-column] to MCL; custom identifiers remain available." });
     }
@@ -5265,7 +5420,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
     const card = parent.createDiv({ cls: "osc-layout-card" });
     if (context) {
       card.dataset.oscDraft = context.key;
-      this.renderSectionActions(card, context);
+      this.renderSectionActions(card, context, () => context.value.item.displayName || "Callout layout");
       if (!context.value.present) {
         card.createDiv({ text: `${layout.displayName}: pending deletion`, cls: "osc-section-status" });
         return;
@@ -5683,7 +5838,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
     return details.createDiv({ cls: "osc-setting-group-content" });
   }
 
-  addTextSetting(parent, profile, key, name, placeholder) {
+  addTextSetting(parent, profile, key, name, placeholder, inactiveLabel = "Off") {
     const setting = new Setting(parent).setName(name);
     const nativeValue = resolvedNativeDisplayValueForField(key, profile);
     const resolvedPlaceholder = STYLE_FIELD_REGISTRY[key]
@@ -5695,7 +5850,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
     if (key === "lineHeight") {
       this.addLineHeightControl(setting, profile, resolvedPlaceholder);
     } else if (SIZE_FIELDS.has(key)) {
-      this.addSizeControl(setting, profile, key, resolvedPlaceholder);
+      this.addSizeControl(setting, profile, key, resolvedPlaceholder, inactiveLabel);
     } else if (COLOR_FIELDS.has(key)) {
       this.addColorControl(setting, profile, key, resolvedPlaceholder);
     } else if (FONT_FIELDS.has(key)) {
@@ -5725,7 +5880,7 @@ class StyleControllerSettingTab extends PluginSettingTab {
       : hasActiveValue(profile[key]));
   }
 
-  addSizeControl(setting, profile, key, placeholder) {
+  addSizeControl(setting, profile, key, placeholder, inactiveLabel = "Off") {
     const hasValue = hasActiveValue(profile[key]);
     const parsed = parseCssSize(hasValue ? profile[key] : "");
     const wrapper = setting.controlEl.createDiv({ cls: "osc-size-control" });
@@ -5736,11 +5891,11 @@ class StyleControllerSettingTab extends PluginSettingTab {
     const select = wrapper.createEl("select");
     SIZE_UNITS.forEach((unit) => select.createEl("option", { text: unit, value: unit }));
     select.value = hasValue ? parsed.unit : parseCssSize(placeholder).unit;
-    const status = createValueStatus(wrapper, hasValue);
+    const status = createValueStatus(wrapper, hasValue, inactiveLabel);
 
     const save = () => {
       profile[key] = input.value ? `${input.value}${select.value}` : "";
-      updateValueStatus(status, hasActiveValue(profile[key]));
+      updateValueStatus(status, hasActiveValue(profile[key]), inactiveLabel);
       this.noteDraftMutation(profile);
       this.updateDraftPreview(profile);
     };
@@ -6117,6 +6272,10 @@ class StyleControllerSettingTab extends PluginSettingTab {
 }
 
 export {
+  isImageOnlyOverride,
+  normalizeOverride,
+  PathSuggest,
+  pathDropdownLayout,
   buildPdfCalloutSpacingCss,
   validateProfileSection,
   isNativePdfRender,

@@ -31,7 +31,8 @@ const bundle = await build({
           export class Setting {}
           export class TFolder {}
           export const MarkdownRenderer = { renderMarkdown: async (markdown) => { globalThis.__obsidianMarkdownCalls.push(markdown); await globalThis.__obsidianRenderHook?.(markdown); } };
-          export const prepareFuzzySearch = () => () => null;
+          export const prepareFuzzySearch = query => globalThis.__pathFuzzySearch?.(query) || (() => null);
+          export const renderMatches = () => {};
           export const normalizePath = (value) => value;
           export const setIcon = () => {};
         `,
@@ -853,7 +854,8 @@ test("Matched H1-H6 metrics target Reading headings and Live Preview heading lin
 });
 
 test("Matched layout does not manipulate CodeMirror or native syntax behavior", () => {
-  assert.doesNotMatch(source, /MutationObserver|EditorView|ViewPlugin|requestMeasure|\.dispatch\(/);
+  const renderingSource = source.replace(/class PathSuggest[\s\S]*?PathSuggest.nextId = 0;/, "");
+  assert.doesNotMatch(renderingSource, /MutationObserver|EditorView|ViewPlugin|requestMeasure|\.dispatch\(/);
   const matchedCss = cssRules(css)
     .filter((rule) => rule.selectors.includes(STYLE_MATCHED_DOCUMENT_LAYOUT_CLASS))
     .map((rule) => `${rule.selectors} { ${rule.declarations} }`)
@@ -897,7 +899,7 @@ test("Interface settings use the section Apply/Revert transaction", () => {
   assert.match(source, /addOption\(READING_EDITING_LAYOUT_MATCHED, "Matched"\)/);
   assert.match(source, /context\.value\.readingEditingLayout = value/);
   assert.match(source, /this\.noteDraftMutation\(context\.value\)/);
-  assert.match(source, /new Notice\(`\$\{context\.label\} applied\.`\)/);
+  assert.match(source, /status\.setText\(dirty \? "Unsaved changes" : "Applied"\)/);
 });
 
 test("section drafts stay independent until their own Apply", () => {
@@ -1270,7 +1272,7 @@ test("scrollable text enhancement preserves editing, layout, and accessibility w
   assert.doesNotMatch(scrollCss, /input\[type="(?:number|color)"\]|select|textarea|checkbox/);
   assert.match(source, /addSizeControl[\s\S]*type: "number"/);
   assert.match(source, /addColorControl[\s\S]*type: "color"/);
-  assert.match(source, /new OverridePathSuggest\(this\.app, text\.inputEl/);
+  assert.match(source, /new PathSuggest\(this\.app, text\.inputEl/);
 });
 
 test("all applicable Off controls share muted value styling without fading labels or status", () => {
@@ -2131,6 +2133,12 @@ test("current image wrappers and legacy rendered images are narrowly supported",
   ));
   assert.ok(sizedWrapper);
   assert.match(sizedWrapper.declarations, /max-width:\s*100%/);
+  // Only the Live Preview wrapper is excluded inside tables; image width,
+  // explicit-size guards, and Reading/PDF wrapper styling stay intact.
+  const liveWrapper = sizedWrapper.selectors.split(",\n").find((selector) => selector.includes(".markdown-source-view.mod-cm6"));
+  const readingWrapper = sizedWrapper.selectors.split(",\n").find((selector) => selector.includes(".markdown-preview-view"));
+  assert.match(liveWrapper, /:not\(table \.image-wrapper\)$/);
+  assert.doesNotMatch(readingWrapper, /:not\(table/);
   for (const view of ["markdown-preview-view", "markdown-source-view.mod-cm6"]) {
     assert.ok(sizedWrapper.selectors.includes(view), view);
   }
@@ -3450,6 +3458,7 @@ test("Global Defaults initializes exactly the selected typography section", () =
     tab.renderSettingGroup = (...args) => calls.push(args[1]);
     tab.renderHeadingGroup = () => calls.push("Headings");
     tab.renderImageGroup = () => calls.push("Images");
+    tab.renderImageRules = () => { assert.equal(key, "images"); };
     tab.renderProfileSection({ createDiv: () => root }, "Global defaults", tab.plugin.settings.global);
     assert.equal(calls.length, 1, key);
     assert.equal(tab.drafts.entries.size, 1, key);
@@ -3579,4 +3588,183 @@ test("native-default refresh cannot render an inactive settings panel", () => {
   tab.pageEl = { isConnected: false };
   tab.refreshPreservingScroll = () => { throw Error("Inactive panel refreshed"); };
   tab.refreshNativeDefaults();
+});
+
+function actionElement() {
+  return { ...fakeElement(), dataset: {}, children: [], handlers: {},
+    get disabled() { return this._disabled || false; },
+    set disabled(value) { this._disabled = Boolean(value); },
+    createEl(tag, options = {}) {
+      const child = actionElement(); child.tag = tag; child.text = options.text || "";
+      (options.cls || "").split(/\s+/).filter(Boolean).forEach(name => child.addClass(name));
+      this.children.push(child); return child;
+    },
+    createDiv(options) { return this.createEl("div", options); },
+    createSpan(options) { return this.createEl("span", options); },
+    setText(text) { this.text = text; },
+    addEventListener(type, action) { this.handlers[type] = action; }
+  };
+}
+
+test("sticky action rows identify their own draft, retain independent busy/dirty states and dispatch once", () => {
+  const tab = independentCalloutTab(), first = actionElement(), second = actionElement();
+  const style = tab.getCalloutFieldsContext("callouts:style", "Global callout style", ["borderWidth"]);
+  const spacing = tab.getCalloutFieldsContext("callouts:spacing", "Global callout spacing", ["marginTop"]);
+  let label = "Named context";
+  tab.renderSectionActions(first, style, () => label);
+  tab.renderSectionActions(second, spacing);
+  assert.equal(first.dataset.oscActionGroup, style.key);
+  assert.equal(first.classList.contains("osc-action-group"), true);
+  const row = first.children[0], other = second.children[0];
+  assert.deepEqual(row.children.filter(e => e.tag === "button").map(e => e.text), ["Revert", "Apply"]);
+  const [revert, apply] = row.children.filter(e => e.tag === "button");
+  assert.equal(apply.disabled, true); assert.equal(revert.disabled, true);
+  style.value.borderWidth = "7px"; label = "Renamed context"; tab.noteDraftMutation(style.value);
+  assert.equal(row.children[0].text, "Renamed context");
+  assert.equal(apply.disabled, false); assert.equal(revert.disabled, false);
+  assert.ok(other.children.filter(e => e.tag === "button").every(e => e.disabled));
+  style.applying = true; style.updateUi();
+  assert.equal(apply.disabled, true); assert.equal(revert.disabled, true);
+  style.applying = false; style.updateUi();
+  const calls = []; tab.applyDraftContext = context => calls.push(["apply", context.key]);
+  tab.revertDraftContext = context => calls.push(["revert", context.key]);
+  apply.handlers.click(); revert.handlers.click();
+  assert.deepEqual(calls, [["apply", style.key], ["revert", style.key]]);
+  assert.equal(spacing.dirty, false);
+});
+
+test("sticky owners stop at independent layout/override boundaries and preserve two-level navigation", () => {
+  const layouts = source.slice(source.indexOf("  renderAdvancedLayoutsSection("), source.indexOf("  renderAdvancedLayoutCard("));
+  assert.match(layouts, /renderSectionActions\(settingsGroup, this\.calloutAdvancedContext\)/);
+  assert.doesNotMatch(layouts, /renderSectionActions\(root,/);
+  assert.match(layouts, /new Setting\(settingsGroup\)[\s\S]*setName\("Pin to top"\)/);
+  const overrides = source.slice(source.indexOf("  renderOverride(parent"), source.indexOf("  renderOverrideActions("));
+  assert.match(overrides, /renderSectionActions\(card, context,/);
+  assert.doesNotMatch(overrides, /renderSectionActions\(header,/);
+  const rule = cssRules(css).find(rule => rule.selectors.trim() === ".osc-action-group:not(.osc-callout-card) > .osc-section-actions");
+  assert.match(rule.declarations, /position: sticky/); assert.match(rule.declarations, /top: 0/);
+  assert.match(rule.declarations, /height: 34px/); assert.doesNotMatch(rule.declarations, /fixed|overflow|transform/);
+  assert.match(css, /scroll-padding-top: 42px/);
+  assert.match(css, /overflow-anchor: none/);
+  // The action row reports saved state; repeated success toasts covered its buttons.
+  const lifecycle = source.slice(source.indexOf("  async commitDraftContext("), source.indexOf("  hasDirtyDrafts("));
+  assert.doesNotMatch(lifecycle, /new Notice\(`\$\{context.label\} (applied|reverted)\./);
+  assert.match(lifecycle, /Could not apply/);
+});
+
+
+test("named callouts retain the published responsive grid and ordinary independent actions", () => {
+  const rules = cssRules(css);
+  const grid = rules.filter(rule => /\.osc-callout-grid(?:\s|,|$)/.test(rule.selectors));
+  assert.equal(grid.length, 1, "no single-column override may mask the published grid");
+  assert.match(grid[0].declarations, /grid-template-columns: repeat\(auto-fit, minmax\(230px, 1fr\)\)/);
+  assert.match(grid[0].declarations, /gap: 10px/);
+  const actions = rules.find(rule => rule.selectors.trim() === ".osc-section-actions");
+  assert.doesNotMatch(actions.declarations, /sticky|height:|padding:|border:/);
+  assert.match(actions.declarations, /flex-wrap: wrap/);
+  assert.match(actions.declarations, /gap: 8px/);
+  assert.match(actions.declarations, /margin: 0 0 8px/);
+  for (const rule of rules.filter(rule => /position: sticky/.test(rule.declarations) && /osc-section-actions/.test(rule.selectors))) {
+    assert.match(rule.selectors, /:not\(\.osc-callout-card\)/);
+  }
+  const named = source.slice(source.indexOf('    if (subsection === "presets")'), source.indexOf('  renderAdvancedLayoutsSection('));
+  assert.match(named, /renderSectionActions\(card, context,/);
+});
+
+
+test("path popup geometry remains bounded and opens upward only when useful", () => {
+  for (const width of [180, 620, 720, 1000]) {
+    for (const rect of [{ left: 20, top: 40, bottom: 70, width: 170 }, { left: width - 70, top: 720, bottom: 750, width: 150 }]) {
+      const layout = pluginModule.pathDropdownLayout(rect, width, 800, 360);
+      assert.ok(layout.left >= 8);
+      assert.ok(layout.left + layout.width <= width - 8);
+      assert.ok(layout.top >= 8);
+      assert.ok(layout.top + Math.min(360, layout.maxHeight) <= 792);
+      assert.equal(layout.opensUp, rect.top === 720);
+      assert.ok(layout.maxHeight <= 260);
+    }
+  }
+});
+
+test("shared path search preserves normalized fuzzy matching, stable path order and bounded results", () => {
+  const paths = Array.from({ length: 50 }, (_, index) => ({ path: `Cambridge/${index}.md`, folder: false }));
+  let query;
+  context.__pathFuzzySearch = value => { query = value; return path => path.includes("Cambridge") ? { matches: [[0, 1]] } : null; };
+  try {
+    const suggest = Object.create(pluginModule.PathSuggest.prototype);
+    Object.assign(suggest, { paths, limit: 12, options: {} });
+    const results = suggest.getSuggestions("/Cmb/");
+    assert.equal(query, "Cmb");
+    assert.equal(results.length, 12);
+    assert.equal(results[0].path, paths[0].path);
+    assert.deepEqual(Array.from(results[0].matches[0]), [0, 1]);
+    assert.equal(suggest.getSuggestions("").length, 0);
+    suggest.paths = [{ path: "Cambridge", folder: true }, { path: "Cambridge/pKa.md", folder: false }, { path: "Cambridge/image.png", folder: false }];
+    suggest.options = { markdownOnly: true, getScope: () => "file" };
+    assert.deepEqual(Array.from(suggest.getSuggestions("Cmb"), item => item.path), ["Cambridge/pKa.md"]);
+    suggest.options.getScope = () => "folder";
+    assert.deepEqual(Array.from(suggest.getSuggestions("Cmb"), item => item.path), ["Cambridge"]);
+    suggest.options = {};
+    assert.equal(suggest.getSuggestions("Cmb").length, 3, "ordinary overrides retain files of all types");
+  } finally { delete context.__pathFuzzySearch; }
+});
+
+test("image rules reuse ordinary override resolution and support explicit native and respect-on overrides", () => {
+  const plugin = new StyleControllerPlugin();
+  plugin.settings = normalizeSettings({ global: { imageWidth: "500px", imageAlignment: "center", imageRespectExplicitSize: "false", textSize: "21px" }, overrides: [
+    { id: "folder-image", name: "Folder", type: "folder", pattern: "Cambridge", modules: { images: true }, profile: { imageWidth: "320px", imageAlignment: "left" } },
+    { id: "note-image", name: "Note", type: "file", pattern: "Cambridge/pKa.md", modules: { images: true }, profile: { imageAlignment: "native", imageRespectExplicitSize: "true" } }
+  ] });
+  const match = plugin.getProfileForPath("Cambridge/pKa.md").profile;
+  assert.equal(match.imageWidth, "320px", "blank note width inherits folder width");
+  assert.equal(match.imageAlignment, "native");
+  assert.equal(match.imageRespectExplicitSize, "true");
+  assert.equal(match.textSize, "21px");
+  assert.equal(plugin.getProfileForPath("Cambridge/Other.md").profile.imageAlignment, "left");
+  assert.equal(plugin.getProfileForPath("Other/pKa.md").profile.imageWidth, "500px");
+  const element = fakeElement();
+  applyProfileStateClasses(element, match);
+  assert.equal(element.classList.contains("style-controller-image-align-center"), false);
+  assert.equal(element.classList.contains("style-controller-image-align-native"), false);
+  assert.equal(element.classList.contains("style-controller-respect-explicit-image-size"), true);
+  const reloaded = normalizeSettings(JSON.parse(JSON.stringify(plugin.settings)));
+  assert.equal(reloaded.overrides[1].profile.imageAlignment, "native");
+  assert.equal(reloaded.overrides[1].profile.imageRespectExplicitSize, "true");
+  assert.equal(pluginModule.isImageOnlyOverride(reloaded.overrides[0]), true);
+  reloaded.overrides[0].modules.headings = true;
+  assert.equal(pluginModule.isImageOnlyOverride(reloaded.overrides[0]), false);
+});
+
+test("image-rule Apply and Revert preserve simultaneous image and global drafts", async () => {
+  const tab = independentCalloutTab();
+  tab.plugin.settings.overrides = ["A", "B"].map(id => pluginModule.normalizeOverride({ id, name: id, type: "file", pattern: `${id}.md`, modules: { images: true }, profile: {} }));
+  const a = tab.getOverrideContext(tab.plugin.settings.overrides[0]);
+  const b = tab.getOverrideContext(tab.plugin.settings.overrides[1]);
+  const global = tab.getProfileSectionContext("global:images", "Images", () => tab.plugin.settings.global, PROFILE_SECTION_FIELDS.images);
+  a.value.profile.imageWidth = "220px";
+  b.value.profile.imageAlignment = "right";
+  global.value.imageWidth = "700px";
+  for (const value of [a.value.profile, b.value.profile, global.value]) tab.noteDraftMutation(value);
+  await tab.applyDraftContext(a);
+  assert.equal(tab.plugin.settings.overrides[0].profile.imageWidth, "220px");
+  assert.equal(tab.plugin.settings.overrides[1].profile.imageAlignment, "");
+  assert.equal(b.dirty, true); assert.equal(global.dirty, true);
+  tab.revertDraftContext(b);
+  assert.equal(b.dirty, false); assert.equal(global.dirty, true);
+  assert.equal(tab.plugin.settings.overrides[0].profile.imageWidth, "220px");
+});
+
+test("path popups close before callbacks and clean up owner-window listeners and accessibility state", () => {
+  const body = source.slice(source.indexOf("class PathSuggest"), source.indexOf("class StyleControllerSettingTab"));
+  assert.match(body, /choose\(path\) \{[\s\S]*?this.close\(\);[\s\S]*?this.onChoosePath\(path\)/);
+  assert.match(body, /ownerDocument.body.append\(this.dropdownEl\)/);
+  assert.match(body, /removeEventListener\("scroll", this.handleLayout, true\)/);
+  assert.match(body, /removeEventListener\("pointerdown", this.handleOutsidePointer, true\)/);
+  assert.match(body, /resizeObserver\?\.disconnect\(\)/);
+  assert.match(body, /detachObserver\?\.disconnect\(\)/);
+  assert.match(body, /this.listeners.forEach\(remove => remove\(\)\)/);
+  assert.doesNotMatch(body, /setTimeout|native-property-operator/);
+  assert.match(body, /event.isComposing/);
+  assert.match(css, /\.osc-path-dropdown \{[^}]*overflow-x: hidden;[^}]*position: fixed;/s);
+  assert.doesNotMatch(body, /text:.*["'](?:File|Folder)["']/);
 });
